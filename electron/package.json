@@ -78,5 +78,9 @@
       "category": "Office"
     }
   },
-  "author": "Jeshan Maharjan <jeshan@aastal.com>"
+  "author": "Jikku80",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jikku80/aastal-desktop.git"
+  }
 }
