@@ -1,0 +1,77 @@
+name: Build Electron App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Install backend dependencies
+        run: npm install --prefix dentalDB-backend
+
+      - name: Install frontend dependencies
+        run: npm install --prefix dentaldb
+
+      - name: Install electron dependencies
+        run: npm install --prefix electron
+
+      - name: Build backend
+        run: npm run electron:build:backend
+
+      - name: Build frontend
+        run: npm run electron:build:frontend
+
+      - name: Stage backend
+        run: npm run electron:stage-backend
+
+      - name: Rebuild native modules for Electron
+        run: npm run electron:rebuild-native
+
+      - name: Package (Linux)
+        if: matrix.platform == 'linux'
+        run: cd electron && npx electron-builder --linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package (Mac)
+        if: matrix.platform == 'mac'
+        run: cd electron && npx electron-builder --mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package (Windows)
+        if: matrix.platform == 'win'
+        run: cd electron && npx electron-builder --win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.platform }}
+          path: dist-electron/
+          retention-days: 30

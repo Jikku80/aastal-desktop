@@ -1,0 +1,534 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── CSS variables: dark theme (default) ───────────────────────────────────── */
+:root {
+  --bg-base:      #0b0d14;
+  --bg-surface:   #111420;
+  --bg-elevated:  #181c2a;
+  --bg-overlay:   #1f2333;
+  --border:       rgba(255,255,255,0.07);
+  --border-hover: rgba(255,255,255,0.14);
+  --text-primary:   #f1f3f9;
+  --text-secondary: #8892a4;
+  --text-muted:     #525c6e;
+  --brand:    #027cc6;
+  --brand-lt: #0e9de8;
+  --success:  #10b981;
+  --warning:  #f59e0b;
+  --danger:   #ef4444;
+  --header-bg: rgba(11,13,20,0.92);
+  --header-offset: 76px; /* distance from viewport top to below the floating navbar */
+}
+
+/* ── Light theme ────────────────────────────────────────────────────────────── */
+:root[data-theme="light"] {
+  --bg-base:      #f8fafc;
+  --bg-surface:   #ffffff;
+  --bg-elevated:  #f1f5f9;
+  --bg-overlay:   #e2e8f0;
+  --border:       rgba(0,0,0,0.08);
+  --border-hover: rgba(0,0,0,0.16);
+  --text-primary:   #0f172a;
+  --text-secondary: #475569;
+  --text-muted:     #94a3b8;
+  --header-bg: rgba(255,255,255,0.92);
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.2s, color 0.2s;
+}
+
+/* ── Scrollbar — thin in all browsers ──────────────────────────────────────── */
+/* Firefox */
+* { scrollbar-width: thin; scrollbar-color: var(--border-hover) transparent; }
+/* Chrome / Safari / Edge */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ── Remove number input spinners app-wide ──────────────────────────────────── */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
+
+/* ── Utility classes ────────────────────────────────────────────────────────── */
+@layer utilities {
+  .font-display { font-family: 'Instrument Serif', Georgia, serif; }
+
+  .card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: border-color 0.15s;
+  }
+  .card:hover { border-color: var(--border-hover); }
+
+  .card-elevated {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .glass {
+    background: rgba(255,255,255,0.03);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+  }
+
+  /* ── Buttons ── */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm
+      bg-brand-600 hover:bg-brand-500 text-white transition-all duration-150
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500
+      disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm
+      text-[var(--text-primary)] transition-all duration-150 cursor-pointer
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/10
+      disabled:opacity-40 disabled:cursor-not-allowed;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--border-hover); }
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm
+      transition-all duration-150 cursor-pointer;
+    color: var(--text-secondary);
+  }
+  .btn-ghost:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
+  :root[data-theme="light"] .btn-ghost:hover { background: rgba(0,0,0,0.05); }
+
+  /* ── Inputs ── */
+  .input {
+    @apply w-full px-3.5 py-2.5 rounded-xl text-sm transition-all duration-150
+      focus:outline-none focus:ring-2 focus:ring-brand-500/30;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+  }
+  .input::placeholder { color: var(--text-muted); }
+  .input:focus { border-color: #027cc6; }
+
+  .label {
+    @apply block text-xs font-semibold mb-1.5 uppercase tracking-wide;
+    color: var(--text-secondary);
+  }
+
+  .badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium; }
+
+  .gradient-text {
+    @apply bg-gradient-to-r from-brand-400 to-blue-400 bg-clip-text text-transparent;
+  }
+
+  .section-divider { border-top: 1px solid var(--border); }
+
+  /* ── Page container ── */
+  .page-container { @apply px-4 sm:px-6 lg:px-8 py-4 lg:py-6; }
+}
+
+/* ── Appointment status badges ──────────────────────────────────────────────── */
+.status-scheduled   { @apply badge bg-blue-500/15 text-blue-400; }
+.status-confirmed   { @apply badge bg-cyan-500/15 text-cyan-400; }
+.status-in_progress { @apply badge bg-amber-500/15 text-amber-400; }
+.status-completed   { @apply badge bg-emerald-500/15 text-emerald-400; }
+.status-cancelled   { @apply badge bg-red-500/15 text-red-400; }
+.status-no_show     { @apply badge bg-gray-500/15 text-gray-400; }
+.status-rescheduled { @apply badge bg-purple-500/15 text-purple-400; }
+
+.invoice-draft         { @apply badge bg-gray-500/15 text-gray-400; }
+.invoice-sent          { @apply badge bg-blue-500/15 text-blue-400; }
+.invoice-paid          { @apply badge bg-emerald-500/15 text-emerald-400; }
+.invoice-partially_paid{ @apply badge bg-amber-500/15 text-amber-400; }
+.invoice-overdue       { @apply badge bg-red-500/15 text-red-400; }
+.invoice-cancelled     { @apply badge bg-gray-600/15 text-gray-500; }
+.invoice-refunded      { @apply badge bg-purple-500/15 text-purple-400; }
+
+/* ── Light mode badge overrides ─────────────────────────────────────────────── */
+:root[data-theme="light"] .status-scheduled   { @apply bg-blue-100 text-blue-700; }
+:root[data-theme="light"] .status-completed   { @apply bg-emerald-100 text-emerald-700; }
+:root[data-theme="light"] .status-cancelled   { @apply bg-red-100 text-red-700; }
+:root[data-theme="light"] .invoice-paid       { @apply bg-emerald-100 text-emerald-700; }
+
+/* ── Calendar overrides ─────────────────────────────────────────────────────── */
+.rbc-calendar { background: var(--bg-surface) !important; border-radius: 12px; border: 1px solid var(--border) !important; overflow: hidden; }
+.rbc-toolbar { padding: 10px 12px 8px !important; flex-wrap: wrap; gap: 6px; align-items: center; border-bottom: 1px solid var(--border); }
+.rbc-toolbar-label { font-size: 14px; font-weight: 600; color: var(--text-primary) !important; flex: 1; text-align: center; }
+.rbc-toolbar .rbc-btn-group { display: flex; gap: 3px; }
+.rbc-toolbar button { color: var(--text-secondary) !important; background: var(--bg-elevated) !important; border: 1px solid var(--border) !important; border-radius: 8px !important; padding: 4px 10px !important; font-size: 12px !important; }
+.rbc-toolbar button:hover { background: var(--bg-surface) !important; color: var(--text-primary) !important; }
+.rbc-toolbar button.rbc-active, .rbc-toolbar button.rbc-active:hover { background: #027cc6 !important; color: #fff !important; border-color: #027cc6 !important; }
+
+/* Month view */
+.rbc-month-view { border: none !important; border-radius: 0 !important; }
+.rbc-month-header { background: var(--bg-elevated) !important; }
+.rbc-header { color: var(--text-secondary) !important; font-size: 11px !important; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border) !important; border-left: none !important; padding: 6px 4px !important; font-weight: 600 !important; }
+.rbc-header + .rbc-header { border-left: 1px solid var(--border) !important; }
+.rbc-day-bg + .rbc-day-bg { border-left: 1px solid var(--border) !important; }
+.rbc-month-row + .rbc-month-row { border-top: 1px solid var(--border) !important; }
+.rbc-month-view { border-color: var(--border) !important; }
+.rbc-off-range-bg { background: rgba(0,0,0,0.08) !important; }
+.rbc-off-range .rbc-button-link { color: var(--text-muted) !important; opacity: 0.5; }
+.rbc-date-cell { padding: 4px 6px !important; }
+.rbc-date-cell .rbc-button-link { font-size: 11px !important; color: var(--text-secondary); }
+.rbc-today { background: rgba(14,157,232,0.07) !important; }
+.rbc-today .rbc-button-link { color: #0e9de8 !important; font-weight: 700; }
+
+/* Week & Day view — grid */
+.rbc-time-view { border: none !important; border-radius: 0 !important; }
+.rbc-time-header { border-bottom: 1px solid var(--border) !important; }
+.rbc-time-header-content { border-left: 1px solid var(--border) !important; }
+.rbc-time-header-gutter { background: var(--bg-elevated) !important; border-right: 1px solid var(--border) !important; }
+.rbc-time-header .rbc-header { background: var(--bg-elevated) !important; padding: 8px 4px !important; }
+.rbc-time-content { border-top: 1px solid var(--border) !important; overflow-y: auto; }
+.rbc-time-gutter { background: var(--bg-elevated) !important; }
+.rbc-time-gutter .rbc-timeslot-group { border-bottom: 1px solid var(--border) !important; }
+.rbc-time-gutter .rbc-label { color: var(--text-muted) !important; font-size: 10px !important; padding: 0 8px !important; }
+.rbc-timeslot-group { border-bottom: 1px solid var(--border) !important; min-height: 40px !important; }
+.rbc-time-slot { border-top: 1px dashed rgba(var(--border-rgb, 255,255,255), 0.06) !important; }
+.rbc-day-slot .rbc-time-slot { border-top: 1px solid transparent !important; }
+.rbc-day-slot .rbc-timeslot-group { border-bottom: 1px solid var(--border) !important; }
+.rbc-day-column + .rbc-day-column, .rbc-day-bg + .rbc-day-bg { border-left: 1px solid var(--border) !important; }
+.rbc-current-time-indicator { background: #ef4444 !important; height: 2px !important; }
+.rbc-current-time-indicator::before { content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; margin-top: -3px; margin-left: -4px; }
+
+/* Events */
+.rbc-event { border-radius: 5px !important; border: none !important; font-size: 11px !important; padding: 2px 5px !important; min-height: 18px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important; }
+.rbc-event-label { font-size: 10px !important; opacity: 0.85; }
+.rbc-event-content { font-size: 11px !important; font-weight: 500; }
+.rbc-show-more { color: #0e9de8 !important; font-size: 11px !important; background: transparent !important; padding: 0 4px !important; }
+.rbc-slot-selection { background: rgba(14,157,232,0.15) !important; border: 1px solid rgba(14,157,232,0.4) !important; }
+.rbc-selected { box-shadow: 0 0 0 2px rgba(14,157,232,0.5) !important; }
+.rbc-allday-cell { border-bottom: 1px solid var(--border) !important; }
+
+/* ── Mobile responsive ──────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .rbc-toolbar { flex-direction: column; gap: 6px; align-items: flex-start; }
+  .rbc-toolbar-label { font-size: 13px; text-align: left; }
+  .rbc-header { font-size: 9px !important; padding: 4px 2px !important; }
+  .rbc-time-gutter .rbc-label { font-size: 9px !important; padding: 0 4px !important; }
+}
+
+/* ── Responsive page container ─────────────────────────────────────────────── */
+.page-container {
+  padding: 16px;
+}
+@media (min-width: 640px) {
+  .page-container { padding: 20px 24px; }
+}
+@media (min-width: 1024px) {
+  .page-container { padding: 24px 32px; }
+}
+
+/* ── Responsive table ────────────────────────────────────────────────────────── */
+@media (max-width: 639px) {
+  .responsive-table-wrap { display: none !important; }
+  .responsive-card-list  { display: block !important; }
+}
+@media (min-width: 640px) {
+  .responsive-table-wrap { display: block !important; }
+  .responsive-card-list  { display: none !important; }
+}
+
+/* ── Input base — ensure consistent height across themes ──────────────────── */
+.input {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 14px;
+  color: var(--text-primary);
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+  min-height: 40px;
+}
+.input:focus { border-color: var(--brand); }
+.input::placeholder { color: var(--text-muted); }
+select.input { cursor: pointer; }
+:root[data-theme="light"] .input {
+  background: #fff;
+  border-color: rgba(0,0,0,0.1);
+}
+:root[data-theme="light"] .input:focus { border-color: #027cc6; }
+
+/* ── Label ─────────────────────────────────────────────────────────────────── */
+.label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Badge ─────────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+  /* ── Mobile responsive helpers ── */
+  .mobile-safe-top { padding-top: env(safe-area-inset-top, 0px); }
+  .mobile-safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  
+  /* Ensure tables never overflow on mobile */
+  .table-responsive {
+    @apply overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0;
+  }
+  
+  /* Touch-friendly tap targets */
+  @media (max-width: 640px) {
+    .btn-primary, .btn-secondary, .btn-ghost {
+      min-height: 40px;
+    }
+    .input {
+      min-height: 40px;
+    }
+  }
+
+/* ── Status badges ─────────────────────────────────────────────────────────── */
+.status-scheduled   { @apply badge bg-blue-500/10 text-blue-400; }
+.status-confirmed   { @apply badge bg-brand-500/10 text-brand-400; }
+.status-completed   { @apply badge bg-emerald-500/10 text-emerald-400; }
+.status-cancelled   { @apply badge bg-red-500/10 text-red-400; }
+.status-no_show     { @apply badge bg-gray-500/10 text-gray-400; }
+.status-in_progress { @apply badge bg-amber-500/10 text-amber-400; }
+
+.invoice-draft           { @apply badge bg-gray-500/10 text-gray-400; }
+.invoice-sent            { @apply badge bg-blue-500/10 text-blue-400; }
+.invoice-paid            { @apply badge bg-emerald-500/10 text-emerald-400; }
+.invoice-partially_paid  { @apply badge bg-amber-500/10 text-amber-400; }
+.invoice-overdue         { @apply badge bg-red-500/10 text-red-400; }
+.invoice-cancelled       { @apply badge bg-gray-600/10 text-gray-500; }
+.invoice-refunded        { @apply badge bg-purple-500/10 text-purple-400; }
+
+/* ── Section divider ───────────────────────────────────────────────────────── */
+.section-divider { border-top: 1px solid var(--border); }
+
+/* ── Responsive visibility ─────────────────────────────────────────────────── */
+.hide-mobile  { display: none; }
+.show-mobile  { display: block; }
+@media (min-width: 768px) {
+  .hide-mobile { display: block; }
+  .show-mobile { display: none; }
+}
+/* ── Mobile global improvements ────────────────────────────────────────────── */
+@media (max-width: 639px) {
+  /* Prevent input zoom on iOS (font-size < 16px triggers zoom) */
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  input[type="password"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Keep label text small */
+  .label { font-size: 11px !important; }
+
+  /* Tighter card padding on mobile */
+  .card { padding: 12px !important; }
+
+  /* Chart containers — prevent overflow */
+  .recharts-wrapper,
+  .recharts-responsive-container {
+    max-width: 100% !important;
+    overflow: hidden;
+  }
+
+  /* Modal forms — full width inputs */
+  .input { width: 100%; }
+
+  /* Prevent horizontal scroll on the whole app */
+  body { overflow-x: hidden; }
+
+  /* Bottom safe area for devices with home indicator */
+  .page-bottom-safe { padding-bottom: env(safe-area-inset-bottom, 16px); }
+
+  /* Invoice line items table — allow horizontal scroll on mobile */
+  .invoice-items-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ── Tablet improvements (640px–1023px) ─────────────────────────────────────── */
+@media (min-width: 640px) and (max-width: 1023px) {
+  /* Ensure main content doesn't get clipped next to the sidebar on tablet */
+  main { min-width: 0; }
+}
+
+/* ── Touch targets — minimum 44px for accessibility ────────────────────────── */
+@media (max-width: 1023px) {
+  button.btn-ghost,
+  button.btn-primary,
+  button.btn-secondary {
+    min-height: 36px;
+  }
+
+  /* Larger tap targets for icon-only buttons */
+  button[class*="w-8"][class*="h-8"] {
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
+
+/* ── Additional mobile improvements ─────────────────────────────────────────── */
+
+/* Scrollable table wrapper — use on any page with a data table */
+.table-scroll-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 0.75rem;
+}
+
+/* Full-bleed card on mobile */
+@media (max-width: 639px) {
+  .mobile-full-bleed {
+    margin-left: -1rem;
+    margin-right: -1rem;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  /* Stack grid columns to 1 col on mobile */
+  .mobile-stack { grid-template-columns: 1fr !important; }
+
+  /* Attendance / Leave page tables become horizontally scrollable */
+  .admin-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Detail panels slide full-screen on mobile */
+  .detail-panel-mobile {
+    width: 100vw !important;
+  }
+
+  /* Sidebar overlay on mobile - ensure full height */
+  .sidebar-mobile-overlay {
+    min-height: 100dvh;
+  }
+
+  /* Status badges — don't shrink */
+  [class*="rounded-full"] { flex-shrink: 0; }
+
+  /* Page padding reduced on very small screens */
+  .page-pad { padding: 0.75rem !important; }
+}
+
+/* ── Sticky mobile action bar ────────────────────────────────────────────────── */
+.mobile-action-bar {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.75rem 1rem env(safe-area-inset-bottom, 0.75rem);
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  z-index: 20;
+}
+
+/* ── Profile page ────────────────────────────────────────────────────────────── */
+@media (max-width: 639px) {
+  .profile-hero { flex-direction: column; align-items: center; text-align: center; }
+}
+
+/* ── Analytics charts overflow guard ────────────────────────────────────────── */
+.chart-container {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ── Side drawers & full-screen modal overlays ──────────────────────────────
+   The TopNav header floats at top-3/top-4 with z-[100] and is never meant to
+   be covered. Any "fixed inset-0" backdrop or "fixed right-0 top-0 bottom-0"
+   side panel must therefore:
+     1. start below the header (--header-offset), not at the literal top edge
+     2. sit at a z-index below the header (z-[100]) so the header stays
+        reachable (its dropdowns, mobile menu, theme toggle, etc.) while a
+        drawer is open
+   Apply .drawer-overlay to the dim backdrop and .drawer-panel to the sliding
+   panel itself. These replace the old "fixed inset-0 z-40/z-50" and
+   "fixed right-0 top-0 bottom-0 z-50" combinations used across Staff,
+   Appointments, Billing, Settings, etc.
+*/
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90; /* below header (100), above normal page content */
+}
+
+.drawer-panel {
+  position: fixed;
+  top: var(--header-offset);
+  right: 0;
+  bottom: 0;
+  z-index: 95; /* below header (100), above the overlay (90) */
+}
+
+/* Centered modals (the "fixed inset-0 z-50 flex items-center justify-center"
+   pattern) should use this instead of a bare z-50 so they never render on
+   top of the navbar's dropdowns/mobile menu. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  padding-top: var(--header-offset);
+}
+
+/* Applied alongside the existing "flex items-end sm:items-center
+   justify-center" classes already on these modals. Mobile bottom-sheets
+   (items-end) are unaffected; desktop centered modals (sm:items-center)
+   get breathing room so they aren't tucked under the floating navbar. */
+.modal-clearance {
+  padding-top: 0;
+}
+@media (min-width: 640px) {
+  .modal-clearance { padding-top: var(--header-offset); }
+}
+
+@media (max-width: 1023px) {
+  /* Mobile header sits flush at top-3 (no lg:top-4 offset) but the drawer
+     trigger button is shorter, so the same 76px clearance still applies. */
+  .drawer-panel { top: var(--header-offset); }
+}
+
+/* ── Context sidebar content offset ──────────────────────────────────────────
+   ContextSidebar renders as "hidden xl:flex" — it only occupies screen space
+   at the xl breakpoint and up. Its margin must match exactly, and must react
+   to its expanded/collapsed/closed state (set via --context-sidebar-margin
+   on this element by the dashboard layout). Below xl the sidebar isn't
+   rendered at all, so margin must be 0 regardless of state. */
+.context-sidebar-offset {
+  margin-left: 0;
+}
+@media (min-width: 1280px) {
+  .context-sidebar-offset {
+    margin-left: var(--context-sidebar-margin, 332px);
+  }
+}

@@ -1,0 +1,19 @@
+import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
+import { CommissionsService } from './commissions.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+
+@UseGuards(JwtAuthGuard)
+@Controller('commissions')
+export class CommissionsController {
+  constructor(private readonly svc: CommissionsService) {}
+
+  @Get()
+  getSummary(@Request() req: any, @Query() query: any) {
+    return this.svc.getSummary(req.user.clinicId, query);
+  }
+
+  @Get('chart')
+  getMonthlyChart(@Request() req: any, @Query() query: any) {
+    return this.svc.getMonthlyChart(req.user.clinicId, query);
+  }
+}

@@ -1,0 +1,546 @@
+'use client';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm } from 'react-hook-form';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Building2, Clock, CreditCard, Save, Check, Lock,
+  ChevronDown, Zap, AlertCircle, Loader2, GitBranch,
+  RefreshCw, Calendar, Info,
+} from 'lucide-react';
+import { format } from 'date-fns';
+import toast from 'react-hot-toast';
+import { clinicsApi, subscriptionsApi, paymentsApi, branchesApi } from '@/lib/api';
+import Header from '@/components/layout/Header';
+import { useAuthStore } from '@/store/auth.store';
+import type { WorkingHours } from '@/types';
+
+const ADMIN_ROLES = new Set(['super_admin', 'owner']);
+const TABS = ['Clinic Profile', 'Working Hours', 'Subscription'] as const;
+type Tab = typeof TABS[number];
+const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+
+const PLANS = [
+  { id: 'free',       name: 'Free',       priceMonthly: 0,     priceYearly: 0,
+    features: ['50 appointments/mo', '20 patients', 'Basic billing'],
+    color: 'border-gray-500/30' },
+  { id: 'basic',      name: 'Basic',      priceMonthly: 2000,  priceYearly: 20000,
+    features: ['Unlimited appointments', '500 patients', 'Billing & invoices', 'SMS reminders', 'Analytics'],
+    color: 'border-brand-500/30' },
+  { id: 'pro',        name: 'Pro',        priceMonthly: 5000,  priceYearly: 50000,
+    features: ['Everything in Basic', 'Website builder', 'Custom domain', 'AI scheduling', 'Priority support'],
+    color: 'border-violet-500/30', popular: true },
+  { id: 'enterprise', name: 'Enterprise', priceMonthly: 15000, priceYearly: 150000,
+    features: ['Everything in Pro', 'Multi-location', 'API access', 'Dedicated support'],
+    color: 'border-amber-500/30' },
+];
+
+const TAB_ICONS: Record<Tab, any> = {
+  'Clinic Profile': Building2,
+  'Working Hours':  Clock,
+  'Subscription':   CreditCard,
+};
+
+// ── Upgrade Modal ─────────────────────────────────────────────────────────────
+function UpgradeModal({
+  plan, onClose, onSuccess,
+}: { plan: typeof PLANS[number]; onClose: () => void; onSuccess: () => void }) {
+  const [cycle,   setCycle]   = useState<'monthly' | 'yearly'>('monthly');
+  const [gateway, setGateway] = useState<'esewa' | 'khalti' | 'cash'>('esewa');
+  const qc = useQueryClient();
+  const { setClinic } = useAuthStore();
+  const price = cycle === 'yearly' ? plan.priceYearly : plan.priceMonthly;
+
+  const directUpgrade = useMutation({
+    mutationFn: () => subscriptionsApi.upgrade({ plan: plan.id, billingCycle: cycle }),
+    onSuccess: async () => {
+      toast.success(`Upgraded to ${plan.name}!`);
+      try { const r = await clinicsApi.getCurrent(); setClinic(r.data); } catch {}
+      qc.invalidateQueries({ queryKey: ['clinic-me'] });
+      qc.invalidateQueries({ queryKey: ['subscription'] });
+      qc.invalidateQueries({ queryKey: ['subscription-status'] });
+      onSuccess();
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Upgrade failed'),
+  });
+
+  const handlePay = async () => {
+    if (price === 0 || gateway === 'cash') { directUpgrade.mutate(); return; }
+    try {
+      if (gateway === 'esewa') {
+        const r = await paymentsApi.initEsewa({ amount: price, purpose: 'subscription', planId: plan.id, billingCycle: cycle });
+        const { formUrl, params } = r.data;
+        const form = document.createElement('form');
+        form.method = 'POST'; form.action = formUrl;
+        Object.entries(params).forEach(([k, v]) => {
+          const inp = document.createElement('input'); inp.type='hidden'; inp.name=k; inp.value=String(v);
+          form.appendChild(inp);
+        });
+        document.body.appendChild(form); form.submit();
+      } else {
+        const r = await paymentsApi.initKhalti({ amount: price * 100, purpose: 'subscription', planId: plan.id, billingCycle: cycle, productName: `ClinicKarobar ${plan.name}` });
+        window.location.href = r.data.payment_url;
+      }
+    } catch (e: any) { toast.error(e.response?.data?.message || 'Payment initiation failed'); }
+  };
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <motion.div className="relative w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl overflow-hidden"
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 28, stiffness: 300 }}>
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div>
+            <h2 className="font-semibold text-[var(--text-primary)]">Upgrade to {plan.name}</h2>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">Choose billing cycle and payment method</p>
+          </div>
+          <button onClick={onClose} className="btn-ghost w-8 h-8 p-0 justify-center">
+            <span className="text-[var(--text-primary)] text-lg leading-none">×</span>
+          </button>
+        </div>
+        <div className="p-5 space-y-5 overflow-y-auto max-h-[80vh]">
+          {/* Billing cycle */}
+          <div>
+            <p className="label mb-2">Billing Cycle</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(['monthly', 'yearly'] as const).map(c => (
+                <button key={c} onClick={() => setCycle(c)}
+                  className={`p-3 rounded-xl text-sm font-medium text-left transition-all ${cycle === c ? 'border-brand-500/60 bg-brand-500/10 text-brand-400' : 'text-[var(--text-secondary)] hover:bg-white/5'}`}
+                  style={{ border: `1px solid ${cycle === c ? 'rgba(14,157,232,0.4)' : 'var(--border)'}` }}>
+                  <div className="capitalize font-semibold">{c}</div>
+                  <div className="text-xs mt-0.5">
+                    NPR {(c === 'yearly' ? plan.priceYearly : plan.priceMonthly).toLocaleString()}
+                    {c === 'yearly' && <span className="ml-1 text-emerald-400">(save 17%)</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Payment method */}
+          {price > 0 && (
+            <div>
+              <p className="label mb-2">Payment Method</p>
+              <div className="grid grid-cols-3 gap-2">
+                {[{id:'esewa',emoji:'🟢',label:'eSewa'},{id:'khalti',emoji:'🟣',label:'Khalti'},{id:'cash',emoji:'💵',label:'Cash'}].map(gw => (
+                  <button key={gw.id} onClick={() => setGateway(gw.id as any)}
+                    className={`p-3 rounded-xl text-sm flex flex-col items-center gap-1 transition-all ${gateway === gw.id ? 'border-brand-500/60 bg-brand-500/10 text-brand-400' : 'text-[var(--text-secondary)] hover:bg-white/5'}`}
+                    style={{ border: `1px solid ${gateway === gw.id ? 'rgba(14,157,232,0.4)' : 'var(--border)'}` }}>
+                    <span className="text-xl">{gw.emoji}</span>
+                    <span className="text-xs">{gw.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Summary */}
+          <div className="p-4 rounded-xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <div className="flex justify-between items-center mb-1 text-sm">
+              <span className="text-[var(--text-secondary)]">Plan</span>
+              <span className="font-semibold text-[var(--text-primary)]">{plan.name}</span>
+            </div>
+            <div className="flex justify-between items-center mb-1 text-sm">
+              <span className="text-[var(--text-secondary)]">Cycle</span>
+              <span className="font-semibold text-[var(--text-primary)] capitalize">{cycle}</span>
+            </div>
+            <div className="flex justify-between items-center pt-2 text-sm font-bold" style={{ borderTop: '1px solid var(--border)' }}>
+              <span className="text-[var(--text-primary)]">Total</span>
+              <span className="text-brand-400 text-lg">NPR {price.toLocaleString()}</span>
+            </div>
+          </div>
+          {gateway === 'cash' && price > 0 && (
+            <div className="flex items-start gap-2 p-3 rounded-xl text-xs text-amber-400"
+              style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+              <AlertCircle size={13} className="shrink-0 mt-0.5" />
+              Cash payments must be confirmed manually by an administrator before activation.
+            </div>
+          )}
+          <button onClick={handlePay} disabled={directUpgrade.isPending} className="btn-primary w-full justify-center py-3 text-sm">
+            {directUpgrade.isPending
+              ? <Loader2 size={15} className="animate-spin" />
+              : price === 0 || gateway === 'cash'
+              ? <><Check size={15} /> {price === 0 ? 'Activate Free Plan' : 'Request Upgrade'}</>
+              : <><Zap size={15} /> Pay NPR {price.toLocaleString()} via {gateway === 'esewa' ? 'eSewa' : 'Khalti'}</>
+            }
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ── Subscription status card ──────────────────────────────────────────────────
+function SubscriptionStatusCard({ isAdmin }: { isAdmin: boolean }) {
+  const qc = useQueryClient();
+  const { setClinic } = useAuthStore();
+
+  const { data: subData } = useQuery({
+    queryKey: ['subscription'],
+    queryFn: () => subscriptionsApi.getCurrent().then(r => r.data),
+  });
+
+  const renewMutation = useMutation({
+    mutationFn: () => subscriptionsApi.renew(),
+    onSuccess: async () => {
+      toast.success('Subscription renewed!');
+      try { const r = await clinicsApi.getCurrent(); setClinic(r.data); } catch {}
+      qc.invalidateQueries({ queryKey: ['subscription'] });
+      qc.invalidateQueries({ queryKey: ['subscription-status'] });
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Renewal failed'),
+  });
+
+  if (!subData) return null;
+
+  const isExpired = subData.isLocked;
+  const plan      = subData.plan || 'free';
+  const endDate   = subData.currentPeriodEnd;
+  const cycle     = subData.billingCycle;
+  const trialEnd  = subData.trialEndsAt;
+  const isTrial   = plan === 'free' && trialEnd;
+  const daysLeft  = endDate
+    ? Math.max(0, Math.ceil((new Date(endDate).getTime() - Date.now()) / 86400000))
+    : null;
+  const trialDaysLeft = trialEnd
+    ? Math.max(0, Math.ceil((new Date(trialEnd).getTime() - Date.now()) / 86400000))
+    : null;
+
+  return (
+    <div className={`p-4 rounded-xl ${isExpired ? 'bg-red-500/5 border-red-500/20' : 'bg-brand-500/5 border-brand-500/15'}`}
+      style={{ border: `1px solid ${isExpired ? 'rgba(239,68,68,0.2)' : 'rgba(14,157,232,0.15)'}` }}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <CreditCard size={14} className={isExpired ? 'text-red-400' : 'text-brand-400'} />
+            <p className="text-sm font-semibold text-[var(--text-primary)] capitalize">{plan} Plan</p>
+            {cycle && <span className="badge text-[10px] bg-white/5 text-[var(--text-muted)] capitalize">{cycle}</span>}
+            {isTrial && !isExpired && <span className="badge text-[10px] bg-amber-500/10 text-amber-400">Trial</span>}
+            {isExpired && <span className="badge text-[10px] bg-red-500/10 text-red-400">Expired</span>}
+          </div>
+
+          {isTrial && trialDaysLeft !== null && !isExpired && (
+            <p className="text-xs text-amber-400">
+              <Calendar size={10} className="inline mr-1" />
+              Trial ends in {trialDaysLeft} day{trialDaysLeft !== 1 ? 's' : ''} · {format(new Date(trialEnd!), 'MMM d, yyyy')}
+            </p>
+          )}
+          {endDate && !isTrial && (
+            <p className={`text-xs ${isExpired ? 'text-red-400' : daysLeft !== null && daysLeft <= 7 ? 'text-amber-400' : 'text-[var(--text-muted)]'}`}>
+              <Calendar size={10} className="inline mr-1" />
+              {isExpired
+                ? `Expired on ${format(new Date(endDate), 'MMM d, yyyy')}`
+                : `Renews ${format(new Date(endDate), 'MMM d, yyyy')} · ${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`}
+            </p>
+          )}
+        </div>
+
+        {isAdmin && isExpired && plan !== 'free' && (
+          <button onClick={() => renewMutation.mutate()} disabled={renewMutation.isPending}
+            className="btn-primary text-xs py-1.5 px-3 gap-1.5">
+            {renewMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+            Renew Now
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main Settings Page ────────────────────────────────────────────────────────
+export default function SettingsPage() {
+  const [activeTab, setActiveTab]         = useState<Tab>('Clinic Profile');
+  const [workingHours, setWorkingHours]   = useState<WorkingHours>({});
+  const [mobileTabOpen, setMobileTabOpen] = useState(false);
+  const [upgradingPlan, setUpgradingPlan] = useState<typeof PLANS[number] | null>(null);
+  const { clinic, setClinic, user, activeBranch } = useAuthStore();
+  const isAdmin = ADMIN_ROLES.has(user?.role ?? '');
+  const qc = useQueryClient();
+
+  const { data: clinicData } = useQuery({
+    queryKey: ['clinic-me'],
+    queryFn: () => clinicsApi.getCurrent().then(r => { setWorkingHours(r.data.workingHours || {}); return r.data; }),
+  });
+
+  const { register, handleSubmit } = useForm({ defaultValues: clinicData || {}, values: clinicData });
+
+  const updateMutation = useMutation({
+    mutationFn: (data: any) => clinicsApi.update(data),
+    onSuccess: (res) => { setClinic(res.data); toast.success('Clinic updated!'); qc.invalidateQueries({ queryKey: ['clinic-me'] }); },
+    onError: () => toast.error('Failed to update'),
+  });
+
+  const hoursUpdateMutation = useMutation({
+    mutationFn: () => clinicsApi.updateWorkingHours(workingHours),
+    onSuccess: () => toast.success('Working hours saved!'),
+    onError:   () => toast.error('Failed to save hours'),
+  });
+
+  const toggleDay = (day: string) => {
+    setWorkingHours(prev => {
+      if (prev[day as keyof WorkingHours]) {
+        const next = { ...prev }; delete (next as any)[day]; return next;
+      }
+      return { ...prev, [day]: { start: '09:00', end: '18:00' } };
+    });
+  };
+
+  const updateHour = (day: string, field: 'start' | 'end', value: string) => {
+    setWorkingHours(prev => ({
+      ...prev,
+      [day]: { ...(prev[day as keyof WorkingHours] as any || {}), [field]: value },
+    }));
+  };
+
+  // Redirect to subscription tab from gate link
+  if (typeof window !== 'undefined') {
+    const sp = new URLSearchParams(window.location.search);
+    const tabParam = sp.get('tab');
+    if (tabParam && TABS.includes(tabParam as Tab) && activeTab !== tabParam) {
+      setActiveTab(tabParam as Tab);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }
+
+  return (
+    <div className="flex flex-col min-h-screen">
+      <Header title="Settings" />
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Desktop sidebar tabs */}
+        <div className="hidden sm:flex w-48 xl:w-52 shrink-0 flex-col py-4 px-3"
+          style={{ borderRight: '1px solid var(--border)' }}>
+          {TABS.map(tab => {
+            const Icon = TAB_ICONS[tab];
+            return (
+              <button key={tab} onClick={() => setActiveTab(tab)}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-0.5 text-sm font-medium transition-all text-left ${
+                  activeTab === tab
+                    ? 'text-brand-400 bg-brand-500/10'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-white/5'
+                }`}>
+                <Icon size={15} />
+                {tab}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 lg:p-6">
+          {/* Mobile tab selector */}
+          <div className="sm:hidden mb-4">
+            <button onClick={() => setMobileTabOpen(v => !v)}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium"
+              style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+              <span className="flex items-center gap-2">
+                {(() => { const Icon = TAB_ICONS[activeTab]; return <Icon size={14} className="text-brand-400" />; })()}
+                <span className="text-[var(--text-primary)]">{activeTab}</span>
+              </span>
+              <ChevronDown size={14} className={`text-[var(--text-muted)] transition-transform ${mobileTabOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <AnimatePresence>
+              {mobileTabOpen && (
+                <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                  className="mt-1 rounded-xl overflow-hidden"
+                  style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
+                  {TABS.map(tab => {
+                    const Icon = TAB_ICONS[tab];
+                    return (
+                      <button key={tab} onClick={() => { setActiveTab(tab); setMobileTabOpen(false); }}
+                        className={`w-full flex items-center gap-2.5 px-4 py-3 text-sm font-medium text-left ${activeTab === tab ? 'text-brand-400' : 'text-[var(--text-secondary)]'}`}>
+                        <Icon size={14} />{tab}
+                      </button>
+                    );
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <div className="max-w-2xl">
+            {/* ── Clinic Profile ── */}
+            {activeTab === 'Clinic Profile' && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
+                <div>
+                  <h3 className="font-semibold text-[var(--text-primary)] mb-1">Clinic Profile</h3>
+                  <p className="text-sm text-[var(--text-muted)]">Basic information about your practice</p>
+                </div>
+                {activeBranch && (
+                  <div className="p-3 rounded-xl" style={{ background: 'rgba(14,157,232,0.06)', border: '1px solid rgba(14,157,232,0.15)' }}>
+                    <div className="flex items-center gap-2">
+                      <GitBranch size={13} className="text-brand-400" />
+                      <p className="text-xs text-brand-400">Clinic profile applies to the whole clinic. Edit branch-specific details on the <strong>Branches</strong> page.</p>
+                    </div>
+                  </div>
+                )}
+                <form onSubmit={handleSubmit(d => updateMutation.mutate(d))} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                    <div className="sm:col-span-2">
+                      <label className="label">Clinic Name</label>
+                      <input {...register('name', { required: true })} className="input w-full" placeholder="Smile Dental Clinic" />
+                    </div>
+                    <div>
+                      <label className="label">Email</label>
+                      <input {...register('email')} type="email" className="input w-full" placeholder="clinic@email.com" />
+                    </div>
+                    <div>
+                      <label className="label">Phone</label>
+                      <input {...register('phone')} type="tel" className="input w-full" placeholder="+977 01 XXXXXXX" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="label">Address</label>
+                      <input {...register('address')} className="input w-full" placeholder="Full address" />
+                    </div>
+                    <div>
+                      <label className="label">City</label>
+                      <input {...register('city')} className="input w-full" placeholder="Kathmandu" />
+                    </div>
+                    <div>
+                      <label className="label">License Number</label>
+                      <input {...register('licenseNumber')} className="input w-full" placeholder="NDA-XXXXXXXX" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="label">Website</label>
+                      <input {...register('website')} className="input w-full" placeholder="https://yourclinic.com" />
+                    </div>
+                  </div>
+                  <button type="submit" disabled={updateMutation.isPending} className="btn-primary">
+                    {updateMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Save Changes</>}
+                  </button>
+                </form>
+              </motion.div>
+            )}
+
+            {/* ── Working Hours ── */}
+            {activeTab === 'Working Hours' && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
+                <div>
+                  <h3 className="font-semibold text-[var(--text-primary)] mb-1">Working Hours</h3>
+                  <p className="text-sm text-[var(--text-muted)]">
+                    Set your clinic's operating schedule
+                    {activeBranch && <span className="text-brand-400"> · {activeBranch.name}</span>}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  {DAYS.map(day => {
+                    const hours  = workingHours[day as keyof WorkingHours];
+                    const isOpen = !!hours;
+                    return (
+                      <div key={day}
+                        className="flex flex-wrap items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-xl"
+                        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+                        <button type="button" onClick={() => toggleDay(day)}
+                          className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${isOpen ? 'bg-brand-600' : 'bg-white/10'}`}>
+                          <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${isOpen ? 'left-5' : 'left-0.5'}`} />
+                        </button>
+                        <span className="w-20 sm:w-24 text-sm font-medium text-[var(--text-primary)] capitalize">{day}</span>
+                        {isOpen ? (
+                          <div className="flex items-center gap-2 flex-1 flex-wrap">
+                            <input type="time" value={(hours as any)?.start || '09:00'}
+                              onChange={e => updateHour(day, 'start', e.target.value)}
+                              className="input text-sm" style={{ width: '120px' }} />
+                            <span className="text-[var(--text-muted)] text-sm">–</span>
+                            <input type="time" value={(hours as any)?.end || '18:00'}
+                              onChange={e => updateHour(day, 'end', e.target.value)}
+                              className="input text-sm" style={{ width: '120px' }} />
+                          </div>
+                        ) : (
+                          <span className="text-sm text-[var(--text-muted)] flex-1">Closed</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <button onClick={() => hoursUpdateMutation.mutate()} disabled={hoursUpdateMutation.isPending} className="btn-primary">
+                  {hoursUpdateMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Save Hours</>}
+                </button>
+              </motion.div>
+            )}
+
+            {/* ── Subscription ── */}
+            {activeTab === 'Subscription' && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
+                <div>
+                  <h3 className="font-semibold text-[var(--text-primary)] mb-1">ClinicKarobar Subscription</h3>
+                  <p className="text-sm text-[var(--text-muted)]">
+                    Manage your ClinicKarobar platform subscription
+                  </p>
+                </div>
+
+                {/* Clarification note */}
+                <div className="flex items-start gap-2.5 p-3.5 rounded-xl text-xs"
+                  style={{ background: 'rgba(14,157,232,0.05)', border: '1px solid rgba(14,157,232,0.15)' }}>
+                  <Info size={13} className="text-brand-400 shrink-0 mt-0.5" />
+                  <p className="text-[var(--text-secondary)]">
+                    <span className="font-medium text-brand-400">This subscription</span> is for accessing the ClinicKarobar platform.
+                    Patient invoices & billing are in the <span className="text-brand-400 font-medium">Billing</span> section.
+                  </p>
+                </div>
+
+                {/* Current subscription status */}
+                <SubscriptionStatusCard isAdmin={isAdmin} />
+
+                {/* Plan cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {PLANS.map(plan => {
+                    const isCurrent = clinic?.plan === plan.id;
+                    return (
+                      <div key={plan.id}
+                        className={`relative rounded-2xl p-4 sm:p-5 border transition-all ${isCurrent ? 'border-brand-500/60' : plan.color}`}
+                        style={{ background: isCurrent ? 'rgba(14,157,232,0.05)' : 'var(--bg-surface)' }}>
+                        {(plan as any).popular && (
+                          <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 badge bg-violet-500 text-white text-[10px] px-3 whitespace-nowrap">Most Popular</span>
+                        )}
+                        {isCurrent && (
+                          <span className="absolute top-3 right-3 badge bg-brand-500/20 text-brand-400 text-[10px]">
+                            <Check size={9} className="mr-1" /> Current
+                          </span>
+                        )}
+                        <p className="font-bold text-[var(--text-primary)] mb-0.5">{plan.name}</p>
+                        <p className="text-brand-400 font-semibold text-base mb-3">
+                          {plan.priceMonthly === 0 ? 'Free' : `NPR ${plan.priceMonthly.toLocaleString()}/mo`}
+                        </p>
+                        <ul className="space-y-1.5 mb-4">
+                          {plan.features.map(f => (
+                            <li key={f} className="flex items-start gap-2 text-xs text-[var(--text-secondary)]">
+                              <Check size={10} className="text-emerald-400 mt-0.5 shrink-0" />{f}
+                            </li>
+                          ))}
+                        </ul>
+                        {!isCurrent && (
+                          isAdmin ? (
+                            <button onClick={() => setUpgradingPlan(plan)} className="btn-primary w-full justify-center text-sm py-2">
+                              <Zap size={13} />
+                              {plan.id === 'free' ? 'Switch to Free' : `Upgrade to ${plan.name}`}
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-2 justify-center py-2 text-xs text-[var(--text-muted)]">
+                              <Lock size={11} /> Admin only
+                            </div>
+                          )
+                        )}
+                        {isCurrent && <p className="text-xs text-center text-[var(--text-muted)]">Your current plan</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {upgradingPlan && (
+          <UpgradeModal
+            plan={upgradingPlan}
+            onClose={() => setUpgradingPlan(null)}
+            onSuccess={() => setUpgradingPlan(null)}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

@@ -1,0 +1,18 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { SubscriptionsController } from './subscriptions.controller';
+import { SubscriptionsService } from './subscriptions.service';
+import { Subscription } from './entities/subscription.entity';
+import { SubscriptionRequest } from './entities/subscription-request.entity';
+import { Clinic } from '../clinics/entities/clinic.entity';
+import { SubscriptionGuard } from './guards/subscription.guard';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { BranchesModule } from '../branch/branch.module';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([Subscription, SubscriptionRequest, Clinic]), NotificationsModule, BranchesModule],
+  controllers: [SubscriptionsController],
+  providers: [SubscriptionsService, SubscriptionGuard],
+  exports: [SubscriptionsService, SubscriptionGuard],
+})
+export class SubscriptionsModule {}

@@ -1,0 +1,16 @@
+{
+  "name": "aastal-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Build orchestration for the Aastal Electron desktop app. Backend folder: dentalDB-backend. Frontend folder: dentaldb. Not used for the web deployment, which builds those independently as before.",
+  "scripts": {
+    "electron:install": "npm install --prefix dentalDB-backend && npm install --prefix dentaldb && npm install --prefix electron",
+    "electron:build:backend": "npm run build --prefix dentalDB-backend",
+    "electron:build:frontend": "npm run --prefix dentaldb build:electron",
+    "electron:stage-backend": "rm -rf electron/.staging/backend && mkdir -p electron/.staging/backend && cp -r dentalDB-backend/dist dentalDB-backend/package.json dentalDB-backend/package-lock.json electron/.staging/backend/ && npm install --prefix electron/.staging/backend --omit=dev",
+    "electron:rebuild-native": "cd electron && npx @electron/rebuild --module-dir .staging/backend --only better-sqlite3",
+    "electron:build": "npm run electron:build:backend && npm run electron:build:frontend && npm run electron:stage-backend && npm run electron:rebuild-native",
+    "electron:dev": "npm run electron:build && npm run --prefix electron start",
+    "electron:dist": "npm run electron:build && npm run --prefix electron dist"
+  }
+}

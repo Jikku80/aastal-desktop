@@ -1,0 +1,389 @@
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { ilike } from '../database/sql-helpers';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
+import { Invoice, InvoiceStatus, PaymentMethod } from './entities/invoice.entity';
+import { Appointment } from '../appointments/entities/appointment.entity';
+import { CommissionsService } from '../commissions/commissions.service';
+import { ClinicService } from '../services/entities/service.entity';
+import { InventoryService } from '../inventory/inventory.service';
+import { User } from '../users/entities/user.entity';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction, AuditEntityType } from '../audit/entities/audit-log.entity';
+import { Clinic } from '../clinics/entities/clinic.entity';
+import { BloodTestService } from '../blood-test/blood-test.service';
+import { LabWorkService } from '../lab-work/lab-work.service';
+
+@Injectable()
+export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
+  constructor(
+    @InjectRepository(Invoice) private repo: Repository<Invoice>,
+    @InjectRepository(Appointment) private aptRepo: Repository<Appointment>,
+    @InjectRepository(ClinicService) private serviceRepo: Repository<ClinicService>,
+    @InjectRepository(User) private userRepo: Repository<User>,
+    @InjectRepository(Clinic) private clinicRepo: Repository<Clinic>,
+    @InjectDataSource() private dataSource: DataSource,
+    private commissionsService: CommissionsService,
+    private inventoryService: InventoryService,
+    private auditService: AuditService,
+    private bloodTestService: BloodTestService,
+    private labWorkService: LabWorkService,
+  ) {}
+
+  /**
+   * Generates a collision-safe invoice number using a DB-level advisory lock
+   * and retries on unique constraint violations.
+   */
+  private async generateInvoiceNumber(clinicId: string): Promise<string> {
+    const year = new Date().getFullYear();
+    const lockKey = Buffer.from(clinicId).reduce((a, b) => a + b, 0) % 2147483647;
+    return await this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock($1)', [lockKey]);
+      const count = await manager.count(Invoice, { where: { clinicId } });
+      const seq = String(count + 1).padStart(5, '0');
+      return 'INV-' + year + '-' + seq;
+    });
+  }
+
+  /**
+   * Shared commission trigger used by create(), markPaid(), and update().
+   * Looks up each service-line item's assigned doctor, reads their personal
+   * commissionRate from the User record, and writes a DoctorCommission row.
+   * Always overrides any commissionPercentage on the item so each doctor earns
+   * their individually configured rate rather than a per-service default.
+   */
+  private async triggerCommission(invoice: Invoice): Promise<void> {
+    try {
+      // If this invoice is linked to an appointment, load the appointment once
+      // so we can fall back to its serviceId/dentistId when items are missing them.
+      let aptFallback: { serviceId?: string; dentistId?: string } | null = null;
+      if (invoice.appointmentId) {
+        const apt = await this.aptRepo.findOne({ where: { id: invoice.appointmentId } });
+        if (apt) aptFallback = { serviceId: apt.serviceId, dentistId: apt.dentistId };
+      }
+
+      const enrichedItems = await Promise.all(
+        (invoice.items || []).map(async (item) => {
+          // NEVER apply commission to product items — skip immediately
+          if (item.productId) return item;
+
+          // Resolve serviceId and doctorId — fall back to appointment values if missing on item
+          const resolvedServiceId = item.serviceId || aptFallback?.serviceId;
+          const resolvedDoctorId  = item.doctorId  || aptFallback?.dentistId;
+
+          if (!resolvedServiceId || !resolvedDoctorId) return item;
+
+          const doctor = await this.userRepo.findOne({ where: { id: resolvedDoctorId } });
+          if (!doctor) return item;
+          const rate = doctor.commissionRate != null ? Number(doctor.commissionRate) : 0;
+          return { ...item, serviceId: resolvedServiceId, doctorId: resolvedDoctorId, commissionPercentage: rate };
+        }),
+      );
+      await this.commissionsService.createForInvoice(invoice.clinicId, invoice.id, enrichedItems);
+    } catch (e) {
+      this.logger.warn('Commission trigger failed: ' + (e as any)?.message);
+    }
+  }
+
+  async create(clinicId: string, dto: any): Promise<Invoice> {
+    const items: any[] = dto.items || [];
+    for (const item of items) {
+      if (item.productId && item.quantity > 0) {
+        try {
+          const product = await this.inventoryService.findOne(clinicId, item.productId);
+          if (product.stockQuantity < item.quantity) {
+            throw new BadRequestException(
+              'Insufficient stock for "' + product.name + '". Available: ' + product.stockQuantity + ', Requested: ' + item.quantity
+            );
+          }
+        } catch (e) {
+          if (e instanceof BadRequestException || e instanceof NotFoundException) throw e;
+        }
+      }
+    }
+
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        const invoiceNumber   = await this.generateInvoiceNumber(clinicId);
+        const invoiceUuid     = uuidv4();
+        const resolvedStatus: InvoiceStatus = dto.status
+          ? (dto.status as InvoiceStatus)
+          : InvoiceStatus.DRAFT;
+
+        const isPaidOnCreate = resolvedStatus === InvoiceStatus.PAID;
+        const total          = Number(dto.total ?? 0);
+
+        // Auto-populate vatNumber from clinic when vatPercent > 0
+        let vatNumber = dto.vatNumber;
+        if (!vatNumber && Number(dto.vatPercent ?? 0) > 0) {
+          const clinic = await this.clinicRepo.findOne({ where: { id: clinicId } });
+          vatNumber = clinic?.vatNumber ?? undefined;
+        }
+
+        const invoice = this.repo.create({
+          ...dto,
+          clinicId,
+          invoiceNumber,
+          invoiceUuid,
+          vatNumber,
+          status:     resolvedStatus,
+          paidAmount: isPaidOnCreate ? total : 0,
+          dueAmount:  isPaidOnCreate ? 0     : total,
+          paidAt:     isPaidOnCreate ? new Date() : null,
+        } as Partial<Invoice>);
+        const saved = await this.repo.save(invoice);
+
+        const bloodTestIds = items.filter(i => i.bloodTestId).map(i => i.bloodTestId);
+        const labWorkIds   = items.filter(i => i.labWorkId).map(i => i.labWorkId);
+        if (bloodTestIds.length) {
+          await this.bloodTestService.markBilled(clinicId, bloodTestIds, saved.id).catch(e =>
+            this.logger.warn('Failed to mark blood tests billed: ' + e?.message));
+        }
+        if (labWorkIds.length) {
+          await this.labWorkService.markBilled(clinicId, labWorkIds, saved.id).catch(e =>
+            this.logger.warn('Failed to mark lab work billed: ' + e?.message));
+        }
+
+        if (saved.status === InvoiceStatus.PAID && saved.appointmentId) {
+          await this.aptRepo.update({ id: saved.appointmentId }, { isPaid: true });
+        }
+
+        if (saved.status === InvoiceStatus.PAID) {
+          for (const item of (saved.items || [])) {
+            if (item.productId && item.quantity > 0) {
+              try {
+                await this.inventoryService.adjustStock(clinicId, item.productId, -item.quantity);
+              } catch (e) {
+                this.logger.warn('Stock deduction failed for product ' + item.productId + ': ' + (e as any)?.message);
+              }
+            }
+          }
+          await this.triggerCommission(saved);
+        }
+
+        return saved;
+      } catch (err: any) {
+        if (err instanceof BadRequestException || err instanceof NotFoundException || err instanceof ConflictException) {
+          throw err;
+        }
+        const isUniqueViolation =
+          err?.code === '23505' &&
+          (err?.detail?.includes('invoiceNumber') || err?.detail?.includes('invoiceUuid'));
+        if (isUniqueViolation && attempt < 5) {
+          await new Promise(r => setTimeout(r, attempt * 50));
+          continue;
+        }
+        if (err?.code === '23503') { // foreign key violation
+          throw new BadRequestException('Invoice references a patient, appointment, or branch that no longer exists.');
+        }
+        if (err?.code === '23502') { // not-null violation
+          throw new BadRequestException('Invoice is missing a required field: ' + (err?.column || 'unknown'));
+        }
+        this.logger.error('Unexpected error creating invoice: ' + (err?.message || err), err?.stack);
+        throw new BadRequestException('Could not create the invoice. Please check the details and try again.');
+      }
+    }
+    throw new ConflictException('Failed to generate unique invoice number after 5 attempts');
+  }
+
+  async findAll(clinicId: string, query: any) {
+    const { page = 1, limit = 20, search, status, branchId, dateFrom, dateTo } = query;
+
+    let qb = this.repo
+      .createQueryBuilder('i')
+      .leftJoinAndSelect('i.patient', 'patient')
+      .leftJoinAndSelect('i.branch', 'branch')
+      .where('i.clinicId = :clinicId', { clinicId });
+
+    if (status)   qb = qb.andWhere('i.status = :status', { status });
+    if (branchId) qb = qb.andWhere('i.branchId = :branchId', { branchId });
+    if (search) {
+      qb = qb.andWhere(
+        `(i.invoiceNumber ${ilike()} :s OR patient.firstName ${ilike()} :s OR patient.lastName ${ilike()} :s OR patient.opdNo ${ilike()} :s)`,
+        { s: '%' + search + '%' },
+      );
+    }
+    if (dateFrom) qb = qb.andWhere('i.createdAt >= :dateFrom', { dateFrom: new Date(dateFrom) });
+    if (dateTo) {
+      const end = new Date(dateTo);
+      end.setHours(23, 59, 59, 999);
+      qb = qb.andWhere('i.createdAt <= :dateTo', { dateTo: end });
+    }
+
+    qb = qb.orderBy('i.createdAt', 'DESC');
+    const total = await qb.getCount();
+    const data  = await qb.skip((page - 1) * limit).take(+limit).getMany();
+    return { data, total, page: +page, limit: +limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async findOne(clinicId: string, id: string): Promise<Invoice> {
+    const inv = await this.repo.findOne({
+      where: { id, clinicId },
+      relations: ['patient', 'appointment', 'branch'],
+    });
+    if (!inv) throw new NotFoundException('Invoice not found');
+    return inv;
+  }
+
+  async update(clinicId: string, id: string, dto: any): Promise<Invoice> {
+    await this.findOne(clinicId, id);
+    await this.repo.update({ id, clinicId }, dto);
+    const updated = await this.findOne(clinicId, id);
+
+    if (Array.isArray(dto.items)) {
+      const bloodTestIds = dto.items.filter((i: any) => i.bloodTestId).map((i: any) => i.bloodTestId);
+      const labWorkIds   = dto.items.filter((i: any) => i.labWorkId).map((i: any) => i.labWorkId);
+      if (bloodTestIds.length) {
+        await this.bloodTestService.markBilled(clinicId, bloodTestIds, updated.id).catch(e =>
+          this.logger.warn('Failed to mark blood tests billed: ' + e?.message));
+      }
+      if (labWorkIds.length) {
+        await this.labWorkService.markBilled(clinicId, labWorkIds, updated.id).catch(e =>
+          this.logger.warn('Failed to mark lab work billed: ' + e?.message));
+      }
+    }
+
+    // Trigger commission if status changed to paid via a plain update
+    if (dto.status === InvoiceStatus.PAID || dto.status === InvoiceStatus.PARTIALLY_PAID) {
+      await this.triggerCommission(updated);
+    }
+    return updated;
+  }
+
+  async markPaid(
+    clinicId: string,
+    id: string,
+    dto: { paymentMethod: PaymentMethod; amount: number; transactionId?: string },
+  ): Promise<Invoice> {
+    const inv = await this.findOne(clinicId, id);
+
+    for (const item of (inv.items || [])) {
+      if (item.productId && item.quantity > 0) {
+        try {
+          const product = await this.inventoryService.findOne(clinicId, item.productId);
+          if (product.stockQuantity < item.quantity) {
+            throw new BadRequestException(
+              'Insufficient stock for "' + product.name + '". Available: ' + product.stockQuantity + ', Requested: ' + item.quantity
+            );
+          }
+        } catch (e) {
+          if (e instanceof BadRequestException || e instanceof NotFoundException) throw e;
+        }
+      }
+    }
+
+    const paid = Number(inv.paidAmount || 0) + Number(dto.amount);
+    const due  = Number(inv.total) - paid;
+
+    inv.paidAmount           = paid;
+    inv.dueAmount            = Math.max(due, 0);
+    inv.paymentMethod        = dto.paymentMethod;
+    inv.paymentTransactionId = dto.transactionId;
+    inv.paidAt               = new Date();
+    inv.status               = due <= 0 ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID;
+
+    const saved = await this.repo.save(inv);
+
+    if (saved.status === InvoiceStatus.PAID && saved.appointmentId) {
+      await this.aptRepo.update({ id: saved.appointmentId }, { isPaid: true });
+    }
+
+    if (saved.status === InvoiceStatus.PAID || saved.status === InvoiceStatus.PARTIALLY_PAID) {
+      for (const item of (saved.items || [])) {
+        if (item.productId && item.quantity > 0) {
+          try {
+            await this.inventoryService.adjustStock(clinicId, item.productId, -item.quantity);
+          } catch (e) {
+            this.logger.warn('Stock deduction failed for product ' + item.productId + ': ' + (e as any)?.message);
+          }
+        }
+      }
+      await this.triggerCommission(saved);
+    }
+
+    return saved;
+  }
+
+  async remove(clinicId: string, id: string): Promise<void> {
+    await this.findOne(clinicId, id);
+    // Delete linked commission rows first — FK on doctor_commissions.invoiceId has no cascade
+    await this.commissionsService.deleteByInvoice(clinicId, id);
+    await this.repo.delete({ id, clinicId });
+  }
+
+  async getAgingReport(clinicId: string, branchId?: string) {
+    const now = new Date();
+    const where: any = { clinicId, status: InvoiceStatus.OVERDUE };
+    if (branchId) where.branchId = branchId;
+    const invoices = await this.repo.find({ where, relations: ['patient'] });
+
+    const buckets = { current: 0, days30: 0, days60: 0, days90plus: 0, total: 0 };
+    const items = invoices.map((inv: any) => {
+      const due  = inv.dueDate ? new Date(inv.dueDate) : now;
+      const days = Math.max(0, Math.floor((now.getTime() - due.getTime()) / 86400000));
+      const amt  = Number(inv.dueAmount ?? 0);
+      buckets.total += amt;
+      if (days <= 0)       buckets.current   += amt;
+      else if (days <= 30) buckets.days30     += amt;
+      else if (days <= 60) buckets.days60     += amt;
+      else                 buckets.days90plus += amt;
+      return { id: inv.id, invoiceNumber: inv.invoiceNumber, patientName: inv.patient ? `${inv.patient.firstName} ${inv.patient.lastName}` : '', amount: amt, dueDate: inv.dueDate, daysOverdue: days };
+    });
+    return { ...buckets, items: items.sort((a, b) => b.daysOverdue - a.daysOverdue) };
+  }
+
+  async getAnalytics(clinicId: string, query?: any) {
+    const branchId = query?.branchId as string | undefined;
+
+    const base = () => {
+      const qb = this.repo
+        .createQueryBuilder('i')
+        .where('i.clinicId = :clinicId', { clinicId });
+      if (branchId) qb.andWhere('i.branchId = :branchId', { branchId });
+      return qb;
+    };
+
+    const totalRevRaw = await base()
+      .andWhere('i.status IN (:...paidStatuses)', { paidStatuses: [InvoiceStatus.PAID, InvoiceStatus.PARTIALLY_PAID] })
+      .select('COALESCE(SUM(i.paidAmount), 0)', 'val')
+      .getRawOne();
+
+    const outstandingRaw = await base()
+      .andWhere('i.status NOT IN (:...excl)', { excl: [InvoiceStatus.PAID, InvoiceStatus.CANCELLED, InvoiceStatus.REFUNDED] })
+      .select('COALESCE(SUM(i.dueAmount), 0)', 'val')
+      .getRawOne();
+
+    const paidMonthRaw = await base()
+      .andWhere('i.status IN (:...paidStatuses)', { paidStatuses: [InvoiceStatus.PAID, InvoiceStatus.PARTIALLY_PAID] })
+      .andWhere("i.paidAt >= date_trunc('month', now())")
+      .andWhere("i.paidAt <  date_trunc('month', now()) + INTERVAL '1 month'")
+      .select('COALESCE(SUM(i.paidAmount), 0)', 'val')
+      .getRawOne();
+
+    const todayRevRaw = await base()
+      .andWhere('i.status IN (:...paidStatuses)', { paidStatuses: [InvoiceStatus.PAID, InvoiceStatus.PARTIALLY_PAID] })
+      .andWhere("i.paidAt >= date_trunc('day', now())")
+      .andWhere("i.paidAt <  date_trunc('day', now()) + INTERVAL '1 day'")
+      .select('COALESCE(SUM(i.paidAmount), 0)', 'val')
+      .getRawOne();
+
+    const chartRows = await base()
+      .andWhere('i.status IN (:...paidStatuses)', { paidStatuses: [InvoiceStatus.PAID, InvoiceStatus.PARTIALLY_PAID] })
+      .andWhere("i.paidAt >= now() - INTERVAL '7 days'")
+      .select("TO_CHAR(CAST(i.paidAt AS date), 'Dy')", 'date')
+      .addSelect('COALESCE(SUM(i.paidAmount), 0)', 'revenue')
+      .groupBy("CAST(i.paidAt AS date), TO_CHAR(CAST(i.paidAt AS date), 'Dy')")
+      .orderBy("CAST(i.paidAt AS date)", 'ASC')
+      .getRawMany();
+
+    return {
+      totalRevenue:  Number(totalRevRaw?.val  ?? 0),
+      outstanding:   Number(outstandingRaw?.val ?? 0),
+      paidThisMonth: Number(paidMonthRaw?.val  ?? 0),
+      todayRevenue:  Number(todayRevRaw?.val   ?? 0),
+      revenueChart:  chartRows,
+    };
+  }
+}
