@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -42,8 +45,19 @@ jobs:
       - name: Build backend
         run: npm run electron:build:backend
 
-      - name: Build frontend
+      - name: Build frontend (Linux/Mac)
+        if: matrix.platform != 'win'
         run: npm run electron:build:frontend
+
+      - name: Build frontend (Windows)
+        if: matrix.platform == 'win'
+        shell: bash
+        run: |
+          cd dentaldb
+          npx cross-env NEXT_PUBLIC_API_URL=http://127.0.0.1:4000 NODE_ENV=production npx next build
+          cp -r .next/static .next/standalone/.next/static
+          mkdir -p public
+          cp -r public .next/standalone/public
 
       - name: Stage backend
         run: npm run electron:stage-backend
@@ -65,6 +79,7 @@ jobs:
 
       - name: Package (Windows)
         if: matrix.platform == 'win'
+        shell: bash
         run: cd electron && npx electron-builder --win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
