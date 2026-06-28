@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+dist-electron/
+**/dist/
+dentalDB-backend/dist/
+
+# Next.js
+dentaldb/.next/
+dentaldb/out/
+
+# Electron staging & build cache
+electron/.staging/
+
+# SQLite databases
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Environment files (never commit secrets)
+.env
+.env.local
+.env.production
+**/.env
+**/.env.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
