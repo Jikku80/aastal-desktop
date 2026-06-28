@@ -60,7 +60,12 @@ jobs:
           cp -r public .next/standalone/public
 
       - name: Stage backend
-        run: npm run electron:stage-backend
+        shell: bash
+        run: |
+          rm -rf electron/.staging/backend
+          mkdir -p electron/.staging/backend
+          cp -r dentalDB-backend/dist dentalDB-backend/package.json dentalDB-backend/package-lock.json electron/.staging/backend/
+          npm install --prefix electron/.staging/backend --omit=dev
 
       - name: Rebuild native modules for Electron
         run: npm run electron:rebuild-native
@@ -84,9 +89,26 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifacts
+      - name: Upload artifacts (Linux)
+        if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.platform }}
-          path: dist-electron/
+          name: dist-linux
+          path: dist-electron/*.AppImage
+          retention-days: 30
+
+      - name: Upload artifacts (Mac)
+        if: matrix.platform == 'mac'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-mac
+          path: dist-electron/*.dmg
+          retention-days: 30
+
+      - name: Upload artifacts (Windows)
+        if: matrix.platform == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-win
+          path: dist-electron/*.exe
           retention-days: 30
