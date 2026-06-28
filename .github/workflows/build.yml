@@ -45,16 +45,11 @@ jobs:
       - name: Build backend
         run: npm run electron:build:backend
 
-      - name: Build frontend (Linux/Mac)
-        if: matrix.platform != 'win'
-        run: npm run electron:build:frontend
-
-      - name: Build frontend (Windows)
-        if: matrix.platform == 'win'
+      - name: Build frontend
         shell: bash
         run: |
           cd dentaldb
-          npx cross-env NEXT_PUBLIC_API_URL=http://127.0.0.1:4000 NODE_ENV=production npx next build
+          NODE_OPTIONS="--max-old-space-size=4096" npx cross-env NEXT_PUBLIC_API_URL=http://127.0.0.1:4000 NODE_ENV=production npx next build
           cp -r .next/static .next/standalone/.next/static
           mkdir -p public
           cp -r public .next/standalone/public
@@ -72,20 +67,20 @@ jobs:
 
       - name: Package (Linux)
         if: matrix.platform == 'linux'
-        run: cd electron && npx electron-builder --linux
+        run: cd electron && npx electron-builder --linux --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Package (Mac)
         if: matrix.platform == 'mac'
-        run: cd electron && npx electron-builder --mac
+        run: cd electron && npx electron-builder --mac --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Package (Windows)
         if: matrix.platform == 'win'
         shell: bash
-        run: cd electron && npx electron-builder --win
+        run: cd electron && npx electron-builder --win --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

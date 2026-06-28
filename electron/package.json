@@ -76,8 +76,7 @@
       ],
       "icon": "build/icon.png",
       "category": "Office"
-    },
-    "publish": "never"
+    }
   },
   "author": "Jikku80",
   "repository": {
