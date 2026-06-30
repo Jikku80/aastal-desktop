@@ -1,6 +1,7 @@
 import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index,
 } from 'typeorm';
+const isSQLite = process.env.DB_DRIVER === 'sqlite';
 
 /**
  * QUEUE-WHEN-OFFLINE actions: notifications, recalls, reviews, payments.
@@ -42,7 +43,7 @@ export class OutboxItem {
   actionType: OutboxActionType;
 
   /** Arbitrary JSON payload — shape depends on actionType, validated at dispatch time. */
-  @Column({ type: 'simple-json' })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb' })
   payload: Record<string, any>;
 
   @Column({ type: 'varchar', length: 20, default: OutboxStatus.PENDING })

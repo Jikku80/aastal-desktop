@@ -4,6 +4,8 @@ import {
 } from 'typeorm';
 import { Patient } from '../../patients/entities/patient.entity';
 
+const isSQLite = process.env.DB_DRIVER === 'sqlite';
+
 @Entity('dental_charts')
 @Index(['clinicId', 'patientId'], { unique: true })
 export class DentalChart {
@@ -27,7 +29,7 @@ export class DentalChart {
    * JSONB tooth map keyed by FDI tooth number (11–48).
    * Each entry: { condition, surfaces, notes, lastUpdated }
    */
-  @Column({ type: 'simple-json', default: '{}' })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', default: '{}' })
   teeth: Record<number, {
     condition:   string;
     surfaces:    Record<string, string>;
@@ -38,7 +40,7 @@ export class DentalChart {
   /**
    * Audit history of changes per tooth
    */
-  @Column({ type: 'simple-json', default: '[]' })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', default: '[]' })
   history: Array<{
     date:     string;
     tooth:    number;

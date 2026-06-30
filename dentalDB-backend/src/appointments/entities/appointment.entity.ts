@@ -95,10 +95,10 @@ export class Appointment {
   @Column({ nullable: true })
   treatment: string;
 
-  @Column({ type: 'simple-json', nullable: true })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   vitals: Record<string, any>;
 
-  @Column({ type: 'simple-json', nullable: true })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   prescriptions: Record<string, any>[];
 
   @Column({ nullable: true })

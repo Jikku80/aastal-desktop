@@ -5,6 +5,8 @@ import {
 import { Clinic } from '../../clinics/entities/clinic.entity';
 import { User } from '../../users/entities/user.entity';
 
+const isSQLite = process.env.DB_DRIVER === 'sqlite';
+
 export enum NoticeScope {
   CLINIC_WIDE  = 'clinic_wide',   // visible to all branches & all staff
   BRANCH       = 'branch',         // only visible to specific branch(es)
@@ -70,13 +72,13 @@ export class Notice {
    * When scope === BRANCH: array of branch IDs that should see this notice.
    * Empty / null → clinic_wide fallback.
    */
-  @Column({ type: 'simple-json', nullable: true, default: '[]' })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true, default: '[]' })
   targetBranchIds: string[];
 
   /**
    * When scope === TEAM_MEMBER: array of user IDs that should see this notice.
    */
-  @Column({ type: 'simple-json', nullable: true, default: '[]' })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true, default: '[]' })
   targetUserIds: string[];
 
   /**
@@ -84,7 +86,7 @@ export class Notice {
    * (e.g. 'dentist', 'receptionist') or custom RBAC Role UUIDs
    * (for roles like "Nurse" or "Lab Staff" that admins define themselves).
    */
-  @Column({ type: 'simple-json', nullable: true, default: '[]' })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true, default: '[]' })
   targetRoles: string[];
 
   @Column({ default: true })

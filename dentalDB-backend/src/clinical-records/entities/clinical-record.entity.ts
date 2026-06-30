@@ -5,6 +5,8 @@ import {
 import { Patient } from '../../patients/entities/patient.entity';
 import { User } from '../../users/entities/user.entity';
 
+const isSQLite = process.env.DB_DRIVER === 'sqlite';
+
 @Entity('clinical_records')
 @Index(['clinicId', 'patientId'])
 export class ClinicalRecord {
@@ -40,7 +42,7 @@ export class ClinicalRecord {
   @Column({ nullable: true, type: 'text' })
   treatmentPlan: string;
 
-  @Column({ type: 'simple-json', nullable: true })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   attachments: { name: string; url: string; type: string }[];
 
   @OneToMany(() => Prescription, p => p.clinicalRecord, { cascade: true, eager: true })

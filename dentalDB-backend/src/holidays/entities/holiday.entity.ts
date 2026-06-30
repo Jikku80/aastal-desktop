@@ -5,6 +5,8 @@ import {
 import { Clinic }  from '../../clinics/entities/clinic.entity';
 import { Branch }  from '../../branch/entities/branch.entity';
 
+const isSQLite = process.env.DB_DRIVER === 'sqlite';
+
 @Entity('holidays')
 @Index(['clinicId'])
 @Index(['clinicId', 'date'])
@@ -47,11 +49,11 @@ export class Holiday {
   branchId?: string;
 
   /** Multiple branches — when set, holiday applies to all listed branches */
-  @Column({ type: 'simple-json', nullable: true })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   branchIds?: string[];
 
   /** When isTeamMemberSpecific=true: array of user IDs this holiday applies to */
-  @Column({ type: 'simple-json', nullable: true, default: '[]' })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true, default: '[]' })
   targetUserIds: string[];
 
   /** true = applies only to specific roles (see targetRoles) */
@@ -59,7 +61,7 @@ export class Holiday {
   isRoleSpecific: boolean;
 
   /** Built-in UserRole values (e.g. 'dentist') or custom RBAC Role UUIDs this holiday applies to */
-  @Column({ type: 'simple-json', nullable: true, default: '[]' })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true, default: '[]' })
   targetRoles: string[];
 
   @ManyToOne(() => Branch, { nullable: true, onDelete: 'SET NULL' })

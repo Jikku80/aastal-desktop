@@ -1,9 +1,9 @@
-name: Build Electron App
+name: Release Electron App
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*.*.*'
   workflow_dispatch:
 
 permissions:
@@ -11,7 +11,9 @@ permissions:
 
 jobs:
   build:
+    timeout-minutes: 60
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -20,9 +22,12 @@ jobs:
             platform: mac
           - os: windows-latest
             platform: win
-
     runs-on: ${{ matrix.os }}
-
+    env:
+      # Force prebuilt binaries; never silently fall back to compiling from source.
+      npm_config_build_from_source: "false"
+      ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
     steps:
       - uses: actions/checkout@v4
 
@@ -30,17 +35,37 @@ jobs:
         with:
           node-version: 20
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache native module / electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ${{ github.workspace }}/.cache/electron
+            ${{ github.workspace }}/.cache/electron-builder
+            ~/.electron-gyp
+          key: ${{ runner.os }}-electron-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
       - name: Install root dependencies
         run: npm install
+        timeout-minutes: 10
 
       - name: Install backend dependencies
         run: npm install --prefix dentalDB-backend
+        timeout-minutes: 10
 
       - name: Install frontend dependencies
         run: npm install --prefix dentaldb
+        timeout-minutes: 10
 
       - name: Install electron dependencies
         run: npm install --prefix electron
+        timeout-minutes: 10
 
       - name: Build backend
         run: npm run electron:build:backend
@@ -56,31 +81,49 @@ jobs:
 
       - name: Stage backend
         shell: bash
+        # --omit=dev still triggers a better-sqlite3 install here (Node ABI, not Electron's).
+        # build_from_source=false + the timeout below stop it from hanging silently.
         run: |
           rm -rf electron/.staging/backend
           mkdir -p electron/.staging/backend
           cp -r dentalDB-backend/dist dentalDB-backend/package.json dentalDB-backend/package-lock.json electron/.staging/backend/
           npm install --prefix electron/.staging/backend --omit=dev
+        timeout-minutes: 15
 
       - name: Rebuild native modules for Electron
-        run: npm run electron:rebuild-native
+        run: npx @electron/rebuild --module-dir .staging/backend --only better-sqlite3 --force --verbose
+        working-directory: electron
+        timeout-minutes: 15
+        env:
+          DEBUG: "electron-rebuild,prebuild-install"
 
       - name: Package (Linux)
         if: matrix.platform == 'linux'
-        run: cd electron && npx electron-builder --linux --publish never
+        run: npx electron-builder --linux --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        working-directory: electron
+        timeout-minutes: 20
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Package (Mac)
         if: matrix.platform == 'mac'
-        run: cd electron && npx electron-builder --mac --publish never
+        run: npx electron-builder --mac --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        working-directory: electron
+        timeout-minutes: 30
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Package (Windows)
         if: matrix.platform == 'win'
         shell: bash
-        run: cd electron && npx electron-builder --win --publish never
+        run: npx electron-builder --win --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        working-directory: electron
+        timeout-minutes: 20
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

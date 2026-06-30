@@ -76,16 +76,16 @@ export class Clinic {
   @Column({ type: isSQLite ? 'varchar' : 'enum', enum: SubscriptionPlan, default: SubscriptionPlan.FREE })
   plan: SubscriptionPlan;
 
-  @Column({ type: 'simple-json', nullable: true })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   workingHours: Record<string, { start: string; end: string } | null>;
 
-  @Column({ type: 'simple-json', nullable: true })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   settings: Record<string, any>;
 
-  @Column({ type: 'simple-json', nullable: true, default: () => "'{}'", })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true, default: () => "'{}'", })
   billingTemplate: Record<string, any>;
 
-  @Column({ type: 'simple-json', nullable: true, default: () => "'{}'", })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true, default: () => "'{}'", })
   prescriptionTemplate: Record<string, any>;
 
   @Column({ default: true })
@@ -115,7 +115,7 @@ export class Clinic {
   categoryTags: string[];
 
   /** Structured opening hours JSON: { monday: { open:'08:00', close:'18:00', closed:false }, ... } */
-  @Column({ type: 'simple-json', nullable: true })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   openingHours: Record<string, { open: string; close: string; closed: boolean }>;
 
   @Column({ nullable: true, type: 'decimal', precision: 10, scale: 7 })

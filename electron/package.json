@@ -1,6 +1,6 @@
 {
   "name": "aastal-desktop",
-  "version": "1.0.4",
+  "version": "1.0.0",
   "description": "Aastal clinic management — offline-capable desktop app",
   "main": "main.js",
   "private": true,
@@ -10,6 +10,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",
+    "@electron/notarize": "^2.5.0",
     "electron": "^31.7.7",
     "electron-builder": "^24.13.3"
   },
@@ -17,6 +18,9 @@
     "appId": "com.aastal.desktop",
     "productName": "Aastal",
     "asar": true,
+    "publish": {
+      "provider": "github"
+    },
     "directories": {
       "output": "../dist-electron",
       "buildResources": "build"
@@ -54,7 +58,7 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        { "target": "nsis", "arch": ["x64"] }
       ],
       "icon": "build/icon.ico"
     },
@@ -65,11 +69,16 @@
     },
     "mac": {
       "target": [
-        "dmg"
+        { "target": "dmg", "arch": ["x64", "arm64"] }
       ],
       "icon": "build/icon.icns",
-      "category": "public.app-category.medical"
+      "category": "public.app-category.medical",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
+    "afterSign": "notarize.js",
     "linux": {
       "target": [
         "AppImage"
@@ -78,9 +87,5 @@
       "category": "Office"
     }
   },
-  "author": "Jikku80",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Jikku80/aastal-desktop.git"
-  }
+  "author": "Jeshan Maharjan <jeshan@aastal.com>"
 }

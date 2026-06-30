@@ -60,7 +60,7 @@ export class AuditLog {
   @Column({ nullable: true })
   entityId: string;
 
-  @Column({ type: 'simple-json', nullable: true })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   changes: { before?: Record<string, any>; after?: Record<string, any> } | null;
 
   @Column({ nullable: true })

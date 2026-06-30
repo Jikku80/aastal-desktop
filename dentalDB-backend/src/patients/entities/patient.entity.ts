@@ -91,7 +91,7 @@ export class Patient {
   @Column({ type: 'simple-array', default: '' })
   currentMedications: string[];
 
-  @Column({ type: 'simple-json', nullable: true })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   dentalHistory: Record<string, any>;
 
   @Column({ nullable: true })

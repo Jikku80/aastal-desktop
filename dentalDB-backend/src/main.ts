@@ -1,3 +1,9 @@
+if (process.versions?.electron || process.env.APP_PLATFORM === 'desktop') {
+  process.env.DB_DRIVER = 'sqlite';
+} else {
+  process.env.DB_DRIVER = 'postgres';
+}
+
 import { NestFactory }     from '@nestjs/core';
 import { DataSource }      from 'typeorm';
 import { ValidationPipe, Logger } from '@nestjs/common';

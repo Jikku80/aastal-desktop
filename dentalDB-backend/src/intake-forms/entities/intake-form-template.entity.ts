@@ -1,5 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
+const isSQLite = process.env.DB_DRIVER === 'sqlite';
+
 @Entity('intake_form_templates')
 export class IntakeFormTemplate {
   @Column({ type: 'varchar', length: 20, default: 'synced' })
@@ -10,7 +12,7 @@ export class IntakeFormTemplate {
   @Column({ nullable: true }) doctorUserId: string;
   @Column() name: string;
   @Column({ nullable: true }) specialty: string;
-  @Column({ type: 'simple-json' }) fields: Record<string, any>[];
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb' }) fields: Record<string, any>[];
   @Column({ default: true }) isActive: boolean;
   @CreateDateColumn() createdAt: Date;
   @UpdateDateColumn() updatedAt: Date;

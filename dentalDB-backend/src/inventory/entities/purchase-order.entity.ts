@@ -44,7 +44,7 @@ export class PurchaseOrder {
   @Column({ nullable: true })
   supplierPhone: string;
 
-  @Column({ type: 'simple-json' })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb' })
   items: POItem[];
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })

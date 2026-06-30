@@ -1,4 +1,5 @@
 import { Entity, PrimaryColumn, Column, UpdateDateColumn } from 'typeorm';
+const isSQLite = process.env.DB_DRIVER === 'sqlite';
 
 /**
  * Local-only cache of the last successfully validated session per user —
@@ -34,7 +35,7 @@ export class AuthCache {
   clinicId: string | null;
 
   /** Flat permission key list, snapshotted at last successful validation. */
-  @Column({ type: 'simple-json' })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb' })
   permissions: string[];
 
   @Column({ type: 'boolean', default: true })

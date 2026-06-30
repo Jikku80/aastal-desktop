@@ -111,7 +111,7 @@ export class BloodTest {
   patientNotifiedAt: Date;
 
   /** Structured results — array of { parameter, value, unit, referenceRange, flag } */
-  @Column({ type: 'simple-json', nullable: true })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   results: {
     parameter: string;
     value: string;
@@ -125,7 +125,7 @@ export class BloodTest {
   resultSummary: string;
 
   /** Attached report files — { name, url } */
-  @Column({ type: 'simple-json', nullable: true })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   attachments: { name: string; url: string }[];
 
   /** External lab reference / accession number */

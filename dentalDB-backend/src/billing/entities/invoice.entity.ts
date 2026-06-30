@@ -85,7 +85,7 @@ export class Invoice {
   @JoinColumn({ name: 'appointmentId' })
   appointment: Appointment;
 
-  @Column({ type: 'simple-json' })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb' })
   items: {
     description: string;
     quantity: number;

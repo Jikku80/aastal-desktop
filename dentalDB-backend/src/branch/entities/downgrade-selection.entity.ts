@@ -69,7 +69,7 @@ export class DowngradeSelection {
   /**
    * Snapshot of selected branch IDs once confirmed (or auto-selected).
    */
-  @Column({ type: 'simple-json', nullable: true })
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   selectedBranchIds: string[] | null;
 
   /**
