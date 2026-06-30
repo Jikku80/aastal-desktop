@@ -19,7 +19,9 @@
     "productName": "Aastal",
     "asar": true,
     "publish": {
-      "provider": "github"
+      "provider": "github",
+      "owner": "jikku80",
+      "repo": "aastal-desktop"
     },
     "directories": {
       "output": "../dist-electron",
