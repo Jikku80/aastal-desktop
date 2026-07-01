@@ -16,6 +16,7 @@ import { DoctorProfile } from '../doctor-profile/entities/doctor-profile.entity'
 import { NotificationsModule } from 'src/notifications/notifications.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { AuditModule } from '../audit/audit.module';
+import { SyncModule } from '../sync/sync.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { AuditModule } from '../audit/audit.module';
     NotificationsModule,
     RbacModule,
     AuditModule,
+    SyncModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, AuthCacheService, JwtStrategy, LocalStrategy],

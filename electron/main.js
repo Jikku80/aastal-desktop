@@ -2,7 +2,7 @@ const { app, BrowserWindow, Menu, shell, nativeImage, ipcMain } = require('elect
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
-const { readSyncConfig, writeSyncConfig, resolveSyncConfig } = require('./sync-config');
+const { readSyncConfig, writeSyncConfig, clearDeviceToken, resolveSyncConfig, configPath } = require('./sync-config');
 
 const BACKEND_PORT = process.env.BACKEND_PORT || 4000;
 const FRONTEND_PORT = process.env.FRONTEND_PORT || 3100;
@@ -89,6 +89,24 @@ function spawnBackend() {
   // Node backend alongside Electron WITHOUT requiring a separate Node.js
   // install on the user's machine. It is not a typo for a system `node`
   // binary.
+  // JWT_SECRET/JWT_REFRESH_SECRET MUST match the hosted/remote backend's
+  // values for sync device auto-registration to work: AuthService.login's
+  // auto-registration hook sends this instance's own just-issued JWT to
+  // the remote as Bearer auth (see SyncService.autoRegisterDeviceIfNeeded).
+  // If the secrets differ, the remote returns 401 to that call and the
+  // device just never gets a sync token — everything else about the app
+  // still works, it just stays offline-only until this is fixed.
+  // Override by setting JWT_SECRET / JWT_REFRESH_SECRET in the environment
+  // this Electron app is launched with (e.g. baked in at build time via
+  // your CI secrets) — the fallback below is a placeholder, not something
+  // safe to ship as-is.
+  const jwtSecret = process.env.JWT_SECRET || 'replace_with_64_char_random_hex_string_for_production';
+  const jwtRefreshSecret = process.env.JWT_REFRESH_SECRET || 'replace_with_different_64_char_random_hex_string';
+  if (!process.env.JWT_SECRET) {
+    console.warn('[sync] JWT_SECRET not set in the environment — using an insecure placeholder. ' +
+      'Sync device auto-registration will fail (401) until this matches the remote backend\'s JWT_SECRET.');
+  }
+
   backendProcess = spawn(process.execPath, [entry], {
     env: {
       ...process.env,
@@ -96,17 +114,22 @@ function spawnBackend() {
       SQLITE_DB_PATH: sqlitePath,
       PORT: String(BACKEND_PORT),
       SQLITE_AUTO_MIGRATE: 'true',
-      JWT_SECRET: 'replace_with_64_char_random_hex_string_for_production',
-      JWT_REFRESH_SECRET: 'replace_with_different_64_char_random_hex_string',
+      JWT_SECRET: jwtSecret,
+      JWT_REFRESH_SECRET: jwtRefreshSecret,
       JWT_EXPIRES_IN: '15m',
       JWT_REFRESH_EXPIRES_IN: '7d',
-      // Read from sync-config.json (set via Settings > Sync in the app) or,
-      // as a dev/CI fallback, from env vars already present when Electron
-      // itself was launched. Omitted entirely (not set to '') when unset,
-      // so ConnectivityService's `if (!remote)` check sees them as truly
+      // Read from sync-config.json (auto-populated on first login, or set
+      // via Settings > Sync's "Advanced" URL override) or, as a dev/CI
+      // fallback, from env vars already present when Electron itself was
+      // launched. Omitted entirely (not set to '') when unset, so
+      // ConnectivityService's `if (!remote)` check sees them as truly
       // absent rather than an empty string.
       ...(syncConfig.remoteBaseUrl ? { SYNC_REMOTE_BASE_URL: syncConfig.remoteBaseUrl } : {}),
-      ...(syncConfig.sharedSecret ? { SYNC_SHARED_SECRET: syncConfig.sharedSecret } : {}),
+      // Lets the backend's SyncConfigStore read/write the SAME file this
+      // process manages (see sync-config.js) — this is how the
+      // auto-registration hook in AuthService.login persists the device
+      // token without any IPC round-trip back through this main process.
+      SYNC_CONFIG_PATH: configPath(app),
       ELECTRON_RUN_AS_NODE: '1',
       EXTRA_CORS_ORIGINS: 'http://127.0.0.1:3100,http://localhost:3100',
     },
@@ -239,26 +262,39 @@ if (!gotLock) {
     // ── Sync config IPC ──────────────────────────────────────────────────
     // Exposed to the renderer via preload.js's contextBridge. The renderer
     // never touches the filesystem or env directly — it only ever sees
-    // these three calls.
+    // these calls.
     ipcMain.handle('sync-config:get', () => {
       // Use the EFFECTIVE config (falls back to DEFAULT_REMOTE_BASE_URL),
       // not just what's explicitly saved — otherwise the Settings screen
       // would show a blank URL even while the backend is already
-      // auto-connected to the default. Don't echo the secret back to the
-      // renderer once saved — the form shows a "configured" state instead
-      // of the raw value, so it doesn't sit in the DOM/devtools.
+      // auto-connected to the default. There is no manual key to enter
+      // anymore — hasDeviceToken just reports whether the automatic
+      // registration (POST /sync/register-device, triggered from
+      // AuthService.login on first online login) has completed yet.
       const cfg = resolveSyncConfig(app);
       const isDefault = !readSyncConfig(app).remoteBaseUrl; // true when the file itself is empty
-      return { remoteBaseUrl: cfg.remoteBaseUrl, hasSecret: !!cfg.sharedSecret, isDefault };
+      return { remoteBaseUrl: cfg.remoteBaseUrl, hasDeviceToken: !!cfg.deviceToken, isDefault };
     });
 
-    ipcMain.handle('sync-config:set', async (_event, { remoteBaseUrl, sharedSecret }) => {
-      // The renderer never gets the saved secret back (see sync-config:get),
-      // so if it sends an empty/undefined secret here, that means "leave it
-      // alone," not "clear it." Pass an empty string explicitly to clear.
-      const existing = readSyncConfig(app);
-      const nextSecret = sharedSecret === undefined ? existing.sharedSecret : sharedSecret;
-      writeSyncConfig(app, { remoteBaseUrl, sharedSecret: nextSecret });
+    ipcMain.handle('sync-config:set', async (_event, { remoteBaseUrl }) => {
+      writeSyncConfig(app, { remoteBaseUrl });
+      try {
+        await restartBackend();
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err?.message ?? String(err) };
+      }
+    });
+
+    // "Re-register this device" — used after an admin revokes this device
+    // from the Registered Devices screen (Settings > Sync), so it can get
+    // a fresh token instead of staying permanently unregistered. Clears
+    // the stored token and restarts the backend; the actual re-registration
+    // happens automatically on the user's next login (or immediately if
+    // their session is still valid — AuthService only registers on the
+    // login endpoint itself, so a re-login may be needed).
+    ipcMain.handle('sync-config:reregister', async () => {
+      clearDeviceToken(app);
       try {
         await restartBackend();
         return { ok: true };

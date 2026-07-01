@@ -9,7 +9,8 @@ declare module '*.css';
  */
 interface ElectronSyncConfig {
   remoteBaseUrl: string;
-  hasSecret: boolean;
+  /** Whether this device has completed automatic sync registration (see AuthService.login's auto-registration hook). */
+  hasDeviceToken: boolean;
   /** True when this URL came from the built-in default, not something the user saved. */
   isDefault: boolean;
 }
@@ -17,7 +18,8 @@ interface ElectronSyncConfig {
 interface ElectronAPI {
   isElectron: true;
   getSyncConfig: () => Promise<ElectronSyncConfig>;
-  setSyncConfig: (config: { remoteBaseUrl: string; sharedSecret?: string }) => Promise<{ ok: boolean; error?: string }>;
+  setSyncConfig: (config: { remoteBaseUrl: string }) => Promise<{ ok: boolean; error?: string }>;
+  reregisterSyncDevice: () => Promise<{ ok: boolean; error?: string }>;
 }
 
 interface Window {

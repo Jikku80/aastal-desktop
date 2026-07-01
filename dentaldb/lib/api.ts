@@ -624,6 +624,9 @@ export { websiteApi as websiteApiAlt } from './api/websiteApi';
 export const syncApi = {
   status: () => api.get('/sync/status'),
   trigger: () => api.post('/sync/trigger'),
+  // Admin-only (OWNER/SUPER_ADMIN) — see SyncController.listDevices/revokeDevice.
+  devices: () => api.get('/sync/devices'),
+  revokeDevice: (id: string) => api.post(`/sync/devices/${id}/revoke`),
 };
 
 export const outboxApi = {

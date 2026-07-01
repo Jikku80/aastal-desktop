@@ -58,55 +58,93 @@ export interface SyncRegistryEntry {
   name: string;
   entity: Function;
   timestampField: 'updatedAt' | 'createdAt';
+  /** How to scope this entity's rows to one clinicId — see ClinicScope below. */
+  clinicScope: ClinicScope;
 }
 
+/**
+ * Added alongside SyncDeviceGuard so the guard's per-clinic token can
+ * actually be enforced at the query level, not just at the door. Every
+ * SYNC_REGISTRY entity needs one of these so generateChangesSince /
+ * applyIncoming know how to filter to `req.syncClinicId` — see
+ * SyncService's scopedFindWhere / scopedIdsForClinic.
+ *
+ *  - direct(field?)  — entity has its own clinicId-like column (default 'clinicId').
+ *  - self            — the entity's own id IS the clinicId (only Clinic).
+ *  - via(entity, localField, clinicField?) — no clinicId column on this
+ *    entity itself; scope indirectly by joining localField to another
+ *    registered entity's clinic column (e.g. UserRole.userId -> User.clinicId).
+ *  - global          — genuinely not clinic-owned data (system-wide config,
+ *    or a cross-clinic entity like an independent doctor's profile) —
+ *    intentionally NOT filtered. Flagged per-entry below with why.
+ */
+export type ClinicScope =
+  | { type: 'direct'; field?: string }
+  | { type: 'self' }
+  | { type: 'via'; viaEntity: Function; localField: string; viaClinicField?: string }
+  | { type: 'global' };
+
+const direct: ClinicScope = { type: 'direct' };
+
 export const SYNC_REGISTRY: SyncRegistryEntry[] = [
-  { name: 'Patient', entity: Patient, timestampField: 'updatedAt' },
-  { name: 'Vitals', entity: Vitals, timestampField: 'createdAt' },
-  { name: 'Appointment', entity: Appointment, timestampField: 'updatedAt' },
-  { name: 'ClinicalRecord', entity: ClinicalRecord, timestampField: 'updatedAt' },
-  { name: 'Prescription', entity: Prescription, timestampField: 'updatedAt' },
-  { name: 'DentalChart', entity: DentalChart, timestampField: 'updatedAt' },
-  { name: 'BloodTest', entity: BloodTest, timestampField: 'updatedAt' },
-  { name: 'LabWork', entity: LabWork, timestampField: 'updatedAt' },
-  { name: 'PrescriptionTemplate', entity: PrescriptionTemplate, timestampField: 'updatedAt' },
-  { name: 'Invoice', entity: Invoice, timestampField: 'updatedAt' },
-  { name: 'PayrollDeductionRule', entity: PayrollDeductionRule, timestampField: 'updatedAt' },
-  { name: 'PayrollEntry', entity: PayrollEntry, timestampField: 'updatedAt' },
-  { name: 'PayrollRun', entity: PayrollRun, timestampField: 'updatedAt' },
-  { name: 'DoctorCommission', entity: DoctorCommission, timestampField: 'createdAt' },
-  { name: 'Vendor', entity: Vendor, timestampField: 'updatedAt' },
-  { name: 'Expense', entity: Expense, timestampField: 'updatedAt' },
-  { name: 'Product', entity: Product, timestampField: 'updatedAt' },
-  { name: 'PurchaseOrder', entity: PurchaseOrder, timestampField: 'updatedAt' },
-  { name: 'Attendance', entity: Attendance, timestampField: 'updatedAt' },
-  { name: 'Shift', entity: Shift, timestampField: 'updatedAt' },
-  { name: 'ShiftAssignment', entity: ShiftAssignment, timestampField: 'updatedAt' },
-  { name: 'ShiftPattern', entity: ShiftPattern, timestampField: 'updatedAt' },
-  { name: 'Leave', entity: Leave, timestampField: 'updatedAt' },
-  { name: 'Holiday', entity: Holiday, timestampField: 'updatedAt' },
-  { name: 'Task', entity: Task, timestampField: 'updatedAt' },
-  { name: 'ConsentTemplate', entity: ConsentTemplate, timestampField: 'updatedAt' },
-  { name: 'ConsentSubmission', entity: ConsentSubmission, timestampField: 'createdAt' },
-  { name: 'IntakeFormTemplate', entity: IntakeFormTemplate, timestampField: 'updatedAt' },
-  { name: 'IntakeFormSubmission', entity: IntakeFormSubmission, timestampField: 'createdAt' },
-  { name: 'WaitingQueue', entity: WaitingQueue, timestampField: 'updatedAt' },
-  { name: 'WalletTransaction', entity: WalletTransaction, timestampField: 'createdAt' },
-  { name: 'PatientWallet', entity: PatientWallet, timestampField: 'updatedAt' },
-  { name: 'ClinicService', entity: ClinicService, timestampField: 'updatedAt' },
-  { name: 'DowngradeSelection', entity: DowngradeSelection, timestampField: 'updatedAt' },
-  { name: 'Branch', entity: Branch, timestampField: 'updatedAt' },
-  { name: 'Clinic', entity: Clinic, timestampField: 'updatedAt' },
-  { name: 'Role', entity: Role, timestampField: 'updatedAt' },
-  { name: 'Permission', entity: Permission, timestampField: 'updatedAt' },
-  { name: 'UserRole', entity: UserRole, timestampField: 'createdAt' },
-  { name: 'User', entity: User, timestampField: 'updatedAt' },
-  { name: 'AuditLog', entity: AuditLog, timestampField: 'createdAt' },
-  { name: 'ApiKey', entity: ApiKey, timestampField: 'updatedAt' },
-  { name: 'IndependentAvailability', entity: IndependentAvailability, timestampField: 'updatedAt' },
-  { name: 'DoctorProfile', entity: DoctorProfile, timestampField: 'updatedAt' },
-  { name: 'DoctorLocation', entity: DoctorLocation, timestampField: 'updatedAt' },
-  { name: 'DoctorClinicAffiliation', entity: DoctorClinicAffiliation, timestampField: 'updatedAt' },
-  { name: 'PatientFile', entity: PatientFile, timestampField: 'createdAt' },
-  { name: 'Notice', entity: Notice, timestampField: 'updatedAt' },
+  { name: 'Patient', entity: Patient, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Vitals', entity: Vitals, timestampField: 'createdAt', clinicScope: direct },
+  { name: 'Appointment', entity: Appointment, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'ClinicalRecord', entity: ClinicalRecord, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Prescription', entity: Prescription, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'DentalChart', entity: DentalChart, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'BloodTest', entity: BloodTest, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'LabWork', entity: LabWork, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'PrescriptionTemplate', entity: PrescriptionTemplate, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Invoice', entity: Invoice, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'PayrollDeductionRule', entity: PayrollDeductionRule, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'PayrollEntry', entity: PayrollEntry, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'PayrollRun', entity: PayrollRun, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'DoctorCommission', entity: DoctorCommission, timestampField: 'createdAt', clinicScope: direct },
+  { name: 'Vendor', entity: Vendor, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Expense', entity: Expense, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Product', entity: Product, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'PurchaseOrder', entity: PurchaseOrder, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Attendance', entity: Attendance, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Shift', entity: Shift, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'ShiftAssignment', entity: ShiftAssignment, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'ShiftPattern', entity: ShiftPattern, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Leave', entity: Leave, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Holiday', entity: Holiday, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Task', entity: Task, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'ConsentTemplate', entity: ConsentTemplate, timestampField: 'updatedAt', clinicScope: direct },
+  // No clinicId column — scope indirectly via the appointment it was signed against.
+  { name: 'ConsentSubmission', entity: ConsentSubmission, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: Appointment, localField: 'appointmentId' } },
+  { name: 'IntakeFormTemplate', entity: IntakeFormTemplate, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'IntakeFormSubmission', entity: IntakeFormSubmission, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: Appointment, localField: 'appointmentId' } },
+  { name: 'WaitingQueue', entity: WaitingQueue, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'WalletTransaction', entity: WalletTransaction, timestampField: 'createdAt', clinicScope: direct },
+  { name: 'PatientWallet', entity: PatientWallet, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'ClinicService', entity: ClinicService, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'DowngradeSelection', entity: DowngradeSelection, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Branch', entity: Branch, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Clinic', entity: Clinic, timestampField: 'updatedAt', clinicScope: { type: 'self' } },
+  // clinicId is nullable on Role (system-wide default roles) — those rows
+  // simply never match a clinic filter and won't sync out, which is
+  // correct: every instance already seeds its own system roles locally.
+  { name: 'Role', entity: Role, timestampField: 'updatedAt', clinicScope: direct },
+  // Permission keys are genuinely global system config (not owned by any
+  // clinic) — every instance needs the full set regardless of clinicId.
+  { name: 'Permission', entity: Permission, timestampField: 'updatedAt', clinicScope: { type: 'global' } },
+  // No clinicId column — scope indirectly via the user the role assignment belongs to.
+  { name: 'UserRole', entity: UserRole, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: User, localField: 'userId' } },
+  { name: 'User', entity: User, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'AuditLog', entity: AuditLog, timestampField: 'createdAt', clinicScope: direct },
+  { name: 'ApiKey', entity: ApiKey, timestampField: 'updatedAt', clinicScope: direct },
+  // Doctors can be independently affiliated with multiple clinics or none
+  // (see doctor-affiliation module) — their profile/location/availability
+  // rows are owned by the doctor, not any one clinic, so they're
+  // deliberately global here. DoctorClinicAffiliation (below) is the
+  // actual clinic-scoped join table and IS filtered.
+  { name: 'IndependentAvailability', entity: IndependentAvailability, timestampField: 'updatedAt', clinicScope: { type: 'global' } },
+  { name: 'DoctorProfile', entity: DoctorProfile, timestampField: 'updatedAt', clinicScope: { type: 'global' } },
+  { name: 'DoctorLocation', entity: DoctorLocation, timestampField: 'updatedAt', clinicScope: { type: 'global' } },
+  { name: 'DoctorClinicAffiliation', entity: DoctorClinicAffiliation, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'PatientFile', entity: PatientFile, timestampField: 'createdAt', clinicScope: direct },
+  { name: 'Notice', entity: Notice, timestampField: 'updatedAt', clinicScope: direct },
 ];

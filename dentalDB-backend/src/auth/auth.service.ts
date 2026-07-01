@@ -19,6 +19,7 @@ import { RbacService } from '../rbac/rbac.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthCacheService } from './auth-cache.service';
 import { AuditAction, AuditEntityType } from '../audit/entities/audit-log.entity';
+import { SyncService } from '../sync/sync.service';
 
 const COOKIE_ACCESS  = 'access_token';
 const COOKIE_REFRESH = 'refresh_token';
@@ -36,6 +37,7 @@ export class AuthService {
     private rbac:          RbacService,
     private auditService:  AuditService,
     private authCache:     AuthCacheService,
+    private syncService:   SyncService,
   ) {}
 
   setTokenCookies(res: Response, accessToken: string, refreshToken: string) {
@@ -139,6 +141,17 @@ export class AuthService {
 
     // Resolve and return flat permission list so the frontend can store it immediately
     const permissions = await this.rbac.resolvePermissionsForUser(user.id, user.role);
+
+    // Auto-register this device for sync on first online login — replaces
+    // the old manual "type in the shared secret" step. No-op on the
+    // hosted/Postgres instance and on every login after the first
+    // successful one (SyncService checks for an existing token). Never
+    // awaited: a slow/unreachable remote must not delay login itself, and
+    // failure just means "try again next login" (see the method's docs).
+    this.syncService.autoRegisterDeviceIfNeeded(tokens.accessToken).catch((err) => {
+      this.logger.warn(`Sync device auto-registration threw unexpectedly: ${err?.message ?? err}`);
+    });
+
     // Cookies are set above for web; also return tokens in the body so
     // mobile clients (no cookie jar) can store/replay them as a Bearer
     // token. Additive only — existing web callers ignore these fields.

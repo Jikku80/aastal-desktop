@@ -3,7 +3,7 @@ import './globals.css';
 import { GlobalErrorBoundary } from '@/components/layout/ErrorBoundary';
 
 export const metadata: Metadata = {
-  title: { default: 'ClinicKarobar : Clinic Practice Management', template: '%s | Clinic' },
+  title: { default: 'Aastal : Clinic Practice Management', template: '%s | Aastal' },
   description: 'All-in-one clinic management for modern practices',
   manifest: '/manifest.json',
   icons: {

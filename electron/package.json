@@ -28,11 +28,8 @@
       "buildResources": "build"
     },
     "files": [
-      "main.js",
-      "preload.js",
-      "build/icon.ico",
-      "build/icon.icns",
-      "build/icon.png"
+      "*.js",
+      "build/**/*"
     ],
     "extraResources": [
       {
