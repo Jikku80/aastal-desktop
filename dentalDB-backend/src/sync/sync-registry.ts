@@ -91,7 +91,8 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   { name: 'Vitals', entity: Vitals, timestampField: 'createdAt', clinicScope: direct },
   { name: 'Appointment', entity: Appointment, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'ClinicalRecord', entity: ClinicalRecord, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'Prescription', entity: Prescription, timestampField: 'updatedAt', clinicScope: direct },
+  // No clinicId column — scope indirectly via the clinical record it belongs to.
+  { name: 'Prescription', entity: Prescription, timestampField: 'updatedAt', clinicScope: { type: 'via', viaEntity: ClinicalRecord, localField: 'clinicalRecordId' } },
   { name: 'DentalChart', entity: DentalChart, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'BloodTest', entity: BloodTest, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'LabWork', entity: LabWork, timestampField: 'updatedAt', clinicScope: direct },
