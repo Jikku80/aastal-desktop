@@ -221,11 +221,16 @@ export default function AppointmentDetailPanel({
           </div>
         )}
 
-        {/* Body: left patient column + right detail tabs */}
-        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+        {/* Body: left patient column + right detail tabs.
+            Mobile fix: below `lg` this stacks into a single column, so the
+            whole body needs to be the scroll container (overflow-y-auto).
+            At `lg`+ it becomes a two-pane layout where each pane scrolls
+            independently, so the body switches to overflow-hidden and the
+            panes take over their own scrolling (see lg:overflow-y-auto below). */}
+        <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
 
           {/* ── Left column: patient summary ── */}
-          <div className="w-full lg:w-[320px] xl:w-[360px] shrink-0 overflow-y-auto p-4 sm:p-5 space-y-4"
+          <div className="w-full lg:w-[320px] xl:w-[360px] shrink-0 lg:overflow-y-auto p-4 sm:p-5 space-y-4"
             style={{ borderRight: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
 
             {/* Patient card */}
@@ -325,7 +330,7 @@ export default function AppointmentDetailPanel({
           </div>
 
           {/* ── Right column: tabs + content ── */}
-          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+          <div className="flex-1 flex flex-col lg:overflow-hidden min-w-0">
             {/* Tab bar */}
             <div className="flex items-center gap-1 px-4 sm:px-6 pt-4 pb-2 shrink-0 overflow-x-auto">
               {TABS.map(tab => (
@@ -345,7 +350,7 @@ export default function AppointmentDetailPanel({
             </div>
 
             {/* Tab content */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+            <div className="flex-1 lg:overflow-y-auto p-4 sm:p-6 space-y-5">
 
               {/* ── DETAILS TAB ── */}
               {activeTab === 'Details' && (

@@ -114,12 +114,22 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
+      - name: Disable Windows Defender real-time scanning
+        if: matrix.platform == 'win'
+        shell: powershell
+        # Build-runner only — never do this on a machine that isn't disposable CI.
+        # Defender scanning every file electron-builder/NSIS touches (full backend
+        # node_modules + Next.js standalone output) is what was blowing the
+        # 20-minute step timeout; this is a known electron-builder x windows-latest
+        # issue, not a hang in the build itself.
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+
       - name: Package (Windows)
         if: matrix.platform == 'win'
         shell: bash
         run: npx electron-builder --win --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
         working-directory: electron
-        timeout-minutes: 20
+        timeout-minutes: 40
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

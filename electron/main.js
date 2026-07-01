@@ -1,7 +1,8 @@
-const { app, BrowserWindow, Menu, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, shell, nativeImage, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
+const { readSyncConfig, writeSyncConfig, resolveSyncConfig } = require('./sync-config');
 
 const BACKEND_PORT = process.env.BACKEND_PORT || 4000;
 const FRONTEND_PORT = process.env.FRONTEND_PORT || 3100;
@@ -11,6 +12,18 @@ const HEALTH_POLL_INTERVAL_MS = 500;
 let backendProcess = null;
 let frontendProcess = null;
 let mainWindow = null;
+
+// Linux AppImages can't rely on chrome-sandbox running setuid-root unattended
+// (no install-time hook to chown/chmod it the way a .deb postinst would, and
+// Ubuntu 24.04+ often blocks unprivileged user namespaces via AppArmor anyway,
+// breaking the sandbox regardless). Baking the switch in here means users
+// never have to launch with `--no-sandbox` by hand. This only weakens the
+// Chromium-level sandbox for a controlled internal app that isn't rendering
+// arbitrary untrusted web content — Windows and macOS are unaffected and keep
+// their normal sandboxing.
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('no-sandbox');
+}
 
 function resolveResourcePath(...segments) {
   // In a packaged app, extraResources land under process.resourcesPath
@@ -38,11 +51,11 @@ function resolveResourcePath(...segments) {
   return path.join(repoRoot, devFrontendDir, '.next', 'standalone', ...rest);
 }
 
-function waitForHealth(port, label) {
+function waitForHealth(port, label, healthPath = '/') {
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + HEALTH_TIMEOUT_MS;
     const attempt = () => {
-      const req = http.get({ host: '127.0.0.1', port, path: '/health', timeout: 2000 }, (res) => {
+      const req = http.get({ host: '127.0.0.1', port, path: healthPath, timeout: 2000 }, (res) => {
         res.resume();
         if (res.statusCode === 200) return resolve();
         retry();
@@ -63,6 +76,12 @@ function waitForHealth(port, label) {
 function spawnBackend() {
   const entry = resolveResourcePath('backend', 'dist', 'main.js');
   const sqlitePath = path.join(app.getPath('userData'), 'offline-data.sqlite');
+  const syncConfig = resolveSyncConfig(app);
+
+  if (!syncConfig.remoteBaseUrl) {
+    console.warn('[sync] No remote base URL configured — this instance will run fully offline ' +
+      'until configured from Settings > Sync. Connectivity polling stays disabled until then.');
+  }
 
   // Spawning process.execPath (Electron's own binary) with
   // ELECTRON_RUN_AS_NODE=1 runs it as plain Node against `entry`, using
@@ -81,10 +100,13 @@ function spawnBackend() {
       JWT_REFRESH_SECRET: 'replace_with_different_64_char_random_hex_string',
       JWT_EXPIRES_IN: '15m',
       JWT_REFRESH_EXPIRES_IN: '7d',
-      // SYNC_REMOTE_BASE_URL / SYNC_SHARED_SECRET: read from process.env if
-      // set when launching Electron (e.g. via a settings file written by a
-      // first-run config screen — not built here, flagged as a Phase 4
-      // follow-up since it's a UI concern, not a shell-mechanics one).
+      // Read from sync-config.json (set via Settings > Sync in the app) or,
+      // as a dev/CI fallback, from env vars already present when Electron
+      // itself was launched. Omitted entirely (not set to '') when unset,
+      // so ConnectivityService's `if (!remote)` check sees them as truly
+      // absent rather than an empty string.
+      ...(syncConfig.remoteBaseUrl ? { SYNC_REMOTE_BASE_URL: syncConfig.remoteBaseUrl } : {}),
+      ...(syncConfig.sharedSecret ? { SYNC_SHARED_SECRET: syncConfig.sharedSecret } : {}),
       ELECTRON_RUN_AS_NODE: '1',
       EXTRA_CORS_ORIGINS: 'http://127.0.0.1:3100,http://localhost:3100',
     },
@@ -97,6 +119,29 @@ function spawnBackend() {
     console.error(`[backend] exited with code ${code}`);
     backendProcess = null;
   });
+}
+
+/**
+ * Kill the running backend and start a fresh one with the current
+ * sync-config, then wait for it to report healthy again. Used after the
+ * Settings > Sync screen saves new remote URL / secret, so the change
+ * takes effect immediately without restarting the whole Electron app
+ * (which would also reload the renderer and lose in-progress UI state).
+ */
+async function restartBackend() {
+  const old = backendProcess;
+  if (old && !old.killed) {
+    await new Promise((resolve) => {
+      old.once('exit', resolve);
+      old.kill('SIGTERM');
+      // Don't hang forever if the process is wedged.
+      setTimeout(resolve, 5000);
+    });
+  }
+  spawnBackend();
+  // /health is mounted under the global 'api/v1' prefix (setGlobalPrefix has
+  // no exclude list) — must use the prefixed path or every health check 404s.
+  await waitForHealth(BACKEND_PORT, 'backend', '/api/v1/health');
 }
 
 function spawnFrontend() {
@@ -153,8 +198,8 @@ async function startup() {
 
   try {
     await Promise.all([
-      waitForHealth(BACKEND_PORT, 'backend'),
-      waitForHealth(FRONTEND_PORT, 'frontend'),
+      waitForHealth(BACKEND_PORT, 'backend', '/api/v1/health'),
+      waitForHealth(FRONTEND_PORT, 'frontend', '/'), // Next.js standalone server — '/' is enough to prove it's up
     ]);
   } catch (err) {
     console.error('Startup health check failed:', err);
@@ -190,6 +235,38 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
+
+    // ── Sync config IPC ──────────────────────────────────────────────────
+    // Exposed to the renderer via preload.js's contextBridge. The renderer
+    // never touches the filesystem or env directly — it only ever sees
+    // these three calls.
+    ipcMain.handle('sync-config:get', () => {
+      // Use the EFFECTIVE config (falls back to DEFAULT_REMOTE_BASE_URL),
+      // not just what's explicitly saved — otherwise the Settings screen
+      // would show a blank URL even while the backend is already
+      // auto-connected to the default. Don't echo the secret back to the
+      // renderer once saved — the form shows a "configured" state instead
+      // of the raw value, so it doesn't sit in the DOM/devtools.
+      const cfg = resolveSyncConfig(app);
+      const isDefault = !readSyncConfig(app).remoteBaseUrl; // true when the file itself is empty
+      return { remoteBaseUrl: cfg.remoteBaseUrl, hasSecret: !!cfg.sharedSecret, isDefault };
+    });
+
+    ipcMain.handle('sync-config:set', async (_event, { remoteBaseUrl, sharedSecret }) => {
+      // The renderer never gets the saved secret back (see sync-config:get),
+      // so if it sends an empty/undefined secret here, that means "leave it
+      // alone," not "clear it." Pass an empty string explicitly to clear.
+      const existing = readSyncConfig(app);
+      const nextSecret = sharedSecret === undefined ? existing.sharedSecret : sharedSecret;
+      writeSyncConfig(app, { remoteBaseUrl, sharedSecret: nextSecret });
+      try {
+        await restartBackend();
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err?.message ?? String(err) };
+      }
+    });
+
     startup();
   });
 

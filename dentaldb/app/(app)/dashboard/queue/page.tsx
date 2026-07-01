@@ -226,7 +226,7 @@ function QueueRow({ entry, onCall, onDone, onSkip, onInProgress, onCreateAppoint
             <>
               <button
                 onClick={() => onInProgress(entry.id)}
-                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 active:scale-95 transition-all"
+                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-brand-600 text-white rounded-lg hover:bg-brand-700 active:scale-95 transition-all"
               >
                 Start
               </button>

@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
@@ -8,8 +8,9 @@ import { OutboxService } from '../outbox/outbox.service';
 const POLL_INTERVAL_MS = 15_000;
 
 /**
- * Polls the configured remote backend's /health endpoint. On a transition
- * from offline -> online, triggers a full sync and drains the outbox.
+ * Polls the configured remote backend's /api/v1/health endpoint. On a
+ * transition from offline -> online, triggers a full sync and drains the
+ * outbox.
  *
  * Only meaningful when SYNC_REMOTE_BASE_URL is set (i.e. on the
  * Electron-bundled local/offline instance) — on a normal online-only
@@ -18,7 +19,7 @@ const POLL_INTERVAL_MS = 15_000;
  * correct since that instance never goes offline by definition.
  */
 @Injectable()
-export class ConnectivityService implements OnModuleInit {
+export class ConnectivityService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ConnectivityService.name);
   private isOnline = true; // optimistic default; corrected on first poll
   private timer?: NodeJS.Timeout;
@@ -48,7 +49,12 @@ export class ConnectivityService implements OnModuleInit {
   private async poll(remote: string) {
     const wasOnline = this.isOnline;
     try {
-      await firstValueFrom(this.http.get(`${remote}/health`, { timeout: 5000 }));
+      // remote is the bare origin (e.g. https://clinickarobar.com) —
+      // every route, including /health, sits under the global 'api/v1'
+      // prefix set in main.ts (setGlobalPrefix has no exclude list), so
+      // this must include it or every poll 404s and the app reads as
+      // permanently offline even with a correct URL and a live server.
+      await firstValueFrom(this.http.get(`${remote}/api/v1/health`, { timeout: 5000 }));
       this.isOnline = true;
     } catch {
       this.isOnline = false;

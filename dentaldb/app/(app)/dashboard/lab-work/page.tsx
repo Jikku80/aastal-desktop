@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { labApi, usersApi } from '@/lib/api';
 import Header from '@/components/layout/Header';
@@ -7,7 +7,7 @@ import { format } from 'date-fns';
 import {
   FlaskConical, Plus, Search, X, Loader2,
   AlertTriangle, CheckCircle2, Clock, Send, XCircle, Pencil, Trash2,
-  FileText, Beaker, User, ExternalLink,
+  FileText, Beaker, User, ExternalLink, TrendingUp, TrendingDown, AlertOctagon, ClipboardList,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import PatientCombobox from '@/components/ui/PatientCombobox';
@@ -15,13 +15,14 @@ import PatientCombobox from '@/components/ui/PatientCombobox';
 // ── Types ─────────────────────────────────────────────────────────────────────
 type LabStatus   = 'pending' | 'sent' | 'in_progress' | 'completed' | 'cancelled';
 type LabPriority = 'routine' | 'urgent' | 'stat';
+type ResultFlag = 'normal' | 'low' | 'high' | 'critical';
 
 interface ResultRow {
   parameter: string;
   value: string;
   unit?: string;
   referenceRange?: string;
-  flag?: 'normal' | 'low' | 'high' | 'critical';
+  flag?: ResultFlag;
 }
 
 interface LabWork {
@@ -65,14 +66,25 @@ const PRIORITY_META: Record<LabPriority, { label: string; color: string }> = {
   stat:    { label: 'STAT',    color: 'text-red-400' },
 };
 
-const FLAG_META: Record<string, { color: string; bg: string }> = {
-  normal:   { color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-  low:      { color: 'text-blue-400',    bg: 'bg-blue-500/10' },
-  high:     { color: 'text-amber-400',   bg: 'bg-amber-500/10' },
-  critical: { color: 'text-red-400',     bg: 'bg-red-500/10' },
+// Explicit flag metadata — always resolved from the row's own flag value,
+// falling back to "normal" only when a flag is genuinely absent.
+const FLAG_META: Record<ResultFlag, { label: string; color: string; bg: string; icon: any }> = {
+  normal:   { label: 'Normal',   color: 'text-emerald-400', bg: 'bg-emerald-500/10', icon: CheckCircle2 },
+  low:      { label: 'Low',      color: 'text-blue-400',    bg: 'bg-blue-500/10',    icon: TrendingDown },
+  high:     { label: 'High',     color: 'text-amber-400',   bg: 'bg-amber-500/10',   icon: TrendingUp   },
+  critical: { label: 'Critical', color: 'text-red-400',     bg: 'bg-red-500/10',     icon: AlertOctagon },
 };
 
-const EMPTY_RESULT: ResultRow = { parameter: '', value: '', unit: '', referenceRange: '', flag: 'normal' };
+function resolveFlag(flag?: string | null): ResultFlag {
+  return flag === 'low' || flag === 'high' || flag === 'critical' ? flag : 'normal';
+}
+
+let rowIdSeq = 0;
+const nextRowId = () => `row-${Date.now()}-${rowIdSeq++}`;
+
+const emptyResultRow = (): ResultRow & { _id: string } => ({
+  _id: nextRowId(), parameter: '', value: '', unit: '', referenceRange: '', flag: 'normal',
+});
 
 // ── Order Form ────────────────────────────────────────────────────────────────
 function OrderModal({
@@ -131,41 +143,41 @@ function OrderModal({
   });
 
   return (
-    <div className="fixed inset-0 z-[95] modal-clearance flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-2xl rounded-2xl overflow-hidden flex flex-col max-h-[90vh]"
-        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+    <div className="fixed inset-0 z-[95] modal-clearance flex items-end sm:items-center justify-center sm:p-4"
+      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+      onClick={onClose}>
+      <div className="relative w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl overflow-hidden flex flex-col max-h-[92vh] shadow-2xl animate-slide-up"
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+        onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4"
-          style={{ borderBottom: '1px solid var(--border)' }}>
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center">
-              <FlaskConical size={18} className="text-blue-400" />
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 shrink-0"
+          style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-brand-500/15 flex items-center justify-center shrink-0">
+              <FlaskConical size={18} className="text-brand-400" />
             </div>
-            <div>
-              <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-semibold text-[var(--text-primary)] truncate">
                 {initial ? 'Edit Lab Order' : 'New Lab Order'}
               </h2>
-              <p className="text-xs text-[var(--text-muted)]">
+              <p className="text-xs text-[var(--text-muted)] truncate">
                 {initial ? `Editing ${initial.testName}` : 'Create a new laboratory work order'}
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="btn-ghost w-8 h-8 p-0 justify-center">
+          <button onClick={onClose} className="btn-ghost w-8 h-8 p-0 justify-center shrink-0">
             <X size={16} />
           </button>
         </div>
 
         {/* Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-          <div className="px-6 py-5 space-y-4">
+          <div className="px-5 sm:px-6 py-5 space-y-4">
 
             {/* Patient */}
             <div>
-              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1.5 block">
-                Patient *
-              </label>
+              <label className="label">Patient *</label>
               <PatientCombobox
                 value={form.patientId}
                 onChange={(id, _patient) => setForm(f => ({ ...f, patientId: id }))}
@@ -173,37 +185,29 @@ function OrderModal({
             </div>
 
             {/* Test + Lab */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1.5 block">
-                  Test Name *
-                </label>
+                <label className="label">Test Name *</label>
                 <input {...field('testName')} required placeholder="CBC, Lipid Panel…" className="input w-full" />
               </div>
               <div>
-                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1.5 block">
-                  Laboratory
-                </label>
+                <label className="label">Laboratory</label>
                 <input {...field('labName')} placeholder="PathCare, CityLab…" className="input w-full" />
               </div>
             </div>
 
             {/* Description */}
             <div>
-              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1.5 block">
-                Test Description
-              </label>
+              <label className="label">Test Description</label>
               <textarea {...field('testDescription')} rows={2}
                 placeholder="Brief description of what this test covers…"
                 className="input w-full resize-none" />
             </div>
 
             {/* Priority + Ordered by */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1.5 block">
-                  Priority
-                </label>
+                <label className="label">Priority</label>
                 <select {...field('priority')} className="input w-full">
                   <option value="routine">Routine</option>
                   <option value="urgent">Urgent</option>
@@ -211,9 +215,7 @@ function OrderModal({
                 </select>
               </div>
               <div>
-                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1.5 block">
-                  Ordered By
-                </label>
+                <label className="label">Ordered By</label>
                 <select {...field('orderedById')} className="input w-full">
                   {staffData?.map((s: any) => (
                     <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>
@@ -224,32 +226,24 @@ function OrderModal({
 
             {/* Clinical notes */}
             <div>
-              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1.5 block">
-                Clinical Notes / Reason for Order
-              </label>
+              <label className="label">Clinical Notes / Reason for Order</label>
               <textarea {...field('clinicalNotes')} rows={3}
                 placeholder="Clinical indication, relevant history…"
                 className="input w-full resize-none" />
             </div>
 
             {/* Sample date + Ref + Cost */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1.5 block">
-                  Sample Date
-                </label>
+                <label className="label">Sample Date</label>
                 <input type="date" {...field('sampleCollectedAt')} className="input w-full" />
               </div>
               <div>
-                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1.5 block">
-                  Lab Ref / Accession
-                </label>
+                <label className="label">Lab Ref / Accession</label>
                 <input {...field('externalRef')} placeholder="LAB-2024-001" className="input w-full" />
               </div>
               <div>
-                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1.5 block">
-                  Cost
-                </label>
+                <label className="label">Cost</label>
                 <input type="number" min="0" step="0.01" {...field('cost')}
                   placeholder="0.00" className="input w-full" />
               </div>
@@ -257,8 +251,8 @@ function OrderModal({
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-4 flex justify-end gap-3"
-            style={{ borderTop: '1px solid var(--border)' }}>
+          <div className="px-5 sm:px-6 py-4 flex justify-end gap-3 shrink-0"
+            style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
             <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
             <button type="submit" disabled={saving || !form.patientId || !form.testName}
               className="btn-primary gap-2">
@@ -281,18 +275,20 @@ function ResultsModal({
   onSaved: () => void;
 }) {
   const qc = useQueryClient();
-  const [rows, setRows] = useState<ResultRow[]>(
-    lab.results?.length ? lab.results : [{ ...EMPTY_RESULT }]
+  const [rows, setRows] = useState<(ResultRow & { _id: string })[]>(
+    lab.results?.length
+      ? lab.results.map(r => ({ ...r, flag: resolveFlag(r.flag), _id: nextRowId() }))
+      : [emptyResultRow()]
   );
   const [summary, setSummary] = useState(lab.resultSummary ?? '');
   const [receivedAt, setReceivedAt] = useState(lab.resultsReceivedAt ?? '');
   const [saving, setSaving] = useState(false);
 
-  const setRow = (i: number, key: keyof ResultRow, val: string) =>
-    setRows(rs => rs.map((r, j) => j === i ? { ...r, [key]: val } : r));
+  const setRow = (id: string, key: keyof ResultRow, val: string) =>
+    setRows(rs => rs.map(r => r._id === id ? { ...r, [key]: val } : r));
 
-  const addRow   = () => setRows(rs => [...rs, { ...EMPTY_RESULT }]);
-  const removeRow = (i: number) => setRows(rs => rs.filter((_, j) => j !== i));
+  const addRow    = () => setRows(rs => [...rs, emptyResultRow()]);
+  const removeRow = (id: string) => setRows(rs => rs.filter(r => r._id !== id));
 
   const mut = useMutation({
     mutationFn: (d: any) => labApi.update(lab.id, d),
@@ -304,7 +300,9 @@ function ResultsModal({
     setSaving(true);
     try {
       await mut.mutateAsync({
-        results: rows.filter(r => r.parameter.trim()),
+        results: rows
+          .filter(r => r.parameter.trim())
+          .map(({ _id, ...r }) => ({ ...r, flag: resolveFlag(r.flag) })),
         resultSummary: summary,
         resultsReceivedAt: receivedAt || undefined,
         status: 'completed',
@@ -313,28 +311,33 @@ function ResultsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[95] modal-clearance flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-3xl rounded-2xl overflow-hidden flex flex-col max-h-[90vh]"
-        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+    <div className="fixed inset-0 z-[95] modal-clearance flex items-end sm:items-center justify-center sm:p-4"
+      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+      onClick={onClose}>
+      <div className="relative w-full sm:max-w-3xl rounded-t-3xl sm:rounded-2xl overflow-hidden flex flex-col max-h-[92vh] shadow-2xl animate-slide-up"
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+        onClick={e => e.stopPropagation()}>
 
-        <div className="flex items-center justify-between px-6 py-4"
-          style={{ borderBottom: '1px solid var(--border)' }}>
-          <div>
-            <h2 className="text-sm font-semibold text-[var(--text-primary)]">Enter Results</h2>
-            <p className="text-xs text-[var(--text-muted)]">{lab.testName} · {lab.patient.firstName} {lab.patient.lastName}</p>
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 shrink-0"
+          style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center shrink-0">
+              <Beaker size={18} className="text-emerald-400" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-semibold text-[var(--text-primary)]">Enter Results</h2>
+              <p className="text-xs text-[var(--text-muted)] truncate">{lab.testName} · {lab.patient.firstName} {lab.patient.lastName}</p>
+            </div>
           </div>
-          <button onClick={onClose} className="btn-ghost w-8 h-8 p-0 justify-center"><X size={16} /></button>
+          <button onClick={onClose} className="btn-ghost w-8 h-8 p-0 justify-center shrink-0"><X size={16} /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-          <div className="px-6 py-5 space-y-4">
+          <div className="px-5 sm:px-6 py-5 space-y-5">
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1.5 block">
-                  Results Received Date
-                </label>
+                <label className="label">Results Received Date</label>
                 <input type="date" value={receivedAt}
                   onChange={e => setReceivedAt(e.target.value)} className="input w-full" />
               </div>
@@ -342,83 +345,174 @@ function ResultsModal({
 
             {/* Results table */}
             <div>
-              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-2 block">
-                Result Parameters
-              </label>
-              <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <label className="label mb-0">Result Parameters</label>
+                <button type="button" onClick={addRow}
+                  className="btn-ghost text-xs px-2.5 py-1.5 gap-1 text-brand-400 hover:bg-brand-500/10">
+                  <Plus size={12} /> Add Parameter
+                </button>
+              </div>
+
+              {/* Mobile: stacked cards */}
+              <div className="sm:hidden space-y-2.5">
+                {rows.map(row => {
+                  const fm = FLAG_META[resolveFlag(row.flag)];
+                  return (
+                    <div key={row._id} className="p-3 rounded-xl relative"
+                      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderLeft: `3px solid currentColor` }}
+                      >
+                      <div className={fm.color}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider ${fm.color}`}>
+                            <fm.icon size={11} /> {fm.label}
+                          </span>
+                          <button type="button" onClick={() => removeRow(row._id)}
+                            className="btn-ghost w-6 h-6 p-0 justify-center text-red-400">
+                            <X size={12} />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input value={row.parameter} onChange={e => setRow(row._id, 'parameter', e.target.value)}
+                          placeholder="Parameter" className="input h-8 text-xs col-span-2" />
+                        <input value={row.value} onChange={e => setRow(row._id, 'value', e.target.value)}
+                          placeholder="Value" className="input h-8 text-xs" />
+                        <input value={row.unit ?? ''} onChange={e => setRow(row._id, 'unit', e.target.value)}
+                          placeholder="Unit" className="input h-8 text-xs" />
+                        <input value={row.referenceRange ?? ''} onChange={e => setRow(row._id, 'referenceRange', e.target.value)}
+                          placeholder="Ref range" className="input h-8 text-xs" />
+                        <select value={resolveFlag(row.flag)} onChange={e => setRow(row._id, 'flag', e.target.value)}
+                          className="input h-8 text-xs">
+                          <option value="normal">Normal</option>
+                          <option value="low">Low</option>
+                          <option value="high">High</option>
+                          <option value="critical">Critical</option>
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop: table */}
+              <div className="hidden sm:block rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
                 <table className="w-full text-xs">
                   <thead>
                     <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
                       {['Parameter', 'Value', 'Unit', 'Ref Range', 'Flag', ''].map(h => (
-                        <th key={h} className="text-left px-3 py-2 text-[var(--text-muted)] font-semibold uppercase tracking-wider">{h}</th>
+                        <th key={h} className="text-left px-3 py-2.5 text-[var(--text-muted)] font-semibold uppercase tracking-wider">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td className="px-2 py-1.5">
-                          <input value={row.parameter} onChange={e => setRow(i, 'parameter', e.target.value)}
-                            placeholder="Hemoglobin" className="input h-7 text-xs w-full min-w-[100px]" />
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <input value={row.value} onChange={e => setRow(i, 'value', e.target.value)}
-                            placeholder="14.2" className="input h-7 text-xs w-20" />
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <input value={row.unit ?? ''} onChange={e => setRow(i, 'unit', e.target.value)}
-                            placeholder="g/dL" className="input h-7 text-xs w-16" />
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <input value={row.referenceRange ?? ''} onChange={e => setRow(i, 'referenceRange', e.target.value)}
-                            placeholder="12–17" className="input h-7 text-xs w-24" />
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <select value={row.flag ?? 'normal'} onChange={e => setRow(i, 'flag', e.target.value as any)}
-                            className="input h-7 text-xs">
-                            <option value="normal">Normal</option>
-                            <option value="low">Low</option>
-                            <option value="high">High</option>
-                            <option value="critical">Critical</option>
-                          </select>
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <button type="button" onClick={() => removeRow(i)}
-                            className="btn-ghost w-6 h-6 p-0 justify-center text-red-400 hover:bg-red-500/10">
-                            <X size={12} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {rows.map(row => {
+                      const currentFlag = resolveFlag(row.flag);
+                      const fm = FLAG_META[currentFlag];
+                      return (
+                        <tr key={row._id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td className="px-2 py-1.5">
+                            <input value={row.parameter} onChange={e => setRow(row._id, 'parameter', e.target.value)}
+                              placeholder="Hemoglobin" className="input h-8 text-xs w-full min-w-[110px]" />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input value={row.value} onChange={e => setRow(row._id, 'value', e.target.value)}
+                              placeholder="14.2" className="input h-8 text-xs w-20" />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input value={row.unit ?? ''} onChange={e => setRow(row._id, 'unit', e.target.value)}
+                              placeholder="g/dL" className="input h-8 text-xs w-16" />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input value={row.referenceRange ?? ''} onChange={e => setRow(row._id, 'referenceRange', e.target.value)}
+                              placeholder="12–17" className="input h-8 text-xs w-24" />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <div className="relative">
+                              <select value={currentFlag} onChange={e => setRow(row._id, 'flag', e.target.value)}
+                                className={`input h-8 text-xs pl-6 font-medium ${fm.color}`}>
+                                <option value="normal">Normal</option>
+                                <option value="low">Low</option>
+                                <option value="high">High</option>
+                                <option value="critical">Critical</option>
+                              </select>
+                              <fm.icon size={12} className={`absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none ${fm.color}`} />
+                            </div>
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <button type="button" onClick={() => removeRow(row._id)}
+                              className="btn-ghost w-6 h-6 p-0 justify-center text-red-400 hover:bg-red-500/10">
+                              <X size={12} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-              <button type="button" onClick={addRow}
-                className="mt-2 btn-ghost text-xs gap-1.5 text-[var(--text-muted)]">
-                <Plus size={12} /> Add Parameter
-              </button>
             </div>
 
             {/* Summary */}
             <div>
-              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1.5 block">
-                Result Summary / Interpretation
-              </label>
+              <label className="label">Result Summary / Interpretation</label>
               <textarea value={summary} onChange={e => setSummary(e.target.value)}
                 rows={3} placeholder="Overall interpretation, key findings…"
                 className="input w-full resize-none" />
             </div>
           </div>
 
-          <div className="px-6 py-4 flex justify-end gap-3" style={{ borderTop: '1px solid var(--border)' }}>
+          <div className="px-5 sm:px-6 py-4 flex justify-end gap-3 shrink-0"
+            style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
             <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
             <button type="submit" disabled={saving} className="btn-primary gap-2">
               {saving && <Loader2 size={14} className="animate-spin" />}
-              Save Results & Complete
+              Save Results &amp; Complete
             </button>
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+// ── Results Table (read-only display, shared by detail panel) ─────────────────
+function ResultsTable({ results }: { results: ResultRow[] }) {
+  return (
+    <div className="rounded-xl overflow-auto" style={{ border: '1px solid var(--border)' }}>
+      <table className="w-full text-xs min-w-[420px]">
+        <thead>
+          <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
+            {['Parameter', 'Value', 'Reference', 'Flag'].map(h => (
+              <th key={h} className="text-left px-3 py-2.5 text-[var(--text-muted)] font-semibold uppercase tracking-wider whitespace-nowrap">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {results.map((r, i) => {
+            const currentFlag = resolveFlag(r.flag);
+            const fm = FLAG_META[currentFlag];
+            const FlagIcon = fm.icon;
+            return (
+              <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td className="px-3 py-2.5 font-medium text-[var(--text-primary)]">
+                  {r.parameter || <span className="text-[var(--text-muted)] italic">—</span>}
+                </td>
+                <td className="px-3 py-2.5 font-mono text-[var(--text-primary)]">
+                  {r.value ? `${r.value}${r.unit ? ` ${r.unit}` : ''}` : <span className="text-[var(--text-muted)]">—</span>}
+                </td>
+                <td className="px-3 py-2.5 text-[var(--text-muted)] font-mono">
+                  {r.referenceRange || '—'}
+                </td>
+                <td className="px-3 py-2.5">
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${fm.color} ${fm.bg}`}>
+                    <FlagIcon size={10} />{fm.label}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -437,6 +531,8 @@ function LabDetailPanel({
   const meta = STATUS_META[lab.status];
   const StatusIcon = meta.icon;
   const priorityMeta = PRIORITY_META[lab.priority];
+  const criticalCount = lab.results?.filter(r => resolveFlag(r.flag) === 'critical').length ?? 0;
+  const abnormalCount = lab.results?.filter(r => resolveFlag(r.flag) !== 'normal').length ?? 0;
 
   return (
     <div className="flex flex-col h-full">
@@ -444,8 +540,8 @@ function LabDetailPanel({
       <div className="px-5 py-4 flex items-start justify-between"
         style={{ borderBottom: '1px solid var(--border)' }}>
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
-            <FlaskConical size={20} className="text-blue-400" />
+          <div className="w-10 h-10 rounded-xl bg-brand-500/15 flex items-center justify-center shrink-0">
+            <FlaskConical size={20} className="text-brand-400" />
           </div>
           <div className="min-w-0">
             <h3 className="font-semibold text-[var(--text-primary)] truncate">{lab.testName}</h3>
@@ -464,6 +560,11 @@ function LabDetailPanel({
             <StatusIcon size={11} />{meta.label}
           </span>
           <span className={`text-xs font-medium ${priorityMeta.color}`}>{priorityMeta.label}</span>
+          {criticalCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">
+              <AlertOctagon size={10} /> {criticalCount} critical
+            </span>
+          )}
           {lab.externalRef && (
             <span className="text-xs text-[var(--text-muted)] font-mono bg-[var(--bg-elevated)] px-2 py-0.5 rounded">
               #{lab.externalRef}
@@ -534,42 +635,13 @@ function LabDetailPanel({
         {/* Results */}
         {lab.results?.length ? (
           <div>
-            <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-2">Results</p>
-            <div className="rounded-xl overflow-auto" style={{ border: '1px solid var(--border)' }}>
-              <table className="w-full text-xs min-w-[400px]">
-                <thead>
-                  <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
-                    {['Parameter', 'Value', 'Reference', 'Flag'].map(h => (
-                      <th key={h} className="text-left px-3 py-2 text-[var(--text-muted)] font-semibold uppercase tracking-wider whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {lab.results.map((r, i) => {
-                    const flagKey = r.flag ?? 'normal';
-                    const fm = FLAG_META[flagKey] ?? FLAG_META.normal;
-                    return (
-                      <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td className="px-3 py-2 font-medium text-[var(--text-primary)]">
-                          {r.parameter || <span className="text-[var(--text-muted)] italic">—</span>}
-                        </td>
-                        <td className="px-3 py-2 font-mono text-[var(--text-primary)]">
-                          {r.value ? `${r.value}${r.unit ? ` ${r.unit}` : ''}` : <span className="text-[var(--text-muted)]">—</span>}
-                        </td>
-                        <td className="px-3 py-2 text-[var(--text-muted)] font-mono">
-                          {r.referenceRange || '—'}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium capitalize ${fm.color} ${fm.bg}`}>
-                            {r.flag || 'normal'}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Results</p>
+              {abnormalCount > 0 && (
+                <span className="text-[10px] text-amber-400 font-medium">{abnormalCount} abnormal</span>
+              )}
             </div>
+            <ResultsTable results={lab.results} />
           </div>
         ) : null}
 
@@ -634,7 +706,7 @@ function LabDetailPanel({
         </button>
         <div className="flex gap-2">
           {lab.status !== 'completed' && lab.status !== 'cancelled' && (
-            <button onClick={onEnterResults} className="btn-ghost text-xs gap-1.5">
+            <button onClick={onEnterResults} className="btn-secondary text-xs gap-1.5">
               <Beaker size={13} /> Enter Results
             </button>
           )}
@@ -712,7 +784,7 @@ export default function LabWorkPage() {
     <div className="flex flex-col h-screen">
       <Header
         title="Lab Work"
-        subtitle="Manage lab"
+        subtitle="Manage lab orders & results"
         action={isBranchInactive ? undefined : {
           label: 'New Order',
           icon: Plus,
@@ -736,25 +808,31 @@ export default function LabWorkPage() {
         {!isBranchInactive && (<>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
           {[
-            { label: 'Total Orders',  value: statsData?.total      ?? 0, color: 'text-[var(--text-primary)]' },
-            { label: 'Pending',       value: statsData?.pending     ?? 0, color: 'text-amber-400' },
-            { label: 'In Progress',   value: statsData?.inProgress  ?? 0, color: 'text-purple-400' },
-            { label: 'Completed',     value: statsData?.completed   ?? 0, color: 'text-emerald-400' },
+            { label: 'Total Orders',  value: statsData?.total      ?? 0, color: 'text-[var(--text-primary)]', icon: ClipboardList, iconColor: 'text-brand-400',   iconBg: 'bg-brand-500/10' },
+            { label: 'Pending',       value: statsData?.pending     ?? 0, color: 'text-amber-400',            icon: Clock,          iconColor: 'text-amber-400',   iconBg: 'bg-amber-500/10' },
+            { label: 'In Progress',   value: statsData?.inProgress  ?? 0, color: 'text-purple-400',           icon: Beaker,         iconColor: 'text-purple-400',  iconBg: 'bg-purple-500/10' },
+            { label: 'Completed',     value: statsData?.completed   ?? 0, color: 'text-emerald-400',          icon: CheckCircle2,   iconColor: 'text-emerald-400', iconBg: 'bg-emerald-500/10' },
           ].map(c => (
-            <div key={c.label} className="rounded-xl p-3 sm:p-4"
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-              <p className="text-[10px] sm:text-xs text-[var(--text-muted)]">{c.label}</p>
-              <p className={`text-xl sm:text-2xl font-bold mt-1 ${c.color}`}>{c.value}</p>
+            <div key={c.label} className="rounded-2xl p-3 sm:p-4 flex items-center gap-3"
+              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+              <div className={`w-9 h-9 rounded-xl ${c.iconBg} flex items-center justify-center shrink-0`}>
+                <c.icon size={16} className={c.iconColor} />
+              </div>
+              <div className="min-w-0">
+                <p className={`text-lg sm:text-2xl font-bold leading-tight ${c.color}`}>{c.value}</p>
+                <p className="text-[10px] sm:text-xs text-[var(--text-muted)] truncate">{c.label}</p>
+              </div>
             </div>
           ))}
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          <div className="relative">
+        <div className="rounded-2xl p-3 mb-4 flex flex-wrap gap-2"
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="relative flex-1 min-w-[160px]">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
             <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-              placeholder="Search test, patient…" className="input pl-8 w-52 h-9 text-sm" />
+              placeholder="Search test, patient…" className="input pl-8 w-full h-9 text-sm" />
           </div>
           <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
             className="input h-9 text-sm">
@@ -781,8 +859,8 @@ export default function LabWorkPage() {
         <div className="flex gap-4">
 
           {/* Table */}
-          <div className={`flex-1 min-w-0 rounded-xl overflow-hidden transition-all ${detailLab ? 'hidden lg:block' : ''}`}
-            style={{ border: '1px solid var(--border)' }}>
+          <div className={`flex-1 min-w-0 rounded-2xl overflow-hidden transition-all ${detailLab ? 'hidden lg:block' : ''}`}
+            style={{ border: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
             {isLoading ? (
               <div className="text-center py-20">
                 <Loader2 size={24} className="animate-spin mx-auto text-[var(--text-muted)]" />
@@ -796,7 +874,7 @@ export default function LabWorkPage() {
                 </button>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto table-scroll-wrap">
                 <table className="w-full text-sm">
                   <thead>
                     <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
@@ -812,7 +890,7 @@ export default function LabWorkPage() {
                       const sm = STATUS_META[lab.status];
                       const SI = sm.icon;
                       const pm = PRIORITY_META[lab.priority];
-                      const hasCritical = lab.results?.some(r => r.flag === 'critical');
+                      const hasCritical = lab.results?.some(r => resolveFlag(r.flag) === 'critical');
 
                       return (
                         <tr key={lab.id}
@@ -875,18 +953,32 @@ export default function LabWorkPage() {
 
           {/* Detail panel */}
           {detailLab && (
-            <div className="w-full lg:w-[380px] shrink-0 rounded-xl flex flex-col"
-              style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', maxHeight: 'calc(100vh - 180px)', overflowY: 'auto' }}>
-              <LabDetailPanel
-                lab={detailLab}
-                onClose={() => setDetailLab(null)}
-                onEdit={() => { setOrderModal(detailLab); setDetailLab(null); }}
-                onEnterResults={() => { setResultsModal(detailLab); setDetailLab(null); }}
-                onDelete={() => {
-                  if (confirm('Delete this lab order?')) deleteMut.mutate(detailLab.id);
-                }}
-                onStatusChange={status => statusMut.mutate({ id: detailLab.id, status })}
-              />
+            <div className="fixed inset-0 z-[92] lg:static lg:z-auto lg:w-[380px] shrink-0 rounded-none lg:rounded-2xl flex flex-col"
+              style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', maxHeight: '100dvh', top: 0 }}>
+              <div className="hidden lg:block" style={{ maxHeight: 'calc(100vh - 180px)', overflowY: 'auto' }}>
+                <LabDetailPanel
+                  lab={detailLab}
+                  onClose={() => setDetailLab(null)}
+                  onEdit={() => { setOrderModal(detailLab); setDetailLab(null); }}
+                  onEnterResults={() => { setResultsModal(detailLab); setDetailLab(null); }}
+                  onDelete={() => {
+                    if (confirm('Delete this lab order?')) deleteMut.mutate(detailLab.id);
+                  }}
+                  onStatusChange={status => statusMut.mutate({ id: detailLab.id, status })}
+                />
+              </div>
+              <div className="lg:hidden flex flex-col h-full" style={{ background: 'var(--bg-base)', paddingTop: 'var(--header-offset)' }}>
+                <LabDetailPanel
+                  lab={detailLab}
+                  onClose={() => setDetailLab(null)}
+                  onEdit={() => { setOrderModal(detailLab); setDetailLab(null); }}
+                  onEnterResults={() => { setResultsModal(detailLab); setDetailLab(null); }}
+                  onDelete={() => {
+                    if (confirm('Delete this lab order?')) deleteMut.mutate(detailLab.id);
+                  }}
+                  onStatusChange={status => statusMut.mutate({ id: detailLab.id, status })}
+                />
+              </div>
             </div>
           )}
         </div>

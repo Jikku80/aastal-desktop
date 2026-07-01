@@ -3,162 +3,129 @@
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Design tokens ──────────────────────────────────────────────────────────
+// Palette: paper (warm white), ink (deep pine-black), pine (primary teal),
+// amber (sparing highlight), slate (muted body), line (hairline borders).
 const globalStyles = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
   *, *::before, *::after { box-sizing: border-box; }
-
   html { scroll-behavior: smooth; }
 
-  .ck-nav-link {
+  :root {
+    --paper: #fffefb;
+    --paper-soft: #f5f6f2;
+    --ink: #10231c;
+    --pine: #0b6e5d;
+    --pine-soft: #e5f1ec;
+    --pine-dark: #084f43;
+    --amber: #b9752b;
+    --amber-soft: #f7ecdc;
+    --slate: #55655f;
+    --line: #e3e6e0;
+  }
+
+  .aa-serif { font-family: 'Instrument Serif', Georgia, serif; }
+  .aa-mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+
+  .aa-eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--pine);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.875rem;
+  }
+  .aa-eyebrow::before {
+    content: '';
+    width: 14px;
+    height: 1px;
+    background: var(--pine);
+    display: inline-block;
+  }
+
+  .aa-nav-link {
     font-size: 0.875rem;
-    padding: 0.5rem 1rem;
+    font-weight: 500;
+    padding: 0.5rem 0.875rem;
     border-radius: 0.5rem;
-    color: rgba(255,255,255,0.5);
+    color: var(--slate);
     transition: color 0.2s, background 0.2s;
     text-decoration: none;
   }
-  .ck-nav-link:hover { color: #fff; background: rgba(255,255,255,0.06); }
+  .aa-nav-link:hover { color: var(--ink); background: var(--paper-soft); }
 
-  .ck-btn-primary {
+  .aa-btn-primary {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    padding: 0.875rem 2rem;
-    border-radius: 0.75rem;
+    padding: 0.875rem 1.875rem;
+    border-radius: 0.625rem;
     font-weight: 700;
     font-size: 0.9375rem;
     color: #fff;
-    background: #0e9de8;
+    background: var(--pine);
     border: none;
     cursor: pointer;
-    transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
+    transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
     text-decoration: none;
-    box-shadow: 0 4px 18px rgba(14,157,232,0.3);
+    box-shadow: 0 6px 20px rgba(11,110,93,0.22);
   }
-  .ck-btn-primary:hover {
-    background: #0b8acc;
-    box-shadow: 0 6px 28px rgba(14,157,232,0.45);
-    transform: translateY(-1px);
-  }
+  .aa-btn-primary:hover { background: var(--pine-dark); transform: translateY(-1px); box-shadow: 0 8px 26px rgba(11,110,93,0.3); }
 
-  .ck-btn-outline-dark {
+  .aa-btn-outline {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    padding: 0.875rem 2rem;
-    border-radius: 0.75rem;
+    padding: 0.875rem 1.875rem;
+    border-radius: 0.625rem;
     font-weight: 600;
     font-size: 0.9375rem;
-    color: rgba(255,255,255,0.65);
+    color: var(--ink);
     background: transparent;
-    border: 1px solid rgba(255,255,255,0.12);
+    border: 1px solid var(--line);
     cursor: pointer;
-    transition: color 0.2s, border-color 0.2s, transform 0.15s;
+    transition: border-color 0.2s, background 0.2s, transform 0.15s;
     text-decoration: none;
   }
-  .ck-btn-outline-dark:hover {
-    color: #fff;
-    border-color: rgba(255,255,255,0.28);
-    transform: translateY(-1px);
-  }
+  .aa-btn-outline:hover { border-color: var(--pine); background: var(--pine-soft); transform: translateY(-1px); }
 
-  .ck-btn-outline-light {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    padding: 0.875rem 2rem;
-    border-radius: 0.75rem;
-    font-weight: 600;
-    font-size: 0.9375rem;
-    color: #374151;
-    background: transparent;
-    border: 1px solid #d1d5db;
-    cursor: pointer;
-    transition: color 0.2s, border-color 0.2s, background 0.2s;
-    text-decoration: none;
-  }
-  .ck-btn-outline-light:hover {
-    color: #111827;
-    border-color: #9ca3af;
-    background: #f9fafb;
-  }
-
-  .feature-card {
+  .aa-card {
+    background: #fff;
+    border: 1px solid var(--line);
     border-radius: 1rem;
-    padding: 1.75rem;
-    transition: box-shadow 0.2s, border-color 0.2s;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
   }
-  .feature-card-light {
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-  }
-  .feature-card-light:hover {
-    border-color: rgba(14,157,232,0.3);
-    box-shadow: 0 4px 24px rgba(14,157,232,0.08);
-  }
-  .feature-card-dark {
-    background: #111827;
-    border: 1px solid rgba(255,255,255,0.07);
-  }
-  .feature-card-dark:hover {
-    border-color: rgba(14,157,232,0.2);
-  }
+  .aa-card:hover { border-color: rgba(11,110,93,0.28); box-shadow: 0 10px 30px rgba(16,35,28,0.06); transform: translateY(-2px); }
 
-  .pricing-card {
-    border-radius: 1.25rem;
-    padding: 2rem;
-    display: flex;
-    flex-direction: column;
-    transition: box-shadow 0.2s;
-  }
-
-  .testimonial-card {
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 1rem;
-    padding: 1.75rem;
-    transition: border-color 0.2s, box-shadow 0.2s;
-  }
-  .testimonial-card:hover {
-    border-color: rgba(14,157,232,0.25);
-    box-shadow: 0 4px 20px rgba(14,157,232,0.07);
-  }
-
-  .step-line {
-    position: absolute;
-    top: 2rem;
-    left: calc(100% - 0.5rem);
-    width: calc(100% - 1rem);
-    height: 1px;
-    background: linear-gradient(90deg, #0e9de8, transparent);
-    pointer-events: none;
-  }
-
-  .mockup-tilt {
-    transform: perspective(1200px) rotateX(8deg) scale(0.97);
-    transform-origin: top center;
-    border-radius: 1rem;
-    overflow: hidden;
-    box-shadow: 0 48px 100px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.07);
-  }
-
-  @media (max-width: 640px) {
-    .mockup-tilt { transform: none; box-shadow: 0 24px 60px rgba(0,0,0,0.5); }
-  }
-
-  .section-eyebrow {
+  .aa-tag {
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 0.6875rem;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: #0e9de8;
-    display: block;
-    margin-bottom: 0.75rem;
+    font-weight: 500;
+    padding: 3px 9px;
+    border-radius: 0.375rem;
+    background: var(--pine-soft);
+    color: var(--pine-dark);
+    display: inline-block;
+  }
+
+  .aa-thread-dash { stroke-dasharray: 3 7; }
+
+  .aa-tilt {
+    transform: perspective(1400px) rotateX(4deg) scale(0.985);
+    transform-origin: top center;
+    border-radius: 1.125rem;
+    overflow: hidden;
+    box-shadow: 0 40px 90px rgba(16,35,28,0.14), 0 0 0 1px rgba(16,35,28,0.05);
+  }
+  @media (max-width: 640px) {
+    .aa-tilt { transform: none; box-shadow: 0 20px 50px rgba(16,35,28,0.12); }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -166,7 +133,98 @@ const globalStyles = `
   }
 `;
 
-// ─── Counter ──────────────────────────────────────────────────────────────────
+// ─── Icons (inline, monochrome, minimal) ───────────────────────────────────
+const Icon = {
+  pulse: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12h4l2-7 4 14 2-7h6" />
+    </svg>
+  ),
+  calendar: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  ),
+  users: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
+  invoice: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1" y="4" width="22" height="16" rx="2" /><line x1="1" y1="10" x2="23" y2="10" />
+    </svg>
+  ),
+  building: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
+  ),
+  clock: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+    </svg>
+  ),
+  bars: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  ),
+  share: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.6" y1="10.5" x2="15.4" y2="6.5" /><line x1="8.6" y1="13.5" x2="15.4" y2="17.5" />
+    </svg>
+  ),
+  family: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="3" /><circle cx="17" cy="6" r="2.5" /><path d="M2 21v-2a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v2" /><path d="M15 12a4 4 0 0 1 4 4v2" />
+    </svg>
+  ),
+  shield: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11z" />
+    </svg>
+  ),
+  star: (p: any) => (
+    <svg width={p.s || 14} height={p.s || 14} viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+  ),
+  check: (p: any) => (
+    <svg width={p.s || 14} height={p.s || 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
+  ),
+  cross: (p: any) => (
+    <svg width={p.s || 14} height={p.s || 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+  ),
+  arrow: (p: any) => (
+    <svg width={p.s || 16} height={p.s || 16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
+  ),
+  desktop: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="13" rx="1.5" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
+    </svg>
+  ),
+  mobile: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="6" y="2" width="12" height="20" rx="2.5" /><line x1="10" y1="19" x2="14" y2="19" />
+    </svg>
+  ),
+  cloud: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.4-1.5A4.5 4.5 0 0 0 6.5 19h11z" />
+    </svg>
+  ),
+  stethoscope: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4.5 3v6a4.5 4.5 0 0 0 9 0V3" /><path d="M9 13.5V16a5 5 0 0 0 10 0v-1.5" /><circle cx="19" cy="12" r="1.75" />
+    </svg>
+  ),
+  folder: (p: any) => (
+    <svg width={p.s || 20} height={p.s || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </svg>
+  ),
+};
+
+// ─── Counter ────────────────────────────────────────────────────────────────
 function Counter({ end, suffix = "" }: { end: number; suffix?: string }) {
   const [count, setCount] = useState(0);
   const ref = useRef<HTMLSpanElement>(null);
@@ -175,8 +233,8 @@ function Counter({ end, suffix = "" }: { end: number; suffix?: string }) {
       ([entry]) => {
         if (!entry.isIntersecting) return;
         let start = 0;
-        const duration = 1400;
-        const steps = 50;
+        const duration = 1300;
+        const steps = 46;
         const step = end / steps;
         const interval = duration / steps;
         const timer = setInterval(() => {
@@ -194,20 +252,34 @@ function Counter({ end, suffix = "" }: { end: number; suffix?: string }) {
   return <span ref={ref}>{count.toLocaleString()}{suffix}</span>;
 }
 
-// ─── Nav ──────────────────────────────────────────────────────────────────────
+// ─── Nav ────────────────────────────────────────────────────────────────────
+function Logo({ dark = false }: { dark?: boolean }) {
+  return (
+    <Link href="/" style={{ display: "flex", alignItems: "center", gap: "0.625rem", textDecoration: "none" }}>
+      <div style={{ width: 32, height: 32, borderRadius: "0.625rem", background: "var(--pine)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 12h4l2-7 4 14 2-7h6" />
+        </svg>
+      </div>
+      <span style={{ fontWeight: 800, fontSize: "1.15rem", color: dark ? "#fff" : "var(--ink)", letterSpacing: "-0.02em" }}>Aastal</span>
+    </Link>
+  );
+}
+
 function Nav() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 24);
+    const fn = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", fn, { passive: true });
     return () => window.removeEventListener("scroll", fn);
   }, []);
 
   const links = [
-    { label: "Features", href: "#features" },
-    { label: "How it works", href: "#how" },
+    { label: "Platform", href: "#platform" },
+    { label: "For clinics", href: "#clinics" },
+    { label: "For patients", href: "#audiences" },
     { label: "Pricing", href: "#pricing" },
   ];
 
@@ -217,73 +289,51 @@ function Nav() {
       <nav
         className="fixed top-0 left-0 right-0 z-50 transition-all duration-300"
         style={{
-          background: scrolled ? "rgba(7,9,17,0.97)" : "transparent",
-          backdropFilter: scrolled ? "blur(20px)" : "none",
-          borderBottom: scrolled ? "1px solid rgba(255,255,255,0.07)" : "1px solid transparent",
+          background: scrolled ? "rgba(255,254,251,0.92)" : "transparent",
+          backdropFilter: scrolled ? "blur(16px)" : "none",
+          borderBottom: scrolled ? "1px solid var(--line)" : "1px solid transparent",
         }}
       >
         <div className="max-w-7xl mx-auto px-5 sm:px-8 flex items-center justify-between h-16">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 shrink-0" style={{ textDecoration: "none" }}>
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center"
-              style={{ background: "#0e9de8" }}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M9 22V12h6v10" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <span style={{ fontWeight: 800, fontSize: "1.15rem", color: "#fff", letterSpacing: "-0.02em" }}>
-              Clinic<span style={{ color: "#0e9de8" }}>Karobar</span>
-            </span>
-          </Link>
+          <Logo />
 
-          {/* Desktop */}
           <div className="hidden md:flex items-center gap-1">
             {links.map(({ label, href }) => (
-              <a key={label} href={href} className="ck-nav-link">{label}</a>
+              <a key={label} href={href} className="aa-nav-link">{label}</a>
             ))}
           </div>
 
           <div className="hidden md:flex items-center gap-3">
-            <Link href="/auth/login" className="ck-nav-link">Sign in</Link>
-            <Link href="/auth/register" className="ck-btn-primary" style={{ padding: "0.5rem 1.25rem", fontSize: "0.875rem", borderRadius: "0.625rem" }}>
-              Start free trial
+            <Link href="/auth/login" className="aa-nav-link">Sign in</Link>
+            <Link href="/auth/register" className="aa-btn-primary" style={{ padding: "0.5rem 1.25rem", fontSize: "0.875rem", borderRadius: "0.5rem" }}>
+              Get started free
             </Link>
           </div>
 
           <button
             onClick={() => setMobileOpen(v => !v)}
             className="md:hidden p-2 rounded-lg"
-            style={{ color: "rgba(255,255,255,0.6)", background: "transparent", border: "none", cursor: "pointer" }}
+            style={{ color: "var(--ink)", background: "transparent", border: "none", cursor: "pointer" }}
           >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              {mobileOpen
-                ? <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>
-                : <><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></>
-              }
-            </svg>
+            {mobileOpen ? <Icon.cross s={22} /> : (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            )}
           </button>
         </div>
 
         {mobileOpen && (
-          <div style={{ background: "#070911", borderTop: "1px solid rgba(255,255,255,0.07)" }} className="md:hidden px-5 py-4">
+          <div style={{ background: "var(--paper)", borderTop: "1px solid var(--line)" }} className="md:hidden px-5 py-4">
             {links.map(({ label, href }) => (
               <a key={label} href={href} onClick={() => setMobileOpen(false)}
                 className="block text-sm py-3"
-                style={{ color: "rgba(255,255,255,0.55)", borderBottom: "1px solid rgba(255,255,255,0.05)", textDecoration: "none" }}
+                style={{ color: "var(--slate)", borderBottom: "1px solid var(--line)", textDecoration: "none", fontWeight: 500 }}
               >{label}</a>
             ))}
             <div className="flex flex-col gap-2 pt-4">
-              <Link href="/auth/login"
-                className="text-center text-sm py-3 rounded-xl"
-                style={{ color: "rgba(255,255,255,0.55)", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                Sign in
-              </Link>
-              <Link href="/auth/register" className="ck-btn-primary" style={{ borderRadius: "0.75rem", justifyContent: "center" }}>
-                Start free trial
-              </Link>
+              <Link href="/auth/login" className="aa-btn-outline" style={{ justifyContent: "center" }}>Sign in</Link>
+              <Link href="/auth/register" className="aa-btn-primary" style={{ justifyContent: "center" }}>Get started free</Link>
             </div>
           </div>
         )}
@@ -292,187 +342,101 @@ function Nav() {
   );
 }
 
-// ─── Hero ─────────────────────────────────────────────────────────────────────
+// ─── Hero ───────────────────────────────────────────────────────────────────
 function Hero() {
   return (
-    <section
-      className="relative overflow-hidden"
-      style={{
-        background: "#070911",
-        paddingTop: "6rem",
-        paddingBottom: "0",
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      {/* Subtle radial highlight — single, restrained */}
+    <section style={{ background: "var(--paper)", paddingTop: "7.5rem", paddingBottom: "4rem", position: "relative", overflow: "hidden" }}>
       <div
         className="absolute pointer-events-none"
-        style={{
-          top: "-160px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          width: "800px",
-          height: "560px",
-          borderRadius: "50%",
-          background: "radial-gradient(ellipse at center, rgba(14,157,232,0.12) 0%, transparent 68%)",
-        }}
+        style={{ top: "-120px", left: "50%", transform: "translateX(-50%)", width: 900, height: 500, borderRadius: "50%", background: "radial-gradient(ellipse at center, rgba(11,110,93,0.07) 0%, transparent 70%)" }}
       />
 
-      <div className="relative max-w-5xl mx-auto px-5 sm:px-8 text-center flex-1 flex flex-col items-center justify-center py-16 sm:py-20">
+      <div className="relative max-w-5xl mx-auto px-5 sm:px-8 text-center">
+        <span className="aa-eyebrow" style={{ justifyContent: "center" }}>One record. Every screen.</span>
 
-        {/* Eyebrow pill */}
-        <div
-          className="inline-flex items-center gap-2 mb-8 px-4 py-1.5 rounded-full text-xs font-semibold"
-          style={{
-            background: "rgba(14,157,232,0.08)",
-            border: "1px solid rgba(14,157,232,0.18)",
-            color: "#5bbfe8",
-          }}
-        >
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#0e9de8", display: "inline-block" }} />
-          Trusted by 500+ clinics across Nepal
-        </div>
-
-        {/* Headline */}
         <h1
-          style={{
-            fontWeight: 900,
-            fontSize: "clamp(2.4rem, 7.5vw, 5.25rem)",
-            lineHeight: 1.0,
-            letterSpacing: "-0.03em",
-            color: "#fff",
-            marginBottom: "1.5rem",
-            maxWidth: "820px",
-          }}
+          className="aa-serif"
+          style={{ fontWeight: 400, fontSize: "clamp(2.5rem, 7vw, 4.75rem)", lineHeight: 1.04, letterSpacing: "-0.01em", color: "var(--ink)", marginBottom: "1.5rem", maxWidth: 860, marginLeft: "auto", marginRight: "auto" }}
         >
-          The clinic platform<br />
-          <span
-            style={{
-              background: "linear-gradient(92deg, #38b8f8 10%, #0e9de8 55%, #0272c0 100%)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-            }}
-          >
-            built for Nepal.
-          </span>
+          Healthcare, connected — for clinics, doctors, and the people they treat.
         </h1>
 
-        <p
-          style={{
-            fontSize: "clamp(1rem, 2.5vw, 1.2rem)",
-            color: "rgba(255,255,255,0.45)",
-            maxWidth: "600px",
-            lineHeight: 1.7,
-            marginBottom: "2.5rem",
-          }}
-        >
-          Appointments, patients, billing, staff, and branches — all unified.
-          With eSewa & Khalti, VAT invoicing, and multi-branch support built in.
+        <p style={{ fontSize: "clamp(1rem, 2.2vw, 1.1875rem)", color: "var(--slate)", maxWidth: 600, lineHeight: 1.7, marginBottom: "2.25rem", marginLeft: "auto", marginRight: "auto" }}>
+          Aastal is one platform with a web dashboard for clinics and hospitals, a desktop app for offline
+          front desks, and a mobile app patients and doctors carry everywhere.
         </p>
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-6" style={{ width: "100%" }}>
-          <Link href="/auth/register" className="ck-btn-primary" style={{ minWidth: 200 }}>
-            Get started free
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-4">
+          <Link href="/auth/register" className="aa-btn-primary" style={{ minWidth: 210 }}>
+            Get started free <Icon.arrow />
           </Link>
-          <Link href="#pricing" className="ck-btn-outline-dark" style={{ minWidth: 160 }}>
-            View pricing
+          <Link href="#platform" className="aa-btn-outline" style={{ minWidth: 190 }}>
+            See the platform
           </Link>
         </div>
 
-        {/* Trust row */}
-        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 mb-16">
-          {["14-day free trial", "No credit card needed", "Nepal-based support", "eSewa & Khalti"].map(t => (
-            <div key={t} className="flex items-center gap-1.5" style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.3)", fontWeight: 500 }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#0e9de8" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-              {t}
+        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 mb-14">
+          {["14-day free trial", "No credit card needed", "Free for patients & doctors", "Access from any device"].map(t => (
+            <div key={t} className="flex items-center gap-1.5" style={{ fontSize: "0.75rem", color: "var(--slate)", fontWeight: 500 }}>
+              <Icon.check s={11} />{t}
             </div>
           ))}
         </div>
 
-        {/* Mockup — tilted perspective */}
-        <div className="mockup-tilt w-full" style={{ maxWidth: "900px", marginLeft: "auto", marginRight: "auto" }}>
-          {/* Browser chrome */}
-          <div style={{ background: "#0f1221" }}>
-            <div
-              className="flex items-center gap-3 px-4 py-3"
-              style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}
-            >
-              <div className="flex gap-1.5">
-                <div style={{ width: 11, height: 11, borderRadius: "50%", background: "rgba(239,68,68,0.45)" }} />
-                <div style={{ width: 11, height: 11, borderRadius: "50%", background: "rgba(245,158,11,0.45)" }} />
-                <div style={{ width: 11, height: 11, borderRadius: "50%", background: "rgba(16,185,129,0.45)" }} />
+        {/* Thread — connects the three surfaces */}
+        <div style={{ position: "relative", maxWidth: 980, marginLeft: "auto", marginRight: "auto" }}>
+          <svg viewBox="0 0 980 90" style={{ width: "100%", height: "auto", display: "block" }} className="hidden sm:block">
+            <path d="M 160 45 C 350 -10, 630 100, 820 45" fill="none" stroke="var(--pine)" strokeOpacity="0.35" strokeWidth="1.5" className="aa-thread-dash" />
+            <circle cx="160" cy="45" r="4" fill="var(--pine)" />
+            <circle cx="490" cy="46" r="4" fill="var(--amber)" />
+            <circle cx="820" cy="45" r="4" fill="var(--pine)" />
+          </svg>
+
+          <div className="grid sm:grid-cols-3 gap-4 sm:gap-5" style={{ marginTop: "-0.5rem" }}>
+            {/* Clinic dashboard mockup */}
+            <div className="aa-tilt" style={{ background: "#fff" }}>
+              <div style={{ borderBottom: "1px solid var(--line)", padding: "0.625rem 0.875rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <Icon.cloud s={13} />
+                <span className="aa-mono" style={{ fontSize: "0.625rem", color: "var(--slate)" }}>Web · Clinic dashboard</span>
               </div>
-              <div
-                className="flex-1 mx-3 rounded-md px-3 py-1 text-xs text-center"
-                style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.22)", maxWidth: 280, margin: "0 auto" }}
-              >
-                app.clinickarobar.com/dashboard
+              <div style={{ padding: "1rem", textAlign: "left" }}>
+                <p className="aa-mono" style={{ fontSize: "0.5625rem", color: "var(--slate)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.375rem" }}>Today</p>
+                <p style={{ fontWeight: 800, fontSize: "1.5rem", color: "var(--pine)", lineHeight: 1, marginBottom: "0.75rem" }}>24 <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--slate)" }}>appointments</span></p>
+                {["09:00 Ramesh S.", "10:30 Sita T.", "11:00 Bikash K."].map(r => (
+                  <div key={r} style={{ fontSize: "0.6875rem", color: "var(--ink)", padding: "0.375rem 0", borderTop: "1px solid var(--paper-soft)" }}>{r}</div>
+                ))}
               </div>
             </div>
 
-            {/* Dashboard UI */}
-            <div style={{ padding: "1.25rem 1.25rem 0" }}>
-              {/* Top row: stats */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                {[
-                  { label: "Today's Appointments", value: "24", color: "#0e9de8" },
-                  { label: "Active Patients", value: "1,284", color: "#10b981" },
-                  { label: "Monthly Revenue", value: "₨ 2.4L", color: "#f59e0b" },
-                  { label: "Pending Billing", value: "₨ 18,400", color: "#f87171" },
-                ].map(({ label, value, color }) => (
-                  <div
-                    key={label}
-                    style={{
-                      background: "rgba(255,255,255,0.03)",
-                      border: `1px solid ${color}22`,
-                      borderRadius: "0.75rem",
-                      padding: "0.875rem",
-                      textAlign: "left",
-                    }}
-                  >
-                    <p style={{ fontSize: "0.625rem", color: "rgba(255,255,255,0.3)", marginBottom: "0.375rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</p>
-                    <p style={{ fontSize: "1.125rem", fontWeight: 800, color, lineHeight: 1 }}>{value}</p>
+            {/* Doctor mockup */}
+            <div className="aa-tilt" style={{ background: "#fff" }}>
+              <div style={{ borderBottom: "1px solid var(--line)", padding: "0.625rem 0.875rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <Icon.stethoscope s={13} />
+                <span className="aa-mono" style={{ fontSize: "0.625rem", color: "var(--slate)" }}>Mobile · Doctor</span>
+              </div>
+              <div style={{ padding: "1rem", textAlign: "left" }}>
+                <p className="aa-mono" style={{ fontSize: "0.5625rem", color: "var(--slate)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.375rem" }}>Patient history</p>
+                <p style={{ fontWeight: 700, fontSize: "0.9375rem", color: "var(--ink)", marginBottom: "0.5rem" }}>Anita Rai</p>
+                <div className="aa-tag" style={{ marginRight: "0.375rem" }}>2 clinics shared</div>
+                <div className="aa-tag" style={{ background: "var(--amber-soft)", color: "var(--amber)" }}>Consent active</div>
+              </div>
+            </div>
+
+            {/* Patient mockup */}
+            <div className="aa-tilt" style={{ background: "#fff" }}>
+              <div style={{ borderBottom: "1px solid var(--line)", padding: "0.625rem 0.875rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <Icon.mobile s={13} />
+                <span className="aa-mono" style={{ fontSize: "0.625rem", color: "var(--slate)" }}>Mobile · Patient</span>
+              </div>
+              <div style={{ padding: "1rem", textAlign: "left" }}>
+                <p className="aa-mono" style={{ fontSize: "0.5625rem", color: "var(--slate)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.375rem" }}>Family</p>
+                {[["You", "3 records"], ["Mother", "1 record"], ["Son", "5 records"]].map(([n, r]) => (
+                  <div key={n} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.6875rem", padding: "0.375rem 0", borderTop: "1px solid var(--paper-soft)" }}>
+                    <span style={{ color: "var(--ink)", fontWeight: 600 }}>{n}</span>
+                    <span style={{ color: "var(--slate)" }}>{r}</span>
                   </div>
                 ))}
               </div>
-
-              {/* Appointment table */}
-              <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: "0.75rem", overflow: "hidden" }}>
-                <div
-                  className="flex items-center justify-between px-4 py-2.5"
-                  style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
-                >
-                  <p style={{ fontSize: "0.6875rem", fontWeight: 600, color: "rgba(255,255,255,0.45)" }}>Today's Appointments</p>
-                  <span style={{ fontSize: "0.625rem", fontWeight: 700, padding: "2px 8px", borderRadius: "999px", background: "rgba(14,157,232,0.12)", color: "#0e9de8" }}>Live</span>
-                </div>
-                <div>
-                  {[
-                    { time: "09:00", name: "Ramesh Sharma", type: "Consultation", status: "Confirmed", sc: "rgba(14,157,232,0.12)", tc: "#38b8f8" },
-                    { time: "10:30", name: "Sita Thapa", type: "Root Canal", status: "In Progress", sc: "rgba(245,158,11,0.12)", tc: "#f59e0b" },
-                    { time: "11:00", name: "Bikash Karki", type: "Cleaning", status: "Scheduled", sc: "rgba(255,255,255,0.07)", tc: "rgba(255,255,255,0.4)" },
-                    { time: "02:00", name: "Anita Rai", type: "X-Ray", status: "Pending", sc: "rgba(255,255,255,0.04)", tc: "rgba(255,255,255,0.3)" },
-                  ].map(({ time, name, type, status, sc, tc }, i) => (
-                    <div
-                      key={name}
-                      className="flex items-center gap-3 px-4 py-2.5"
-                      style={{
-                        fontSize: "0.75rem",
-                        borderTop: i > 0 ? "1px solid rgba(255,255,255,0.04)" : "none",
-                      }}
-                    >
-                      <span style={{ fontFamily: "monospace", color: "rgba(255,255,255,0.25)", width: 36, flexShrink: 0 }}>{time}</span>
-                      <span style={{ fontWeight: 600, color: "rgba(255,255,255,0.85)", flex: 1 }}>{name}</span>
-                      <span className="hidden sm:block" style={{ color: "rgba(255,255,255,0.3)", flexShrink: 0 }}>{type}</span>
-                      <span style={{ flexShrink: 0, fontSize: "0.625rem", fontWeight: 700, padding: "2px 8px", borderRadius: "999px", background: sc, color: tc }}>{status}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {/* Bottom fade */}
-              <div style={{ height: "3.5rem", background: "linear-gradient(to top, #0f1221, transparent)", marginTop: "-1rem", position: "relative", zIndex: 2 }} />
             </div>
           </div>
         </div>
@@ -481,25 +445,23 @@ function Hero() {
   );
 }
 
-// ─── Stats ────────────────────────────────────────────────────────────────────
+// ─── Stats ──────────────────────────────────────────────────────────────────
 function Stats() {
+  const stats = [
+    { val: 500, suffix: "+", label: "Clinics & hospitals" },
+    { val: 1200, suffix: "+", label: "Doctors on Aastal" },
+    { val: 60000, suffix: "+", label: "Patients connected" },
+    { val: 3, suffix: "", label: "Platforms, one record" },
+  ];
   return (
-    <section style={{ background: "#f7f8fc", borderTop: "1px solid #e5e7eb", borderBottom: "1px solid #e5e7eb" }}>
-      <div
-        className="max-w-5xl mx-auto px-5 sm:px-8 py-14 grid grid-cols-2 md:grid-cols-4 gap-8"
-        style={{ textAlign: "center" }}
-      >
-        {[
-          { val: 500, suffix: "+", label: "Clinics on ClinicKarobar" },
-          { val: 98000, suffix: "+", label: "Appointments booked" },
-          { val: 99, suffix: "%", label: "Uptime guaranteed" },
-          { val: 3, suffix: "", label: "Payment gateways" },
-        ].map(({ val, suffix, label }) => (
+    <section style={{ background: "var(--paper-soft)", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)" }}>
+      <div className="max-w-5xl mx-auto px-5 sm:px-8 py-12 grid grid-cols-2 md:grid-cols-4 gap-8" style={{ textAlign: "center" }}>
+        {stats.map(({ val, suffix, label }) => (
           <div key={label}>
-            <div style={{ fontSize: "clamp(1.75rem,5vw,2.5rem)", fontWeight: 900, letterSpacing: "-0.04em", color: "#0e9de8", lineHeight: 1, marginBottom: "0.375rem" }}>
+            <div className="aa-mono" style={{ fontSize: "clamp(1.5rem,4vw,2.125rem)", fontWeight: 600, letterSpacing: "-0.02em", color: "var(--pine)", lineHeight: 1, marginBottom: "0.5rem" }}>
               <Counter end={val} suffix={suffix} />
             </div>
-            <p style={{ fontSize: "0.8125rem", color: "#6b7280", fontWeight: 500 }}>{label}</p>
+            <p style={{ fontSize: "0.8125rem", color: "var(--slate)", fontWeight: 500 }}>{label}</p>
           </div>
         ))}
       </div>
@@ -507,179 +469,60 @@ function Stats() {
   );
 }
 
-// ─── Features ─────────────────────────────────────────────────────────────────
-function Features() {
-  const features = [
+// ─── Platform showcase ──────────────────────────────────────────────────────
+function PlatformShowcase() {
+  const platforms = [
     {
-      icon: (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-        </svg>
-      ),
-      title: "Smart Appointments",
-      desc: "Patients book online 24/7 across all branches. Automatic SMS reminders cut no-shows. Real-time availability per doctor and location.",
-      tags: ["Online booking", "SMS reminders", "Multi-branch"],
-      color: "#0e9de8",
-      large: true,
+      icon: <Icon.cloud s={22} />,
+      title: "Web admin dashboard",
+      who: "Clinics & hospitals",
+      desc: "Run appointments, patients, billing, staff, and multi-branch reporting from any browser. Nothing to install for your front desk.",
+      items: ["Works on any device with a browser", "Real-time across every branch", "Role-based access for your team"],
     },
     {
-      icon: (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-        </svg>
-      ),
-      title: "Patient Management",
-      desc: "Full patient profiles, treatment history, clinical records, and file uploads — instantly searchable across your entire base.",
-      tags: ["Medical history", "Clinical records", "File uploads"],
-      color: "#10b981",
-      large: false,
+      icon: <Icon.desktop s={22} />,
+      title: "Desktop app",
+      who: "Windows · macOS · Linux",
+      desc: "The same front desk, built to keep working when the internet doesn't. Book, bill, and chart offline — Aastal syncs the moment you're back online.",
+      items: ["Full offline mode with local storage", "Automatic sync & conflict resolution", "One installer, three operating systems"],
     },
     {
-      icon: (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>
-        </svg>
-      ),
-      title: "Billing & Invoicing",
-      desc: "VAT-compliant invoices in seconds. Accept eSewa, Khalti, bank transfer, or cash.",
-      tags: ["eSewa & Khalti", "VAT invoices", "Partial payments"],
-      color: "#f59e0b",
-      large: false,
-    },
-    {
-      icon: (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
-        </svg>
-      ),
-      title: "Multi-Branch Control",
-      desc: "Run one clinic or ten. Each branch has its own staff, appointments, and reports. Owners see everything; staff see only their branch.",
-      tags: ["Branch analytics", "Role-based access", "Unified view"],
-      color: "#8b5cf6",
-      large: false,
-    },
-    {
-      icon: (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
-      ),
-      title: "Staff & HR Tools",
-      desc: "Shifts, attendance, leave requests, commissions, and role-based permissions for every team member.",
-      tags: ["Shift management", "Leave & attendance", "Commissions"],
-      color: "#f97316",
-      large: false,
-    },
-    {
-      icon: (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
-        </svg>
-      ),
-      title: "Analytics & Reports",
-      desc: "Revenue trends, appointment heatmaps, patient growth, doctor performance, and branch-wise P&L. Export to PDF anytime.",
-      tags: ["Revenue analytics", "Patient trends", "PDF export"],
-      color: "#ec4899",
-      large: true,
+      icon: <Icon.mobile s={22} />,
+      title: "Mobile app",
+      who: "Patients & doctors · iOS & Android",
+      desc: "Patients book visits, view records, and message care teams. Doctors manage their day and their patients, wherever they're practicing.",
+      items: ["One app, two experiences by role", "Push reminders for visits & refills", "Works for independent doctors too"],
     },
   ];
-
   return (
-    <section id="features" style={{ background: "#f7f8fc", paddingTop: "5rem", paddingBottom: "5rem" }}>
+    <section id="platform" style={{ background: "var(--paper)", paddingTop: "5rem", paddingBottom: "5rem" }}>
       <div className="max-w-6xl mx-auto px-5 sm:px-8">
-        <div style={{ marginBottom: "3rem" }}>
-          <span className="section-eyebrow">Everything you need</span>
-          <h2 style={{ fontWeight: 900, fontSize: "clamp(1.875rem,5vw,3rem)", letterSpacing: "-0.035em", color: "#0f172a", lineHeight: 1.1, marginBottom: "0.875rem" }}>
-            One platform. Zero chaos.
+        <div style={{ marginBottom: "3rem", maxWidth: 560 }}>
+          <span className="aa-eyebrow">The platform</span>
+          <h2 className="aa-serif" style={{ fontWeight: 400, fontSize: "clamp(2rem,4.5vw,2.875rem)", color: "var(--ink)", lineHeight: 1.1, marginBottom: "0.875rem" }}>
+            Three surfaces. The same source of truth.
           </h2>
-          <p style={{ fontSize: "1.0625rem", color: "#6b7280", maxWidth: 480 }}>
-            Replace your spreadsheets, paper files, and five different apps with one beautifully simple system.
+          <p style={{ fontSize: "1.0625rem", color: "var(--slate)", lineHeight: 1.6 }}>
+            A clinic's front desk, a doctor's pocket, and a patient's phone are different jobs. Aastal gives each one its own app, all reading and writing the same record.
           </p>
         </div>
 
-        {/* Bento-ish grid: pairs of [large | small small] */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem" }}>
-          {/* Row 1: large left, two smalls right */}
-          <div className="feature-card feature-card-light" style={{ gridColumn: "span 1", gridRow: "span 2", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-            <div>
-              <div style={{ width: 44, height: 44, borderRadius: "0.75rem", background: `rgba(14,157,232,0.08)`, color: "#0e9de8", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "1.25rem" }}>
-                {features[0].icon}
-              </div>
-              <h3 style={{ fontWeight: 700, fontSize: "1.0625rem", color: "#0f172a", marginBottom: "0.625rem" }}>{features[0].title}</h3>
-              <p style={{ fontSize: "0.875rem", color: "#6b7280", lineHeight: 1.65, marginBottom: "1.25rem" }}>{features[0].desc}</p>
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
-              {features[0].tags.map(tag => (
-                <span key={tag} style={{ fontSize: "0.6875rem", fontWeight: 600, padding: "4px 10px", borderRadius: "0.5rem", background: "rgba(14,157,232,0.07)", color: "#0e9de8" }}>{tag}</span>
-              ))}
-            </div>
-          </div>
-
-          {[1, 2].map(i => (
-            <div key={i} className="feature-card feature-card-light" style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ width: 40, height: 40, borderRadius: "0.625rem", background: `${features[i].color}12`, color: features[i].color, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "1rem" }}>
-                  {features[i].icon}
-                </div>
-                <h3 style={{ fontWeight: 700, fontSize: "0.9375rem", color: "#0f172a", marginBottom: "0.5rem" }}>{features[i].title}</h3>
-                <p style={{ fontSize: "0.8125rem", color: "#6b7280", lineHeight: 1.6, marginBottom: "1rem" }}>{features[i].desc}</p>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
-                {features[i].tags.map(tag => (
-                  <span key={tag} style={{ fontSize: "0.625rem", fontWeight: 600, padding: "3px 8px", borderRadius: "0.375rem", background: `${features[i].color}10`, color: features[i].color }}>{tag}</span>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          {/* Row 2: two smalls left, large right */}
-          {[3, 4].map(i => (
-            <div key={i} className="feature-card feature-card-light" style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ width: 40, height: 40, borderRadius: "0.625rem", background: `${features[i].color}12`, color: features[i].color, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "1rem" }}>
-                  {features[i].icon}
-                </div>
-                <h3 style={{ fontWeight: 700, fontSize: "0.9375rem", color: "#0f172a", marginBottom: "0.5rem" }}>{features[i].title}</h3>
-                <p style={{ fontSize: "0.8125rem", color: "#6b7280", lineHeight: 1.6, marginBottom: "1rem" }}>{features[i].desc}</p>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
-                {features[i].tags.map(tag => (
-                  <span key={tag} style={{ fontSize: "0.625rem", fontWeight: 600, padding: "3px 8px", borderRadius: "0.375rem", background: `${features[i].color}10`, color: features[i].color }}>{tag}</span>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          <div className="feature-card feature-card-light" style={{ gridColumn: "span 1", gridRow: "span 1", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-            <div>
-              <div style={{ width: 44, height: 44, borderRadius: "0.75rem", background: `rgba(236,72,153,0.08)`, color: "#ec4899", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "1.25rem" }}>
-                {features[5].icon}
-              </div>
-              <h3 style={{ fontWeight: 700, fontSize: "1.0625rem", color: "#0f172a", marginBottom: "0.625rem" }}>{features[5].title}</h3>
-              <p style={{ fontSize: "0.875rem", color: "#6b7280", lineHeight: 1.65, marginBottom: "1.25rem" }}>{features[5].desc}</p>
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
-              {features[5].tags.map(tag => (
-                <span key={tag} style={{ fontSize: "0.6875rem", fontWeight: 600, padding: "4px 10px", borderRadius: "0.5rem", background: "rgba(236,72,153,0.07)", color: "#ec4899" }}>{tag}</span>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Mobile fallback grid (hidden on md+) */}
-        <div className="sm:hidden" style={{ display: "none" }}>
-          {features.map(({ icon, title, desc, tags, color }) => (
-            <div key={title} className="feature-card feature-card-light" style={{ marginBottom: "0.75rem" }}>
-              <div style={{ width: 40, height: 40, borderRadius: "0.625rem", background: `${color}12`, color, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "1rem" }}>
+        <div className="grid md:grid-cols-3 gap-5">
+          {platforms.map(({ icon, title, who, desc, items }) => (
+            <div key={title} className="aa-card" style={{ padding: "1.75rem" }}>
+              <div style={{ width: 46, height: 46, borderRadius: "0.75rem", background: "var(--pine-soft)", color: "var(--pine-dark)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "1.25rem" }}>
                 {icon}
               </div>
-              <h3 style={{ fontWeight: 700, fontSize: "0.9375rem", color: "#0f172a", marginBottom: "0.5rem" }}>{title}</h3>
-              <p style={{ fontSize: "0.8125rem", color: "#6b7280", lineHeight: 1.6, marginBottom: "1rem" }}>{desc}</p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
-                {tags.map(tag => (
-                  <span key={tag} style={{ fontSize: "0.625rem", fontWeight: 600, padding: "3px 8px", borderRadius: "0.375rem", background: `${color}10`, color }}>{tag}</span>
+              <h3 style={{ fontWeight: 700, fontSize: "1.0625rem", color: "var(--ink)", marginBottom: "0.25rem" }}>{title}</h3>
+              <p className="aa-mono" style={{ fontSize: "0.6875rem", color: "var(--amber)", marginBottom: "0.875rem" }}>{who}</p>
+              <p style={{ fontSize: "0.875rem", color: "var(--slate)", lineHeight: 1.65, marginBottom: "1.125rem" }}>{desc}</p>
+              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                {items.map(it => (
+                  <li key={it} style={{ display: "flex", gap: "0.5rem", fontSize: "0.8125rem", color: "var(--ink)" }}>
+                    <span style={{ color: "var(--pine)", flexShrink: 0, marginTop: 2 }}><Icon.check s={13} /></span>{it}
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           ))}
         </div>
@@ -688,60 +531,135 @@ function Features() {
   );
 }
 
-// ─── How it works ─────────────────────────────────────────────────────────────
-function HowItWorks() {
-  const steps = [
-    { num: "01", title: "Create your clinic", desc: "Register, enter your clinic details, and configure your branches. Takes under 5 minutes." },
-    { num: "02", title: "Add staff & services", desc: "Invite your team with role-based permissions. Set up your service list and pricing." },
-    { num: "03", title: "Start taking bookings", desc: "Share your booking link. Patients book; you get notified instantly." },
-    { num: "04", title: "Bill & grow", desc: "Issue VAT invoices, accept eSewa/Khalti, and track analytics over time." },
+// ─── Audience tabs (Clinics / Doctors / Patients) ──────────────────────────
+function AudienceTabs() {
+  const tabs = [
+    {
+      key: "clinics",
+      label: "Clinics & hospitals",
+      icon: <Icon.building s={16} />,
+      heading: "Run the whole practice from one screen",
+      desc: "Appointments, patient charts, billing, and staff — for one branch or twenty — with reporting that rolls everything up for the owner.",
+      features: [
+        { icon: <Icon.calendar />, title: "Appointments", desc: "Online booking, SMS reminders, and live availability per doctor and branch." },
+        { icon: <Icon.users />, title: "Patient records", desc: "Full history, treatment notes, and file uploads, searchable across your base." },
+        { icon: <Icon.invoice />, title: "Billing & invoicing", desc: "VAT-compliant invoices, partial payments, and eSewa or Khalti at checkout." },
+        { icon: <Icon.building />, title: "Multi-branch control", desc: "Each branch runs itself; owners see every branch in one dashboard." },
+        { icon: <Icon.clock />, title: "Staff & HR", desc: "Shifts, attendance, leave, and commissions in one place." },
+        { icon: <Icon.bars />, title: "Analytics", desc: "Revenue, appointment trends, and doctor performance, exportable to PDF." },
+      ],
+    },
+    {
+      key: "doctors",
+      label: "Doctors",
+      icon: <Icon.stethoscope s={16} />,
+      heading: "Practice on your own terms",
+      desc: "Join a clinic, or start on Aastal without one. Either way, your patients and your schedule stay with you.",
+      features: [
+        { icon: <Icon.stethoscope />, title: "Sign up independently", desc: "No clinic required. Set your own hours, fees, and patients from day one." },
+        { icon: <Icon.calendar />, title: "Your own schedule", desc: "Manage bookings across any clinics you work with, or entirely on your own." },
+        { icon: <Icon.shield />, title: "Consent-gated history", desc: "See a patient's care across other clinics only once they share it with you." },
+        { icon: <Icon.share />, title: "Patient messaging", desc: "Answer questions, send instructions, and issue prescriptions from the app." },
+        { icon: <Icon.star />, title: "Build your reputation", desc: "Patients you've treated can leave verified reviews that follow your profile." },
+        { icon: <Icon.building />, title: "Join a clinic anytime", desc: "Get added to a clinic's roster later without losing your own patients." },
+      ],
+    },
+    {
+      key: "patients",
+      label: "Patients",
+      icon: <Icon.users s={16} />,
+      heading: "Your care, in one place — on your terms",
+      desc: "Every visit, every clinic, every prescription — together, and shared only with who you choose.",
+      features: [
+        { icon: <Icon.folder />, title: "All your records, together", desc: "Visits from every clinic you've used, pulled into one history." },
+        { icon: <Icon.share />, title: "Share with a doctor", desc: "Grant a specific doctor or clinic access to your history for as long as you choose." },
+        { icon: <Icon.family />, title: "Family accounts", desc: "Manage records for your kids or parents alongside your own." },
+        { icon: <Icon.calendar />, title: "Book anywhere", desc: "Find and book appointments at any clinic on Aastal, from one app." },
+        { icon: <Icon.star />, title: "Review your doctors", desc: "Rate and review after a visit to help other patients choose well." },
+        { icon: <Icon.shield />, title: "You control access", desc: "Nothing is visible to a clinic or doctor until you share it — and you can revoke it." },
+      ],
+    },
   ];
 
+  const [active, setActive] = useState(tabs[0].key);
+  const current = tabs.find(t => t.key === active)!;
+
   return (
-    <section id="how" style={{ background: "#070911", paddingTop: "5rem", paddingBottom: "5rem" }}>
+    <section id="audiences" style={{ background: "var(--paper-soft)", paddingTop: "5rem", paddingBottom: "5rem" }}>
+      <div className="max-w-6xl mx-auto px-5 sm:px-8">
+        <div style={{ marginBottom: "2.5rem", maxWidth: 560 }}>
+          <span className="aa-eyebrow">Built for everyone in the room</span>
+          <h2 className="aa-serif" style={{ fontWeight: 400, fontSize: "clamp(2rem,4.5vw,2.875rem)", color: "var(--ink)", lineHeight: 1.1 }}>
+            One Aastal account. A different view for each role.
+          </h2>
+        </div>
+
+        {/* Tab switcher */}
+        <div className="flex flex-wrap gap-2 mb-8" id="clinics">
+          {tabs.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setActive(t.key)}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: "0.5rem",
+                padding: "0.625rem 1.125rem", borderRadius: "0.625rem",
+                fontSize: "0.875rem", fontWeight: 600, cursor: "pointer",
+                border: active === t.key ? "1px solid var(--pine)" : "1px solid var(--line)",
+                background: active === t.key ? "var(--ink)" : "#fff",
+                color: active === t.key ? "#fff" : "var(--slate)",
+                transition: "all 0.2s",
+              }}
+            >
+              {t.icon}{t.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginBottom: "2rem", maxWidth: 620 }}>
+          <h3 style={{ fontWeight: 700, fontSize: "1.375rem", color: "var(--ink)", marginBottom: "0.5rem" }}>{current.heading}</h3>
+          <p style={{ fontSize: "0.9375rem", color: "var(--slate)", lineHeight: 1.65 }}>{current.desc}</p>
+        </div>
+
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {current.features.map(({ icon, title, desc }) => (
+            <div key={title} className="aa-card" style={{ padding: "1.375rem", background: "#fff" }}>
+              <div style={{ width: 38, height: 38, borderRadius: "0.625rem", background: "var(--pine-soft)", color: "var(--pine-dark)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "0.875rem" }}>
+                {icon}
+              </div>
+              <h4 style={{ fontWeight: 700, fontSize: "0.9375rem", color: "var(--ink)", marginBottom: "0.375rem" }}>{title}</h4>
+              <p style={{ fontSize: "0.8125rem", color: "var(--slate)", lineHeight: 1.6 }}>{desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ─── How it works ───────────────────────────────────────────────────────────
+function HowItWorks() {
+  const steps = [
+    { num: "01", title: "Create your account", desc: "Register as a clinic, an independent doctor, or a patient. Each takes under five minutes." },
+    { num: "02", title: "Set up your space", desc: "Clinics add staff, branches, and services. Doctors set hours and fees. Patients add family members." },
+    { num: "03", title: "Connect the record", desc: "Book a visit, share history with a doctor, or invite your team — the record follows, with consent." },
+    { num: "04", title: "Work from anywhere", desc: "Web on the front desk, desktop when offline, mobile everywhere else. Always in sync." },
+  ];
+  return (
+    <section style={{ background: "var(--paper)", paddingTop: "5rem", paddingBottom: "5rem", borderTop: "1px solid var(--line)" }}>
       <div className="max-w-5xl mx-auto px-5 sm:px-8">
         <div style={{ textAlign: "center", marginBottom: "3.5rem" }}>
-          <span className="section-eyebrow">Getting started</span>
-          <h2 style={{ fontWeight: 900, fontSize: "clamp(1.875rem,5vw,2.875rem)", letterSpacing: "-0.035em", color: "#fff", lineHeight: 1.1 }}>
+          <span className="aa-eyebrow" style={{ justifyContent: "center" }}>Getting started</span>
+          <h2 className="aa-serif" style={{ fontWeight: 400, fontSize: "clamp(2rem,4.5vw,2.75rem)", color: "var(--ink)", lineHeight: 1.1 }}>
             Up and running in minutes
           </h2>
         </div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          {steps.map(({ num, title, desc }, i) => (
-            <div key={num} style={{ position: "relative" }}>
-              {i < 3 && <div className="step-line hidden lg:block" />}
-              <div
-                style={{
-                  background: "#0f1221",
-                  border: "1px solid rgba(255,255,255,0.07)",
-                  borderRadius: "1rem",
-                  padding: "1.5rem",
-                  position: "relative",
-                  zIndex: 1,
-                }}
-              >
-                <div
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: "0.625rem",
-                    background: "rgba(14,157,232,0.1)",
-                    color: "#0e9de8",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    marginBottom: "1rem",
-                    fontWeight: 900,
-                    fontSize: "0.8125rem",
-                    letterSpacing: "-0.02em",
-                  }}
-                >
-                  {num}
-                </div>
-                <h3 style={{ fontWeight: 700, fontSize: "0.9375rem", color: "#fff", marginBottom: "0.5rem" }}>{title}</h3>
-                <p style={{ fontSize: "0.8125rem", color: "rgba(255,255,255,0.38)", lineHeight: 1.65 }}>{desc}</p>
-              </div>
+          {steps.map(({ num, title, desc }) => (
+            <div key={num} className="aa-card" style={{ padding: "1.5rem" }}>
+              <p className="aa-mono" style={{ fontSize: "0.75rem", color: "var(--amber)", fontWeight: 600, marginBottom: "0.875rem" }}>{num}</p>
+              <h3 style={{ fontWeight: 700, fontSize: "0.9375rem", color: "var(--ink)", marginBottom: "0.5rem" }}>{title}</h3>
+              <p style={{ fontSize: "0.8125rem", color: "var(--slate)", lineHeight: 1.65 }}>{desc}</p>
             </div>
           ))}
         </div>
@@ -750,54 +668,47 @@ function HowItWorks() {
   );
 }
 
-// ─── Pricing ──────────────────────────────────────────────────────────────────
+// ─── Pricing ────────────────────────────────────────────────────────────────
 function Pricing() {
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
 
   const plans = [
     {
-      name: "Free Trial",
+      name: "Free trial",
       badge: "14 days",
       price: "Free",
-      priceNote: "14-day trial — no renewal",
+      priceNote: "14-day trial · no renewal",
       yearlyNote: null as string | null,
-      description: "Try everything risk-free. All features unlocked, no credit card needed.",
-      color: "#6b7280",
+      description: "For clinics trying Aastal. Every admin feature unlocked, no card required.",
       featured: false,
       cta: "Start free trial",
-      ctaHref: "/auth/register",
       features: [
-        { text: "Dashboard, Appointments, Patients", included: true },
-        { text: "Billing & Analytics", included: true },
+        { text: "Dashboard, appointments, patients", included: true },
+        { text: "Billing & analytics", included: true },
         { text: "Staff management", included: true },
-        { text: "Settings & SMS Reminders", included: true },
-        { text: "Notifications", included: true },
+        { text: "SMS reminders & notifications", included: true },
         { text: "Expires after 14 days", included: true },
-        { text: "Website Builder", included: false },
-        { text: "API Access", included: false },
+        { text: "Website builder", included: false },
+        { text: "API access", included: false },
       ],
     },
     {
       name: "Pro",
-      badge: "Most Popular",
+      badge: "Most popular",
       price: billing === "monthly" ? "NPR 1,500" : "NPR 16,500",
       priceNote: billing === "monthly" ? "per month · 1 branch" : "per year · 1 month free",
       yearlyNote: billing === "yearly" ? "Save NPR 1,500/yr" : null,
-      description: "Everything a growing clinic needs, with per-branch pricing that scales with you.",
-      color: "#0e9de8",
+      description: "Everything a growing clinic needs, priced per branch as you scale.",
       featured: true,
       cta: "Get started",
-      ctaHref: "/auth/register",
       features: [
-        { text: "Dashboard & Appointments", included: true },
-        { text: "Patients & Billing", included: true },
-        { text: "Analytics & Staff", included: true },
-        { text: "Attendance & Leave", included: true },
-        { text: "Settings & SMS Reminders", included: true },
-        { text: "Notifications", included: true },
+        { text: "Everything in Free trial", included: true },
+        { text: "Desktop app for offline front desk", included: true },
+        { text: "Attendance & leave", included: true },
+        { text: "eSewa & Khalti checkout", included: true },
         { text: "+ NPR 500/mo per extra branch", included: true },
-        { text: "Website Builder", included: false },
-        { text: "API Access", included: false },
+        { text: "Website builder", included: false },
+        { text: "API access", included: false },
       ],
     },
     {
@@ -806,62 +717,48 @@ function Pricing() {
       price: billing === "monthly" ? "NPR 2,500" : "NPR 27,500",
       priceNote: billing === "monthly" ? "per month · 1 branch" : "per year · 1 month free",
       yearlyNote: billing === "yearly" ? "Save NPR 2,500/yr" : null,
-      description: "For multi-branch clinics that need a website, API integrations, and priority support.",
-      color: "#8b5cf6",
+      description: "For hospitals and multi-branch groups that need a public website and integrations.",
       featured: false,
       cta: "Get started",
-      ctaHref: "/auth/register",
       features: [
         { text: "Everything in Pro", included: true },
-        { text: "NPR 2,500/mo for 1 branch", included: true },
+        { text: "Public clinic website builder", included: true },
+        { text: "API access", included: true },
         { text: "+ NPR 500/mo per extra branch", included: true },
-        { text: "Website Builder", included: true },
-        { text: "API Access", included: true },
         { text: "Priority support", included: true },
       ],
     },
   ];
 
   return (
-    <section id="pricing" style={{ background: "#f7f8fc", paddingTop: "5rem", paddingBottom: "5rem" }}>
+    <section id="pricing" style={{ background: "var(--paper-soft)", paddingTop: "5rem", paddingBottom: "5rem" }}>
       <div className="max-w-6xl mx-auto px-5 sm:px-8">
-
-        <div style={{ textAlign: "center", marginBottom: "3rem" }}>
-          <span className="section-eyebrow">Simple pricing</span>
-          <h2 style={{ fontWeight: 900, fontSize: "clamp(1.875rem,5vw,3rem)", letterSpacing: "-0.035em", color: "#0f172a", lineHeight: 1.1, marginBottom: "0.75rem" }}>
-            Plans for every clinic
+        <div style={{ textAlign: "center", marginBottom: "2.5rem" }}>
+          <span className="aa-eyebrow" style={{ justifyContent: "center" }}>Simple pricing</span>
+          <h2 className="aa-serif" style={{ fontWeight: 400, fontSize: "clamp(2rem,4.5vw,2.875rem)", color: "var(--ink)", lineHeight: 1.1, marginBottom: "0.75rem" }}>
+            Pricing for the clinic side
           </h2>
-          <p style={{ fontSize: "1.0625rem", color: "#6b7280", maxWidth: 420, margin: "0 auto 1.75rem" }}>
-            Start free, scale as you grow. No hidden fees.
+          <p style={{ fontSize: "1.0625rem", color: "var(--slate)", maxWidth: 460, margin: "0 auto 1.75rem" }}>
+            Clinics and hospitals pay per branch. Patients and independent doctors use Aastal at no cost.
           </p>
 
-          {/* Billing toggle */}
-          <div
-            className="inline-flex items-center rounded-xl p-1 gap-1"
-            style={{ background: "#fff", border: "1px solid #e5e7eb" }}
-          >
+          <div className="inline-flex items-center rounded-xl p-1 gap-1" style={{ background: "#fff", border: "1px solid var(--line)" }}>
             {(["monthly", "yearly"] as const).map(b => (
               <button
                 key={b}
                 onClick={() => setBilling(b)}
                 style={{
-                  padding: "0.5rem 1.25rem",
-                  borderRadius: "0.625rem",
-                  fontSize: "0.875rem",
-                  fontWeight: 600,
-                  border: "none",
-                  cursor: "pointer",
-                  background: billing === b ? "#0e9de8" : "transparent",
-                  color: billing === b ? "#fff" : "#6b7280",
+                  padding: "0.5rem 1.25rem", borderRadius: "0.5rem", fontSize: "0.875rem", fontWeight: 600,
+                  border: "none", cursor: "pointer",
+                  background: billing === b ? "var(--pine)" : "transparent",
+                  color: billing === b ? "#fff" : "var(--slate)",
                   transition: "background 0.2s, color 0.2s",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
+                  display: "flex", alignItems: "center", gap: "0.5rem",
                 }}
               >
                 {b === "monthly" ? "Monthly" : "Yearly"}
                 {b === "yearly" && (
-                  <span style={{ fontSize: "0.625rem", fontWeight: 700, padding: "2px 7px", borderRadius: "0.375rem", background: billing === "yearly" ? "rgba(255,255,255,0.2)" : "rgba(16,185,129,0.12)", color: billing === "yearly" ? "#fff" : "#10b981" }}>
+                  <span className="aa-mono" style={{ fontSize: "0.625rem", fontWeight: 600, padding: "2px 7px", borderRadius: "0.375rem", background: billing === "yearly" ? "rgba(255,255,255,0.2)" : "var(--pine-soft)", color: billing === "yearly" ? "#fff" : "var(--pine-dark)" }}>
                     1 month free
                   </span>
                 )}
@@ -871,78 +768,53 @@ function Pricing() {
         </div>
 
         <div className="grid md:grid-cols-3 gap-5 items-stretch">
-          {plans.map(({ name, badge, price, priceNote, yearlyNote, description, color, featured, cta, ctaHref, features }) => (
+          {plans.map(({ name, badge, price, priceNote, yearlyNote, description, featured, cta, features }) => (
             <div
               key={name}
               className="pricing-card"
               style={{
-                background: featured ? "#0f172a" : "#fff",
-                border: featured ? `1px solid rgba(14,157,232,0.25)` : "1px solid #e5e7eb",
-                boxShadow: featured ? "0 8px 40px rgba(14,157,232,0.15)" : "none",
+                borderRadius: "1.125rem", padding: "2rem", display: "flex", flexDirection: "column",
+                background: featured ? "var(--ink)" : "#fff",
+                border: featured ? "1px solid var(--pine)" : "1px solid var(--line)",
+                boxShadow: featured ? "0 16px 40px rgba(16,35,28,0.18)" : "none",
               }}
             >
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.25rem" }}>
-                <span style={{
-                  fontSize: "0.6875rem",
-                  fontWeight: 700,
-                  padding: "4px 10px",
-                  borderRadius: "0.5rem",
-                  background: featured ? "rgba(14,157,232,0.15)" : "#f3f4f6",
-                  color: featured ? "#38b8f8" : "#6b7280",
-                }}>
+                <span className="aa-mono" style={{ fontSize: "0.6875rem", fontWeight: 600, padding: "4px 10px", borderRadius: "0.5rem", background: featured ? "rgba(255,255,255,0.1)" : "var(--paper-soft)", color: featured ? "#a8d9cd" : "var(--slate)" }}>
                   {badge}
                 </span>
-                {featured && (
-                  <span style={{ fontSize: "0.6875rem", fontWeight: 700, padding: "4px 10px", borderRadius: "0.5rem", background: "rgba(14,157,232,0.12)", color: "#0e9de8" }}>
-                    ★ Popular
-                  </span>
-                )}
+                {featured && <span style={{ color: "var(--amber)" }}><Icon.star s={16} /></span>}
               </div>
 
-              <h3 style={{ fontSize: "1.125rem", fontWeight: 800, color: featured ? "#fff" : "#0f172a", marginBottom: "0.375rem", letterSpacing: "-0.02em" }}>{name}</h3>
-              <p style={{ fontSize: "0.8125rem", color: featured ? "rgba(255,255,255,0.4)" : "#9ca3af", lineHeight: 1.6, marginBottom: "1.25rem" }}>{description}</p>
+              <h3 style={{ fontSize: "1.125rem", fontWeight: 800, color: featured ? "#fff" : "var(--ink)", marginBottom: "0.375rem" }}>{name}</h3>
+              <p style={{ fontSize: "0.8125rem", color: featured ? "rgba(255,255,255,0.55)" : "var(--slate)", lineHeight: 1.6, marginBottom: "1.25rem" }}>{description}</p>
 
               <div style={{ marginBottom: "0.25rem" }}>
-                <span style={{ fontSize: "clamp(1.5rem,4vw,2rem)", fontWeight: 900, color: featured ? "#0e9de8" : "#0f172a", letterSpacing: "-0.04em" }}>
-                  {price}
-                </span>
-                {name !== "Free Trial" && (
-                  <span style={{ fontSize: "0.8125rem", color: featured ? "rgba(255,255,255,0.3)" : "#9ca3af", marginLeft: "0.25rem" }}>/mo</span>
-                )}
+                <span className="aa-serif" style={{ fontSize: "clamp(1.75rem,4vw,2.25rem)", fontWeight: 400, color: featured ? "#fff" : "var(--ink)" }}>{price}</span>
+                {name !== "Free trial" && <span style={{ fontSize: "0.8125rem", color: featured ? "rgba(255,255,255,0.4)" : "var(--slate)", marginLeft: "0.25rem" }}>/mo</span>}
               </div>
-              <p style={{ fontSize: "0.75rem", color: featured ? "rgba(255,255,255,0.3)" : "#9ca3af", marginBottom: "0.25rem" }}>{priceNote}</p>
-              {yearlyNote && (
-                <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "#10b981", marginBottom: "1rem" }}>✓ {yearlyNote}</p>
-              )}
+              <p style={{ fontSize: "0.75rem", color: featured ? "rgba(255,255,255,0.4)" : "var(--slate)", marginBottom: "0.25rem" }}>{priceNote}</p>
+              {yearlyNote && <p style={{ fontSize: "0.75rem", fontWeight: 600, color: featured ? "#a8d9cd" : "var(--pine)", marginBottom: "1rem" }}>✓ {yearlyNote}</p>}
 
-              <div style={{ borderTop: featured ? "1px solid rgba(255,255,255,0.07)" : "1px solid #f3f4f6", margin: "1.25rem 0" }} />
+              <div style={{ borderTop: featured ? "1px solid rgba(255,255,255,0.1)" : "1px solid var(--paper-soft)", margin: "1.25rem 0" }} />
 
               <ul style={{ listStyle: "none", padding: 0, margin: "0 0 1.5rem", flex: 1, display: "flex", flexDirection: "column", gap: "0.625rem" }}>
                 {features.map(({ text, included }) => (
                   <li key={text} style={{ display: "flex", alignItems: "flex-start", gap: "0.625rem" }}>
-                    {included
-                      ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, marginTop: 2 }} stroke={featured ? "#0e9de8" : color}><polyline points="20 6 9 17 4 12"/></svg>
-                      : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={featured ? "rgba(255,255,255,0.15)" : "#d1d5db"} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, marginTop: 2 }}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                    }
-                    <span style={{
-                      fontSize: "0.8125rem",
-                      lineHeight: 1.5,
-                      color: included
-                        ? (featured ? "rgba(255,255,255,0.7)" : "#374151")
-                        : (featured ? "rgba(255,255,255,0.2)" : "#d1d5db"),
-                    }}>
-                      {text}
+                    <span style={{ flexShrink: 0, marginTop: 2, color: included ? (featured ? "#4fb89e" : "var(--pine)") : (featured ? "rgba(255,255,255,0.2)" : "#c7ccc9") }}>
+                      {included ? <Icon.check /> : <Icon.cross />}
                     </span>
+                    <span style={{ fontSize: "0.8125rem", lineHeight: 1.5, color: included ? (featured ? "rgba(255,255,255,0.8)" : "var(--ink)") : (featured ? "rgba(255,255,255,0.3)" : "#b6bcb8") }}>{text}</span>
                   </li>
                 ))}
               </ul>
 
               <Link
-                href={ctaHref}
+                href="/auth/register"
                 style={
                   featured
-                    ? { display: "block", textAlign: "center", fontSize: "0.9375rem", fontWeight: 700, padding: "0.875rem", borderRadius: "0.75rem", background: "#0e9de8", color: "#fff", textDecoration: "none", boxShadow: "0 4px 16px rgba(14,157,232,0.35)", transition: "background 0.2s" }
-                    : { display: "block", textAlign: "center", fontSize: "0.9375rem", fontWeight: 600, padding: "0.875rem", borderRadius: "0.75rem", background: "#f9fafb", color: "#374151", textDecoration: "none", border: "1px solid #e5e7eb", transition: "background 0.2s" }
+                    ? { display: "block", textAlign: "center", fontSize: "0.9375rem", fontWeight: 700, padding: "0.875rem", borderRadius: "0.625rem", background: "var(--pine)", color: "#fff", textDecoration: "none" }
+                    : { display: "block", textAlign: "center", fontSize: "0.9375rem", fontWeight: 600, padding: "0.875rem", borderRadius: "0.625rem", background: "var(--paper-soft)", color: "var(--ink)", textDecoration: "none", border: "1px solid var(--line)" }
                 }
               >
                 {cta} →
@@ -951,93 +823,72 @@ function Pricing() {
           ))}
         </div>
 
-        <p style={{ textAlign: "center", fontSize: "0.75rem", marginTop: "1.5rem", color: "#9ca3af" }}>
-          All plans · NPR currency · VAT-compliant invoicing · eSewa & Khalti · Nepal-based support
-        </p>
+        <div className="aa-card" style={{ marginTop: "1.5rem", padding: "1.25rem 1.5rem", display: "flex", alignItems: "center", gap: "0.875rem", flexWrap: "wrap", justifyContent: "center", background: "#fff" }}>
+          <span style={{ color: "var(--pine)" }}><Icon.mobile s={18} /></span>
+          <p style={{ fontSize: "0.875rem", color: "var(--ink)", fontWeight: 500 }}>
+            Personal accounts for patients and independent doctors are <strong>always free</strong> on web and mobile.
+          </p>
+        </div>
       </div>
     </section>
   );
 }
 
-// ─── Payments ─────────────────────────────────────────────────────────────────
+// ─── Payments strip ─────────────────────────────────────────────────────────
 function Payments() {
+  const methods = [
+    { name: "eSewa", letter: "e", bg: "#0b6e5d" },
+    { name: "Khalti", letter: "K", bg: "#5b3fa3" },
+    { name: "Bank transfer", letter: "B", bg: "#2a5fa3" },
+    { name: "Cash / POS", letter: "₨", bg: "#b9752b" },
+  ];
   return (
-    <section style={{ background: "#070911", paddingTop: "4rem", paddingBottom: "4rem", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+    <section style={{ background: "var(--paper)", paddingTop: "3.5rem", paddingBottom: "3.5rem", borderTop: "1px solid var(--line)" }}>
       <div className="max-w-4xl mx-auto px-5 sm:px-8" style={{ textAlign: "center" }}>
-        <p style={{ fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.2)", marginBottom: "2rem" }}>
-          Fully integrated with Nepal's payment ecosystem
+        <p className="aa-mono" style={{ fontSize: "0.6875rem", fontWeight: 500, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--slate)", marginBottom: "1.75rem" }}>
+          Built for Nepal's payment ecosystem
         </p>
-        <div className="flex flex-wrap items-center justify-center gap-3 mb-6">
-          {[
-            { name: "eSewa", color: "#4ade80", bg: "#16a34a", letter: "e", textColor: "#fff" },
-            { name: "Khalti", color: "#a78bfa", bg: "#5b21b6", letter: "K", textColor: "#fff" },
-            { name: "Bank Transfer", color: "#60a5fa", bg: "#1d4ed8", letter: "B", textColor: "#fff" },
-            { name: "Cash / POS", color: "#fbbf24", bg: "#b45309", letter: "₨", textColor: "#fff" },
-          ].map(({ name, color, bg, letter, textColor }) => (
-            <div key={name} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.75rem 1.25rem", borderRadius: "0.875rem", background: "#0f1221", border: "1px solid rgba(255,255,255,0.07)" }}>
-              <div style={{ width: 36, height: 36, borderRadius: "0.5rem", background: bg, color: textColor, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: "0.875rem", flexShrink: 0 }}>
-                {letter}
-              </div>
-              <span style={{ fontSize: "0.9375rem", fontWeight: 600, color: color }}>{name}</span>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          {methods.map(({ name, letter, bg }) => (
+            <div key={name} className="aa-card" style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.75rem 1.25rem" }}>
+              <div style={{ width: 34, height: 34, borderRadius: "0.5rem", background: bg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "0.8125rem", flexShrink: 0 }}>{letter}</div>
+              <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--ink)" }}>{name}</span>
             </div>
           ))}
         </div>
-        <p style={{ fontSize: "0.8125rem", color: "rgba(255,255,255,0.25)" }}>
-          VAT-compliant invoices · Automatic payment tracking · NPR currency · Partial payments & refunds
-        </p>
       </div>
     </section>
   );
 }
 
-// ─── Testimonials ─────────────────────────────────────────────────────────────
+// ─── Testimonials ───────────────────────────────────────────────────────────
 function Testimonials() {
   const testimonials = [
-    {
-      quote: "ClinicKarobar replaced 4 different tools we were using. Appointments, billing, staff records — all in one place. We save 2+ hours every day.",
-      name: "Dr. Suman Shrestha",
-      role: "Owner, Shrestha Dental Clinic, Kathmandu",
-      initial: "S",
-    },
-    {
-      quote: "The multi-branch feature is incredible. I manage 3 clinics from my phone. Each branch has its own staff and reports but I see everything in one dashboard.",
-      name: "Dr. Priya Adhikari",
-      role: "Director, Adhikari Oral Care, Pokhara",
-      initial: "P",
-    },
-    {
-      quote: "eSewa and Khalti integration made it worth it alone. No more chasing payments. The VAT invoice feature saves hours for our accountant every month.",
-      name: "Bikash Maharjan",
-      role: "Manager, Smile Studio, Lalitpur",
-      initial: "B",
-    },
+    { quote: "Aastal replaced four different tools we were using for appointments, billing, and staff records. We save two hours a day, easily.", name: "Dr. Suman Shrestha", role: "Owner, Shrestha Dental Clinic", initial: "S" },
+    { quote: "I started on Aastal without a clinic behind me. Patients found me, booked directly, and now I decide my own hours.", name: "Dr. Priya Adhikari", role: "Independent physician, Pokhara", initial: "P" },
+    { quote: "I moved cities and my new doctor could see my whole history the moment I shared it. No folders, no calling the old clinic.", name: "Anjali Gurung", role: "Patient", initial: "A" },
   ];
-
   return (
-    <section style={{ background: "#f7f8fc", paddingTop: "5rem", paddingBottom: "5rem" }}>
+    <section style={{ background: "var(--paper-soft)", paddingTop: "5rem", paddingBottom: "5rem" }}>
       <div className="max-w-6xl mx-auto px-5 sm:px-8">
         <div style={{ textAlign: "center", marginBottom: "3rem" }}>
-          <span className="section-eyebrow">Loved by clinics</span>
-          <h2 style={{ fontWeight: 900, fontSize: "clamp(1.875rem,5vw,2.875rem)", letterSpacing: "-0.035em", color: "#0f172a", lineHeight: 1.1 }}>
-            Real results, real clinics
+          <span className="aa-eyebrow" style={{ justifyContent: "center" }}>Trusted across the room</span>
+          <h2 className="aa-serif" style={{ fontWeight: 400, fontSize: "clamp(2rem,4.5vw,2.75rem)", color: "var(--ink)", lineHeight: 1.1 }}>
+            From the front desk to the front pocket
           </h2>
         </div>
         <div className="grid md:grid-cols-3 gap-5">
           {testimonials.map(({ quote, name, role, initial }) => (
-            <div key={name} className="testimonial-card">
-              <div style={{ display: "flex", gap: "2px", marginBottom: "1rem" }}>
-                {[1,2,3,4,5].map(i => (
-                  <svg key={i} width="13" height="13" viewBox="0 0 24 24" fill="#f59e0b"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                ))}
+            <div key={name} className="aa-card" style={{ padding: "1.75rem", background: "#fff" }}>
+              <div style={{ display: "flex", gap: "2px", marginBottom: "1rem", color: "var(--amber)" }}>
+                {[1, 2, 3, 4, 5].map(i => <Icon.star key={i} s={13} />)}
               </div>
-              <p style={{ fontSize: "0.9rem", lineHeight: 1.7, color: "#374151", marginBottom: "1.25rem", fontStyle: "italic" }}>"{quote}"</p>
+              <p style={{ fontSize: "0.9rem", lineHeight: 1.7, color: "var(--ink)", marginBottom: "1.25rem" }}>&ldquo;{quote}&rdquo;</p>
               <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#0e9de8", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "0.875rem", flexShrink: 0 }}>
-                  {initial}
-                </div>
+                <div style={{ width: 38, height: 38, borderRadius: "50%", background: "var(--pine)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "0.875rem", flexShrink: 0 }}>{initial}</div>
                 <div>
-                  <p style={{ fontWeight: 700, fontSize: "0.875rem", color: "#0f172a" }}>{name}</p>
-                  <p style={{ fontSize: "0.75rem", color: "#9ca3af" }}>{role}</p>
+                  <p style={{ fontWeight: 700, fontSize: "0.875rem", color: "var(--ink)" }}>{name}</p>
+                  <p style={{ fontSize: "0.75rem", color: "var(--slate)" }}>{role}</p>
                 </div>
               </div>
             </div>
@@ -1048,66 +899,26 @@ function Testimonials() {
   );
 }
 
-// ─── CTA ──────────────────────────────────────────────────────────────────────
+// ─── CTA ─────────────────────────────────────────────────────────────────────
 function CTA() {
   return (
-    <section style={{ background: "#070911", paddingTop: "5rem", paddingBottom: "5rem" }}>
+    <section style={{ background: "var(--paper)", paddingTop: "5rem", paddingBottom: "5rem" }}>
       <div className="max-w-3xl mx-auto px-5 sm:px-8" style={{ textAlign: "center" }}>
-        <div
-          style={{
-            background: "#0f1221",
-            border: "1px solid rgba(14,157,232,0.14)",
-            borderRadius: "1.5rem",
-            padding: "clamp(2.5rem,5vw,4rem)",
-            position: "relative",
-            overflow: "hidden",
-          }}
-        >
-          {/* Subtle top-center accent */}
-          <div style={{
-            position: "absolute",
-            top: -80,
-            left: "50%",
-            transform: "translateX(-50%)",
-            width: 400,
-            height: 200,
-            borderRadius: "50%",
-            background: "radial-gradient(ellipse at center, rgba(14,157,232,0.10) 0%, transparent 70%)",
-            pointerEvents: "none",
-          }} />
+        <div style={{ background: "var(--ink)", borderRadius: "1.5rem", padding: "clamp(2.5rem,5vw,4rem)", position: "relative", overflow: "hidden" }}>
+          <div style={{ position: "absolute", top: -80, left: "50%", transform: "translateX(-50%)", width: 400, height: 200, borderRadius: "50%", background: "radial-gradient(ellipse at center, rgba(11,110,93,0.35) 0%, transparent 70%)", pointerEvents: "none" }} />
 
-          <div
-            className="inline-flex items-center gap-2 mb-6 px-4 py-1.5 rounded-full"
-            style={{ background: "rgba(14,157,232,0.08)", border: "1px solid rgba(14,157,232,0.15)", fontSize: "0.75rem", fontWeight: 600, color: "#5bbfe8" }}
-          >
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#0e9de8", display: "inline-block" }} />
-            Free for 14 days — no credit card needed
-          </div>
+          <span className="aa-eyebrow" style={{ justifyContent: "center", color: "#7fc9b6" }}>Free for 14 days · no card needed</span>
 
-          <h2
-            style={{
-              fontWeight: 900,
-              fontSize: "clamp(1.875rem,5vw,2.875rem)",
-              letterSpacing: "-0.035em",
-              color: "#fff",
-              lineHeight: 1.1,
-              marginBottom: "1rem",
-            }}
-          >
-            Ready to modernise<br />your clinic?
+          <h2 className="aa-serif" style={{ fontWeight: 400, fontSize: "clamp(2rem,5vw,2.875rem)", color: "#fff", lineHeight: 1.1, marginBottom: "1rem" }}>
+            Bring your practice — or your care — onto one platform.
           </h2>
-          <p style={{ fontSize: "1.0625rem", color: "rgba(255,255,255,0.4)", lineHeight: 1.65, marginBottom: "2rem" }}>
-            Join 500+ Nepali clinics running on ClinicKarobar. Setup takes less than 5 minutes.
+          <p style={{ fontSize: "1.0625rem", color: "rgba(255,255,255,0.55)", lineHeight: 1.65, marginBottom: "2rem" }}>
+            500+ clinics run their front desk on Aastal. Doctors and patients join free, on web or mobile.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Link href="/auth/register" className="ck-btn-primary" style={{ minWidth: 200 }}>
-              Start for free
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-            </Link>
-            <Link href="#pricing" className="ck-btn-outline-dark" style={{ minWidth: 160 }}>
-              View pricing plans
-            </Link>
+            <Link href="/auth/register" className="aa-btn-primary" style={{ minWidth: 200 }}>Start for free <Icon.arrow /></Link>
+            <Link href="#pricing" className="aa-btn-outline" style={{ minWidth: 170, color: "#fff", borderColor: "rgba(255,255,255,0.2)" }}>View pricing</Link>
           </div>
         </div>
       </div>
@@ -1115,42 +926,31 @@ function CTA() {
   );
 }
 
-// ─── Footer ───────────────────────────────────────────────────────────────────
+// ─── Footer ──────────────────────────────────────────────────────────────────
 function Footer() {
   return (
-    <footer style={{ background: "#070911", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "3.5rem", paddingBottom: "3.5rem" }}>
+    <footer style={{ background: "var(--paper)", borderTop: "1px solid var(--line)", paddingTop: "3.5rem", paddingBottom: "3.5rem" }}>
       <div className="max-w-6xl mx-auto px-5 sm:px-8">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-10" style={{ marginBottom: "2.5rem" }}>
-          <div style={{ gridColumn: "span 2 / span 2" }} className="md:col-span-1">
-            <Link href="/" style={{ display: "flex", alignItems: "center", gap: "0.625rem", marginBottom: "1rem", textDecoration: "none" }}>
-              <div style={{ width: 28, height: 28, borderRadius: "0.625rem", background: "#0e9de8", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M9 22V12h6v10" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-              <span style={{ fontWeight: 800, fontSize: "1rem", color: "#fff" }}>Clinic<span style={{ color: "#0e9de8" }}>Karobar</span></span>
-            </Link>
-            <p style={{ fontSize: "0.8125rem", lineHeight: 1.65, color: "rgba(255,255,255,0.28)", marginBottom: "0.75rem" }}>
-              The complete platform for modern Nepali clinics.
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-10" style={{ marginBottom: "2.5rem" }}>
+          <div style={{ gridColumn: "span 2 / span 2" }} className="md:col-span-2">
+            <div style={{ marginBottom: "1rem" }}><Logo /></div>
+            <p style={{ fontSize: "0.8125rem", lineHeight: 1.65, color: "var(--slate)", marginBottom: "0.75rem", maxWidth: 260 }}>
+              One platform for clinics, doctors, and patients — on web, desktop, and mobile.
             </p>
-            <p style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.18)" }}>Made with ♥ in Nepal 🇳🇵</p>
+            <p style={{ fontSize: "0.75rem", color: "var(--slate)" }}>Made in Nepal 🇳🇵</p>
           </div>
 
           {[
-            { heading: "Product", links: ["Features", "Pricing", "Changelog"] },
-            { heading: "Company", links: ["About Us", "Blog", "Contact"] },
-            { heading: "Legal", links: ["Privacy Policy", "Terms of Service", "Security"] },
+            { heading: "Platform", links: ["Web dashboard", "Desktop app", "Mobile app", "Pricing"] },
+            { heading: "Company", links: ["About us", "Blog", "Contact"] },
+            { heading: "Legal", links: ["Privacy policy", "Terms of service", "Security"] },
           ].map(({ heading, links }) => (
             <div key={heading}>
-              <p style={{ fontSize: "0.875rem", fontWeight: 700, color: "#fff", marginBottom: "1rem" }}>{heading}</p>
+              <p style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--ink)", marginBottom: "1rem" }}>{heading}</p>
               <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.625rem" }}>
                 {links.map(link => (
                   <li key={link}>
-                    <Link href="#" style={{ fontSize: "0.8125rem", color: "rgba(255,255,255,0.28)", textDecoration: "none", transition: "color 0.2s" }}
-                      onMouseEnter={e => (e.target as HTMLElement).style.color = "rgba(255,255,255,0.65)"}
-                      onMouseLeave={e => (e.target as HTMLElement).style.color = "rgba(255,255,255,0.28)"}
-                    >{link}</Link>
+                    <Link href="#" style={{ fontSize: "0.8125rem", color: "var(--slate)", textDecoration: "none" }}>{link}</Link>
                   </li>
                 ))}
               </ul>
@@ -1158,29 +958,27 @@ function Footer() {
           ))}
         </div>
 
-        <div
-          className="flex flex-col sm:flex-row items-center justify-between gap-3"
-          style={{ paddingTop: "2rem", borderTop: "1px solid rgba(255,255,255,0.05)" }}
-        >
-          <p style={{ fontSize: "0.8125rem", color: "rgba(255,255,255,0.18)" }}>© 2026 ClinicKarobar. All rights reserved.</p>
-          <p style={{ fontSize: "0.8125rem", color: "rgba(255,255,255,0.18)" }}>Empowering Nepali healthcare, one clinic at a time</p>
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3" style={{ paddingTop: "2rem", borderTop: "1px solid var(--line)" }}>
+          <p style={{ fontSize: "0.8125rem", color: "var(--slate)" }}>© 2026 Aastal. All rights reserved.</p>
+          <p style={{ fontSize: "0.8125rem", color: "var(--slate)" }}>One record, every screen.</p>
         </div>
       </div>
     </footer>
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── Page ────────────────────────────────────────────────────────────────────
 export default function HomePage() {
   return (
-    <main style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}>
+    <main style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif", background: "var(--paper)" }}>
       <Nav />
       <Hero />
       <Stats />
-      <Features />
+      <PlatformShowcase />
+      <AudienceTabs />
       <HowItWorks />
       <Pricing />
-      <Payments />
+      {/* <Payments /> */}
       <Testimonials />
       <CTA />
       <Footer />

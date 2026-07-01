@@ -5,6 +5,7 @@ import { Repository, In } from 'typeorm';
 import { LabWork, LabWorkStatus, LabWorkPriority } from './entities/lab-work.entity';
 import { CreateLabWorkDto, UpdateLabWorkDto } from './dto/lab-work.dto';
 import { Expense, ExpenseCategory, ApprovalStatus } from '../expenses/entities/expense.entity';
+import { pendingSyncFields } from '../sync/pending-sync.util';
 
 @Injectable()
 export class LabWorkService {
@@ -101,7 +102,7 @@ export class LabWorkService {
     await this.repo
       .createQueryBuilder()
       .update(LabWork)
-      .set({ invoiceId, billedAt: new Date() })
+      .set({ invoiceId, billedAt: new Date(), ...pendingSyncFields('LabWork') })
       .where('id IN (:...ids) AND clinicId = :clinicId', { ids, clinicId })
       .execute();
   }

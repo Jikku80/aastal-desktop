@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { BloodTest, BloodTestStatus, BloodTestPriority } from './entities/blood-test.entity';
 import { CreateBloodTestDto, UpdateBloodTestDto } from './dto/blood-test.dto';
+import { pendingSyncFields } from '../sync/pending-sync.util';
 
 @Injectable()
 export class BloodTestService {
@@ -82,7 +83,7 @@ export class BloodTestService {
     await this.repo
       .createQueryBuilder()
       .update(BloodTest)
-      .set({ invoiceId, billedAt: new Date() })
+      .set({ invoiceId, billedAt: new Date(), ...pendingSyncFields('BloodTest') })
       .where('id IN (:...ids) AND clinicId = :clinicId', { ids, clinicId })
       .execute();
   }

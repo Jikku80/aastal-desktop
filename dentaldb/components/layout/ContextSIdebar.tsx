@@ -484,7 +484,7 @@ export default function ContextSidebar() {
       <button
         onClick={() => setContextSidebarClosed(false)}
         title="Show patient panel"
-        className={`hidden xl:flex items-center justify-center fixed left-3 z-[60] w-9 h-9 rounded-xl shadow-lg transition-transform hover:scale-105 transition-[top] duration-300 ${navHidden ? "top-3" : "top-[76px]"}`}
+        className={`hidden xl:flex items-center justify-center fixed left-3 z-[60] w-9 h-9 rounded-xl shadow-lg mt-1 transition-transform hover:scale-105 transition-[top] duration-300 ${navHidden ? "top-3" : "top-[76px]"}`}
         style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
       >
         <PanelRightOpen size={15} className="text-[var(--text-muted)]" />

@@ -12,6 +12,7 @@ import { Patient } from '../patients/entities/patient.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { Subscription } from '../subscriptions/entities/subscription.entity';
 import { addDays } from 'date-fns';
+import { pendingSyncFields } from '../sync/pending-sync.util';
 
 // ── Configurable grace period (days). Set to 0 to disable. ───────────────────
 export const DOWNGRADE_GRACE_PERIOD_DAYS = 7;
@@ -448,7 +449,7 @@ export class BranchesService {
     await this.branchRepo
       .createQueryBuilder()
       .update(Branch)
-      .set({ status: BranchStatus.INACTIVE, isActive: false, isLocked: false })
+      .set({ status: BranchStatus.INACTIVE, isActive: false, isLocked: false, ...pendingSyncFields('Branch') })
       .where('clinicId = :clinicId AND status = :status', {
         clinicId,
         status: BranchStatus.PENDING_SELECTION,

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Trash2, FileText, Loader2, X, ChevronDown, Pill, Stethoscope, Search } from 'lucide-react';
+import { Plus, Trash2, FileText, Loader2, X, ChevronDown, Pill, Stethoscope, Search, ClipboardList, Users, Calendar } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { clinicalRecordsApi, patientsApi, usersApi } from '@/lib/api';
@@ -78,100 +78,124 @@ function RecordDialog({ record, onClose }: { record?: ClinicalRecord | null; onC
   });
 
   return (
-    <div className="fixed inset-0 z-[95] modal-clearance flex items-center justify-center p-4"
-      style={{ background: 'rgba(0,0,0,0.7)' }}>
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl p-6"
-        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-            {record ? 'Edit Clinical Record' : 'New Clinical Record'}
-          </h2>
-          <button onClick={onClose} className="btn-ghost w-8 h-8 p-0 justify-center"><X size={16} /></button>
+    <div className="fixed inset-0 z-[95] modal-clearance flex items-end sm:items-center justify-center sm:p-4"
+      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+      onClick={onClose}>
+      <div
+        className="w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col animate-slide-up"
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+        onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 shrink-0"
+          style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-brand-500/15 flex items-center justify-center shrink-0">
+              <ClipboardList size={18} className="text-brand-400" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-semibold text-[var(--text-primary)] truncate">
+                {record ? 'Edit Clinical Record' : 'New Clinical Record'}
+              </h2>
+              <p className="text-xs text-[var(--text-muted)]">Diagnosis, treatment plan &amp; prescriptions</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="btn-ghost w-8 h-8 p-0 justify-center shrink-0"><X size={16} /></button>
         </div>
 
-        <form onSubmit={handleSubmit(d => mutation.mutate(d))} className="space-y-5">
-          {/* Patient + Doctor */}
-          <div className="grid grid-cols-2 gap-3">
+        <form onSubmit={handleSubmit(d => mutation.mutate(d))} className="flex-1 flex flex-col min-h-0">
+          <div className="px-5 sm:px-6 py-5 space-y-5 overflow-y-auto">
+            {/* Patient + Doctor */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label">Patient *</label>
+                <select {...register('patientId')} className="input w-full">
+                  <option value="">Select patient</option>
+                  {patients.map((p: any) => (
+                    <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
+                  ))}
+                </select>
+                {errors.patientId && <p className="text-red-400 text-xs mt-1">{errors.patientId.message}</p>}
+              </div>
+              <div>
+                <label className="label">Doctor *</label>
+                <select {...register('doctorId')} className="input w-full">
+                  <option value="">Select doctor</option>
+                  {doctors.map((d: any) => (
+                    <option key={d.id} value={d.id}>{d.firstName} {d.lastName}</option>
+                  ))}
+                </select>
+                {errors.doctorId && <p className="text-red-400 text-xs mt-1">{errors.doctorId.message}</p>}
+              </div>
+            </div>
+
+            {/* Diagnosis */}
             <div>
-              <label className="label">Patient *</label>
-              <select {...register('patientId')} className="input w-full">
-                <option value="">Select patient</option>
-                {patients.map((p: any) => (
-                  <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
-                ))}
-              </select>
-              {errors.patientId && <p className="text-red-400 text-xs mt-1">{errors.patientId.message}</p>}
+              <label className="label flex items-center gap-1.5"><Stethoscope size={12} /> Diagnosis Notes</label>
+              <textarea {...register('diagnosisNotes')} className="input w-full resize-none" rows={3}
+                placeholder="Chief complaint, examination findings, diagnosis…" />
             </div>
+
+            {/* Treatment */}
             <div>
-              <label className="label">Doctor *</label>
-              <select {...register('doctorId')} className="input w-full">
-                <option value="">Select doctor</option>
-                {doctors.map((d: any) => (
-                  <option key={d.id} value={d.id}>{d.firstName} {d.lastName}</option>
-                ))}
-              </select>
-              {errors.doctorId && <p className="text-red-400 text-xs mt-1">{errors.doctorId.message}</p>}
+              <label className="label">Treatment Plan</label>
+              <textarea {...register('treatmentPlan')} className="input w-full resize-none" rows={3}
+                placeholder="Proposed treatment, procedures, follow-up…" />
             </div>
-          </div>
 
-          {/* Diagnosis */}
-          <div>
-            <label className="label flex items-center gap-1.5"><Stethoscope size={12} /> Diagnosis Notes</label>
-            <textarea {...register('diagnosisNotes')} className="input w-full resize-none" rows={3}
-              placeholder="Chief complaint, examination findings, diagnosis…" />
-          </div>
-
-          {/* Treatment */}
-          <div>
-            <label className="label">Treatment Plan</label>
-            <textarea {...register('treatmentPlan')} className="input w-full resize-none" rows={3}
-              placeholder="Proposed treatment, procedures, follow-up…" />
-          </div>
-
-          {/* Prescriptions */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="label flex items-center gap-1.5 mb-0"><Pill size={12} /> Prescriptions</label>
-              <button type="button"
-                onClick={() => append({ medicineName: '', dosage: '', frequency: '', duration: '', instructions: '' })}
-                className="btn-ghost text-xs px-2 py-1 flex items-center gap-1">
-                <Plus size={11} /> Add medicine
-              </button>
-            </div>
-            {fields.length === 0 && (
-              <p className="text-xs text-[var(--text-muted)] py-2">No prescriptions added.</p>
-            )}
-            <div className="space-y-3">
-              {fields.map((field, i) => (
-                <div key={field.id} className="p-3 rounded-xl relative"
-                  style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
-                  <button type="button" onClick={() => remove(i)}
-                    className="absolute top-2 right-2 btn-ghost w-6 h-6 p-0 justify-center text-red-400">
-                    <X size={12} />
-                  </button>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="col-span-2">
-                      <input {...register(`prescriptions.${i}.medicineName`)}
-                        className="input w-full text-sm" placeholder="Medicine name *" />
-                    </div>
-                    <input {...register(`prescriptions.${i}.dosage`)}
-                      className="input w-full text-sm" placeholder="Dosage (e.g. 500mg)" />
-                    <input {...register(`prescriptions.${i}.frequency`)}
-                      className="input w-full text-sm" placeholder="Frequency (e.g. Twice daily)" />
-                    <input {...register(`prescriptions.${i}.duration`)}
-                      className="input w-full text-sm" placeholder="Duration (e.g. 5 days)" />
-                    <input {...register(`prescriptions.${i}.instructions`)}
-                      className="input w-full text-sm" placeholder="Instructions (e.g. After meals)" />
-                  </div>
+            {/* Prescriptions */}
+            <div>
+              <div className="flex items-center justify-between mb-2.5">
+                <label className="label flex items-center gap-1.5 mb-0"><Pill size={12} /> Prescriptions</label>
+                <button type="button"
+                  onClick={() => append({ medicineName: '', dosage: '', frequency: '', duration: '', instructions: '' })}
+                  className="btn-ghost text-xs px-2.5 py-1.5 gap-1 text-brand-400 hover:bg-brand-500/10">
+                  <Plus size={12} /> Add medicine
+                </button>
+              </div>
+              {fields.length === 0 && (
+                <div className="text-center py-6 rounded-xl" style={{ background: 'var(--bg-elevated)', border: '1px dashed var(--border-hover)' }}>
+                  <Pill size={20} className="mx-auto text-[var(--text-muted)] mb-1.5 opacity-50" />
+                  <p className="text-xs text-[var(--text-muted)]">No prescriptions added yet.</p>
                 </div>
-              ))}
+              )}
+              <div className="space-y-2.5">
+                {fields.map((field, i) => (
+                  <div key={field.id} className="p-3.5 rounded-xl relative transition-colors"
+                    style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-brand-400">
+                        Medicine {i + 1}
+                      </span>
+                      <button type="button" onClick={() => remove(i)}
+                        className="btn-ghost w-6 h-6 p-0 justify-center text-red-400 hover:bg-red-500/10">
+                        <X size={12} />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="sm:col-span-2">
+                        <input {...register(`prescriptions.${i}.medicineName`)}
+                          className="input w-full text-sm" placeholder="Medicine name *" />
+                      </div>
+                      <input {...register(`prescriptions.${i}.dosage`)}
+                        className="input w-full text-sm" placeholder="Dosage (e.g. 500mg)" />
+                      <input {...register(`prescriptions.${i}.frequency`)}
+                        className="input w-full text-sm" placeholder="Frequency (e.g. Twice daily)" />
+                      <input {...register(`prescriptions.${i}.duration`)}
+                        className="input w-full text-sm" placeholder="Duration (e.g. 5 days)" />
+                      <input {...register(`prescriptions.${i}.instructions`)}
+                        className="input w-full text-sm" placeholder="Instructions (e.g. After meals)" />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose} className="btn-ghost flex-1">Cancel</button>
-            <button type="submit" disabled={mutation.isPending} className="btn-primary flex-1">
-              {mutation.isPending ? <Loader2 size={14} className="animate-spin mx-auto" /> : (record ? 'Update' : 'Create Record')}
+          <div className="flex gap-2 px-5 sm:px-6 py-4 shrink-0" style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
+            <button type="button" onClick={onClose} className="btn-ghost flex-1 justify-center">Cancel</button>
+            <button type="submit" disabled={mutation.isPending} className="btn-primary flex-1 justify-center">
+              {mutation.isPending ? <Loader2 size={14} className="animate-spin" /> : (record ? 'Update Record' : 'Create Record')}
             </button>
           </div>
         </form>
@@ -180,7 +204,7 @@ function RecordDialog({ record, onClose }: { record?: ClinicalRecord | null; onC
   );
 }
 
-function RecordCard({ record, onEdit }: { record: ClinicalRecord; onEdit: () => void }) {
+function RecordCard({ record, onEdit }: { record: ClinicalRecord; onEdit?: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const patientName = record.patient
     ? `${record.patient.firstName} ${record.patient.lastName}`
@@ -190,20 +214,22 @@ function RecordCard({ record, onEdit }: { record: ClinicalRecord; onEdit: () => 
     : 'Unknown Doctor';
 
   return (
-    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-      <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[var(--bg-elevated)] transition-colors"
-        style={{ background: 'var(--bg-card)' }}
+    <div className="rounded-2xl overflow-hidden transition-all duration-200"
+      style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+      <div className="flex items-center gap-3 px-4 sm:px-5 py-3.5 cursor-pointer hover:bg-[var(--bg-elevated)] transition-colors"
         onClick={() => setExpanded(v => !v)}>
-        <div className="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center text-white text-sm font-bold shrink-0">
+        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm">
           {patientName.charAt(0)}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-medium text-[var(--text-primary)] text-sm">{patientName}</p>
-          <p className="text-xs text-[var(--text-muted)]">{record.patient?.opdNo ? `OPD: ${record.patient.opdNo} · ` : ''}Dr. {doctorName} · {format(new Date(record.createdAt), 'MMM d, yyyy')}</p>
+          <p className="font-semibold text-[var(--text-primary)] text-sm truncate">{patientName}</p>
+          <p className="text-xs text-[var(--text-muted)] truncate">
+            {record.patient?.opdNo ? `OPD ${record.patient.opdNo} · ` : ''}Dr. {doctorName} · {format(new Date(record.createdAt), 'MMM d, yyyy')}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {record.prescriptions?.length > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-brand-500/10 text-brand-400">
+            <span className="hidden xs:inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-brand-500/10 text-brand-400">
               {record.prescriptions.length} Rx
             </span>
           )}
@@ -213,37 +239,48 @@ function RecordCard({ record, onEdit }: { record: ClinicalRecord; onEdit: () => 
               patientName={record.patient ? `${record.patient.firstName} ${record.patient.lastName}` : undefined}
             />
           )}
-          <button onClick={e => { e.stopPropagation(); onEdit(); }}
-            className="btn-ghost text-xs px-2 py-1">Edit</button>
-          <ChevronDown size={14} className={`text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          {onEdit && (
+            <button onClick={e => { e.stopPropagation(); onEdit(); }}
+              className="btn-ghost text-xs px-2 py-1.5 hidden sm:inline-flex">Edit</button>
+          )}
+          <ChevronDown size={16} className={`text-[var(--text-muted)] transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
         </div>
       </div>
 
       {expanded && (
-        <div className="px-4 pb-4 pt-2 space-y-3" style={{ background: 'var(--bg-base)' }}>
+        <div className="px-4 sm:px-5 pb-4 pt-1 space-y-4" style={{ background: 'var(--bg-base)', borderTop: '1px solid var(--border)' }}>
+          {onEdit && (
+            <div className="sm:hidden pt-3">
+              <button onClick={onEdit} className="btn-secondary text-xs w-full justify-center">Edit record</button>
+            </div>
+          )}
           {record.diagnosisNotes && (
-            <div>
-              <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1">Diagnosis</p>
-              <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap">{record.diagnosisNotes}</p>
+            <div className="pt-3">
+              <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                <Stethoscope size={11} /> Diagnosis
+              </p>
+              <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap leading-relaxed">{record.diagnosisNotes}</p>
             </div>
           )}
           {record.treatmentPlan && (
             <div>
-              <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1">Treatment Plan</p>
-              <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap">{record.treatmentPlan}</p>
+              <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Treatment Plan</p>
+              <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap leading-relaxed">{record.treatmentPlan}</p>
             </div>
           )}
           {record.prescriptions?.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Prescriptions</p>
+              <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Pill size={11} /> Prescriptions
+              </p>
               <div className="space-y-2">
                 {record.prescriptions.map((rx, i) => (
-                  <div key={rx.id || i} className="flex flex-wrap gap-x-4 gap-y-1 text-sm px-3 py-2 rounded-lg"
+                  <div key={rx.id || i} className="flex flex-wrap gap-x-4 gap-y-1 text-sm px-3.5 py-2.5 rounded-xl"
                     style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                    <span className="font-medium text-[var(--text-primary)]">{rx.medicineName}</span>
-                    {rx.dosage     && <span className="text-[var(--text-muted)]">{rx.dosage}</span>}
-                    {rx.frequency  && <span className="text-[var(--text-muted)]">{rx.frequency}</span>}
-                    {rx.duration   && <span className="text-[var(--text-muted)]">× {rx.duration}</span>}
+                    <span className="font-semibold text-[var(--text-primary)]">{rx.medicineName}</span>
+                    {rx.dosage     && <span className="text-[var(--text-secondary)]">{rx.dosage}</span>}
+                    {rx.frequency  && <span className="text-[var(--text-secondary)]">{rx.frequency}</span>}
+                    {rx.duration   && <span className="text-[var(--text-secondary)]">× {rx.duration}</span>}
                     {rx.instructions && <span className="text-[var(--text-muted)] italic">{rx.instructions}</span>}
                   </div>
                 ))}
@@ -273,33 +310,42 @@ export default function ClinicalRecordsPage() {
   const records: ClinicalRecord[] = Array.isArray(data) ? data : (data as any)?.data ?? [];
   const filtered = records;
 
+  const stats = [
+    { label: 'Total Records',   value: records.length, icon: ClipboardList },
+    { label: 'Prescriptions',   value: records.reduce((a, r) => a + (r.prescriptions?.length || 0), 0), icon: Pill },
+    { label: 'Unique Patients', value: new Set(records.map(r => r.patientId)).size, icon: Users },
+  ];
+
   return (
     <div className="flex flex-col h-screen">
       <Header
         title="Clinical Records"
+        subtitle="Diagnosis, treatment & prescription history"
         action={!branchLocked ? { label: 'New record', onClick: () => { setEditing(null); setShowDialog(true); } } : undefined}
       />
       <div className="px-4 pt-2 shrink-0"><BranchReadOnlyBanner /></div>
 
-      <div className="flex-1 overflow-auto p-4 lg:p-6">
+      <div className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
-          {[
-            { label: 'Total Records',   value: records.length },
-            { label: 'Prescriptions',   value: records.reduce((a, r) => a + (r.prescriptions?.length || 0), 0) },
-            { label: 'Unique Patients', value: new Set(records.map(r => r.patientId)).size },
-          ].map(card => (
-            <div key={card.label} className="rounded-xl p-4"
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-              <p className="text-xs text-[var(--text-muted)]">{card.label}</p>
-              <p className="text-2xl font-bold text-[var(--text-primary)] mt-1">{card.value}</p>
+        <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-5">
+          {stats.map(card => (
+            <div key={card.label} className="rounded-2xl p-3.5 sm:p-4 flex items-center gap-3"
+              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+              <div className="w-9 h-9 rounded-xl bg-brand-500/10 flex items-center justify-center shrink-0">
+                <card.icon size={16} className="text-brand-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-lg sm:text-2xl font-bold text-[var(--text-primary)] leading-tight">{card.value}</p>
+                <p className="text-[10px] sm:text-xs text-[var(--text-muted)] truncate">{card.label}</p>
+              </div>
             </div>
           ))}
         </div>
 
         {/* Search & Filters */}
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <div className="relative max-w-xs flex-1 min-w-[180px]">
+        <div className="rounded-2xl p-3 sm:p-3.5 mb-5 flex flex-wrap items-center gap-2"
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="relative flex-1 min-w-[180px]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
             <input
               value={search}
@@ -308,7 +354,8 @@ export default function ClinicalRecordsPage() {
               placeholder="Search patient, OPD No, doctor, diagnosis…"
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Calendar size={13} className="text-[var(--text-muted)]" />
             <input
               type="date"
               value={dateFrom}
@@ -325,19 +372,20 @@ export default function ClinicalRecordsPage() {
               style={{ width: 'auto' }}
             />
             {(dateFrom || dateTo) && (
-              <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="btn-ghost text-xs px-2 py-1">Clear</button>
+              <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="btn-ghost text-xs px-2 py-1.5">Clear</button>
             )}
           </div>
         </div>
 
         {isLoading ? (
-          <div className="flex justify-center py-16">
+          <div className="flex justify-center py-20">
             <Loader2 size={24} className="animate-spin text-[var(--text-muted)]" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-16">
+          <div className="text-center py-20 rounded-2xl" style={{ background: 'var(--bg-surface)', border: '1px dashed var(--border-hover)' }}>
             <FileText size={36} className="mx-auto text-[var(--text-muted)] mb-3 opacity-40" />
-            <p className="text-sm text-[var(--text-muted)]">No clinical records found.</p>
+            <p className="text-sm text-[var(--text-muted)] mb-1">No clinical records found.</p>
+            <p className="text-xs text-[var(--text-muted)] opacity-70">Try adjusting your search or date range.</p>
           </div>
         ) : (
           <div className="space-y-3">

@@ -43,7 +43,7 @@ const NAV_FEATURE_MAP: Record<string, Feature | null> = {
   '/dashboard/billing':         null,
   '/dashboard/analytics':       null,
   '/dashboard/staff':           null,
-  '/dashboard/staff-performance':null,
+  // '/dashboard/staff-performance':null,
   '/dashboard/branches':        null,
   '/dashboard/public-listing':  null,
   '/dashboard/shifts':          'attendance',
@@ -108,7 +108,7 @@ const NAV_GROUPS = [
     icon: 'Stethoscope',
     hrefs: [
       '/dashboard/staff',
-      '/dashboard/staff-performance',
+      // '/dashboard/staff-performance',
       '/dashboard/shifts',
       '/dashboard/attendance',
       '/dashboard/leave',
@@ -271,7 +271,7 @@ export default function TopNav() {
 
   return (
     <div ref={navRef}>
-      <header className={`fixed left-3 right-3 lg:left-4 lg:right-4 z-[100] flex items-center gap-1 px-3 sm:px-4 lg:px-5 rounded-2xl shadow-xl transition-[top] duration-300 ease-in-out ${navHidden ? '-top-24' : 'top-3 lg:top-4'}`}
+      <header className={`fixed left-3 right-3 lg:left-4 lg:right-4 z-[100] flex items-center gap-1 px-3 sm:px-4 lg:px-5 rounded-2xl transition-[top] duration-300 ease-in-out ${navHidden ? '-top-24' : 'top-3 lg:top-4'}`}
         style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', height: '60px' }}>
 
         {/* Mobile menu toggle */}

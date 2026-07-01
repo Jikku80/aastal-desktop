@@ -187,7 +187,7 @@ function AnnotatableImage({ image, annotations, onAddAnnotation, onRemoveAnnotat
       <div className="flex items-center gap-2">
         <button
           onClick={() => { setIsAnnotating(a => !a); setPendingPos(null); }}
-          className={`flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border transition-colors ${isAnnotating ? 'bg-purple-600 text-white border-purple-600' : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]'}`}>
+          className={`flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border transition-colors ${isAnnotating ? 'bg-brand-600 text-white border-brand-600' : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]'}`}>
           <Pen size={11} /> {isAnnotating ? 'Click image to annotate' : 'Add Annotation'}
         </button>
         {isAnnotating && (
@@ -256,7 +256,7 @@ function AnnotatableImage({ image, annotations, onAddAnnotation, onRemoveAnnotat
               <button
                 onClick={() => { if (label.trim()) { onAddAnnotation({ x: pendingPos.x, y: pendingPos.y, label: label.trim(), color }); setLabel(''); setPendingPos(null); } }}
                 disabled={!label.trim()}
-                className="flex-1 py-1 text-[10px] bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-40">
+                className="flex-1 py-1 text-[10px] bg-brand-600 text-white rounded hover:bg-brand-700 disabled:opacity-40">
                 Add
               </button>
             </div>

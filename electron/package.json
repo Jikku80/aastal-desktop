@@ -29,7 +29,10 @@
     },
     "files": [
       "main.js",
-      "preload.js"
+      "preload.js",
+      "build/icon.ico",
+      "build/icon.icns",
+      "build/icon.png"
     ],
     "extraResources": [
       {

@@ -64,7 +64,7 @@ export const NAV_ITEMS = [
   { label: 'Reports',      href: '/dashboard/reports',         icon: 'BarChart3',       permission: 'reports.view'      as Permission },
   { label: 'Analytics',    href: '/dashboard/analytics',       icon: 'BarChart3',       permission: 'analytics.view'    as Permission },
   { label: 'Staff',        href: '/dashboard/staff',           icon: 'Stethoscope',     permission: 'staff.view'        as Permission },
-  { label: 'Staff Performance', href: '/dashboard/staff-performance', icon: 'Award',     permission: 'analytics.view'    as Permission },
+  // { label: 'Staff Performance', href: '/dashboard/staff-performance', icon: 'Award',     permission: 'analytics.view'    as Permission },
   { label: 'Branches',     href: '/dashboard/branches',        icon: 'GitBranch',       permission: 'branch.view'       as Permission },
   { label: 'Shifts',       href: '/dashboard/shifts',          icon: 'Layers',          permission: 'shift.view'        as Permission },
   { label: 'Attendance',   href: '/dashboard/attendance',      icon: 'ClipboardCheck',  permission: 'attendance.view'   as Permission },

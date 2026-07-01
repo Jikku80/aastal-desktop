@@ -1,5 +1,33 @@
-import { IsString, IsOptional, IsEnum, IsArray, IsNumber, IsDateString } from 'class-validator';
+import {
+  IsString, IsOptional, IsEnum, IsArray, IsNumber, IsDateString,
+  IsIn, ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { LabWorkStatus, LabWorkPriority } from '../entities/lab-work.entity';
+
+const RESULT_FLAGS = ['normal', 'low', 'high', 'critical'] as const;
+
+// Explicit, validated shape for a single result row. Nothing here strips
+// or defaults `flag` -- @IsIn only rejects values outside the known set.
+export class ResultRowDto {
+  @IsString()
+  parameter: string;
+
+  @IsString()
+  value: string;
+
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
+  @IsOptional()
+  @IsString()
+  referenceRange?: string;
+
+  @IsOptional()
+  @IsIn(RESULT_FLAGS)
+  flag?: 'normal' | 'low' | 'high' | 'critical';
+}
 
 export class CreateLabWorkDto {
   @IsString()
@@ -79,13 +107,9 @@ export class UpdateLabWorkDto {
 
   @IsOptional()
   @IsArray()
-  results?: {
-    parameter: string;
-    value: string;
-    unit?: string;
-    referenceRange?: string;
-    flag?: 'normal' | 'low' | 'high' | 'critical';
-  }[];
+  @ValidateNested({ each: true })
+  @Type(() => ResultRowDto)
+  results?: ResultRowDto[];
 
   @IsOptional()
   @IsString()

@@ -16,6 +16,12 @@ import * as compression    from 'compression';
 import { mkdir }           from 'fs/promises';
 import { join }            from 'path';
 import { setupOnlineOnlyGate } from './database/online-only-gate.middleware';
+import { installPendingSyncRepositoryPatch } from './sync/pending-sync-repository.patch';
+
+// Must run before any Repository.update() call anywhere in the app — see
+// pending-sync-repository.patch.ts. No-ops entirely when DB_DRIVER isn't
+// 'sqlite', so this has zero effect on the hosted Postgres deployment.
+installPendingSyncRepositoryPatch();
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');

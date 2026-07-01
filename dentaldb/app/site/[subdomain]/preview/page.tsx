@@ -119,7 +119,7 @@ export default function PreviewPage() {
             onClick={() => window.location.href = '/auth/login'}
             style={{
               padding: '8px 20px', borderRadius: 8, border: 'none',
-              background: '#4f46e5', color: '#fff', cursor: 'pointer', fontSize: 14, fontFamily: 'inherit',
+              background: '#027cc6', color: '#fff', cursor: 'pointer', fontSize: 14, fontFamily: 'inherit',
             }}
           >
             Sign In

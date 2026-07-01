@@ -14,19 +14,21 @@ import {
   Landmark,
   FileText,
   Receipt,
+  CloudCog,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { clinicsApi, subscriptionsApi, paymentsApi, apiKeysApi, adminApi, api } from '@/lib/api';
 import PrescriptionTemplateTab from '@/components/prescriptions/PrescriptionTemplateTab';
 import BillingTemplateTab from '@/components/billing/BillingTemplateTab';
+import SyncSettingsTab from '@/components/system/SyncSettingsTab';
 import Header from '@/components/layout/Header';
 import { useAuthStore } from '@/store/auth.store';
 import { usePermissions } from '@/store/permissions.store';
 import type { WorkingHours } from '@/types';
 
 const ADMIN_ROLES = new Set(['super_admin', 'owner']);
-const TABS = ['Clinic Profile', 'Working Hours', 'VAT Settings', 'Subscription', 'API Access', 'Prescription', 'Billing'] as const;
+const TABS = ['Clinic Profile', 'Working Hours', 'VAT Settings', 'Subscription', 'API Access', 'Prescription', 'Billing', 'Sync'] as const;
 type Tab = typeof TABS[number];
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -62,6 +64,7 @@ const TAB_ICONS: Record<Tab, any> = {
   'API Access': Code,
   'Prescription': FileText,
   'Billing': Receipt,
+  'Sync': CloudCog,
 };
 
 // ── Subscription upgrade modal — eSewa / Khalti / Manual ─────────────────────
@@ -2055,6 +2058,8 @@ export default function SettingsPage() {
                 <PrescriptionTemplateTab />
               </motion.div>
             )}
+
+            {activeTab === 'Sync' && <SyncSettingsTab />}
           </div>
         </div>
       </div>

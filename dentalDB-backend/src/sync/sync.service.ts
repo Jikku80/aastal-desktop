@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { SyncMeta } from './entities/sync-meta.entity';
 import { SYNC_REGISTRY, SyncRegistryEntry } from './sync-registry';
+import { runInsideSyncApply } from './sync-context';
 
 const LAST_SYNC_KEY = 'lastSyncAt';
 
@@ -85,24 +86,33 @@ export class SyncService {
     const applied: string[] = [];
     const conflicts: string[] = [];
 
-    for (const incoming of records) {
-      const existing = await repo.findOne({ where: { id: incoming.id } as any });
-      if (!existing) {
-        await repo.save({ ...incoming, syncStatus: 'synced' });
-        applied.push(incoming.id);
-        continue;
+    // Everything written in here is the sync engine applying an
+    // already-resolved record — PendingSyncSubscriber and the
+    // Repository.update() patch both check isInsideSyncApply() and skip
+    // their normal "mark pending" behavior for writes made inside this
+    // block. Without this, every pull would immediately re-queue the same
+    // rows for push, and every push confirmation would re-flag the row it
+    // just confirmed — an infinite sync loop.
+    await runInsideSyncApply(async () => {
+      for (const incoming of records) {
+        const existing = await repo.findOne({ where: { id: incoming.id } as any });
+        if (!existing) {
+          await repo.save({ ...incoming, syncStatus: 'synced' });
+          applied.push(incoming.id);
+          continue;
+        }
+        const incomingTs = new Date(incoming[entry.timestampField]).getTime();
+        const existingTs = new Date((existing as any)[entry.timestampField]).getTime();
+        if (incomingTs >= existingTs) {
+          await repo.save({ ...incoming, id: incoming.id, syncStatus: 'synced' });
+          applied.push(incoming.id);
+        } else {
+          // Local copy is newer — incoming write loses. Flag, don't overwrite.
+          await repo.update({ id: incoming.id } as any, { syncStatus: 'conflict' } as any);
+          conflicts.push(incoming.id);
+        }
       }
-      const incomingTs = new Date(incoming[entry.timestampField]).getTime();
-      const existingTs = new Date((existing as any)[entry.timestampField]).getTime();
-      if (incomingTs >= existingTs) {
-        await repo.save({ ...incoming, id: incoming.id, syncStatus: 'synced' });
-        applied.push(incoming.id);
-      } else {
-        // Local copy is newer — incoming write loses. Flag, don't overwrite.
-        await repo.update({ id: incoming.id } as any, { syncStatus: 'conflict' } as any);
-        conflicts.push(incoming.id);
-      }
-    }
+    });
     return { applied, conflicts };
   }
 
@@ -133,7 +143,11 @@ export class SyncService {
     const remote = this.getRemoteBaseUrl();
     if (!remote) throw new Error('SYNC_REMOTE_BASE_URL not configured — cannot pull');
     const since = await this.getLastSyncAt();
-    const url = `${remote}/sync/changes${since ? `?since=${since.toISOString()}` : ''}`;
+    // remote is the bare origin — every route sits under the global
+    // 'api/v1' prefix (setGlobalPrefix has no exclude list). Omitting it
+    // here previously made every pull 404 even with a correctly configured
+    // remote URL and a live server.
+    const url = `${remote}/api/v1/sync/changes${since ? `?since=${since.toISOString()}` : ''}`;
     const { data } = await firstValueFrom(
       this.http.get<ChangesResponse>(url, { headers: this.syncSecretHeaders() }),
     );
@@ -163,7 +177,7 @@ export class SyncService {
       if (!rows.length) continue;
       const { data } = await firstValueFrom(
         this.http.post<PushResult>(
-          `${remote}/sync/push`,
+          `${remote}/api/v1/sync/push`,
           { entityName: entry.name, records: rows },
           { headers: this.syncSecretHeaders() },
         ),

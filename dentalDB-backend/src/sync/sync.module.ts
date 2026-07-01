@@ -7,6 +7,7 @@ import { SyncController } from './sync.controller';
 import { ConnectivityService } from './connectivity.service';
 import { HealthController } from './health.controller';
 import { OutboxModule } from '../outbox/outbox.module';
+import { PendingSyncSubscriber } from './pending-sync.subscriber';
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { OutboxModule } from '../outbox/outbox.module';
     OutboxModule,
   ],
   controllers: [SyncController, HealthController],
-  providers: [SyncService, ConnectivityService],
+  providers: [SyncService, ConnectivityService, PendingSyncSubscriber],
   exports: [SyncService],
 })
 export class SyncModule {}

@@ -243,11 +243,17 @@ input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
 }
 
 /* ── Input base — ensure consistent height across themes ──────────────────── */
+/* NOTE: padding is intentionally NOT set here. This rule is plain CSS that
+   compiles after @tailwind utilities, so a hardcoded `padding` here would
+   always beat utility classes like `pl-8`/`pr-10` at equal specificity —
+   that was silently breaking every icon-inside-input layout (search boxes
+   etc.) by re-collapsing the left/right padding meant to clear the icon.
+   Padding now comes from the .input rule in the @layer components block
+   above, which utilities can correctly override. */
 .input {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 9px 12px;
   font-size: 14px;
   color: var(--text-primary);
   width: 100%;
