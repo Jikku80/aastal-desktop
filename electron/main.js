@@ -83,29 +83,10 @@ function spawnBackend() {
       'until configured from Settings > Sync. Connectivity polling stays disabled until then.');
   }
 
-  // Spawning process.execPath (Electron's own binary) with
-  // ELECTRON_RUN_AS_NODE=1 runs it as plain Node against `entry`, using
-  // Electron's bundled Node runtime — this is the standard way to run a
-  // Node backend alongside Electron WITHOUT requiring a separate Node.js
-  // install on the user's machine. It is not a typo for a system `node`
-  // binary.
-  // JWT_SECRET/JWT_REFRESH_SECRET MUST match the hosted/remote backend's
-  // values for sync device auto-registration to work: AuthService.login's
-  // auto-registration hook sends this instance's own just-issued JWT to
-  // the remote as Bearer auth (see SyncService.autoRegisterDeviceIfNeeded).
-  // If the secrets differ, the remote returns 401 to that call and the
-  // device just never gets a sync token — everything else about the app
-  // still works, it just stays offline-only until this is fixed.
-  // Override by setting JWT_SECRET / JWT_REFRESH_SECRET in the environment
-  // this Electron app is launched with (e.g. baked in at build time via
-  // your CI secrets) — the fallback below is a placeholder, not something
-  // safe to ship as-is.
-  const jwtSecret = process.env.JWT_SECRET || 'replace_with_64_char_random_hex_string_for_production';
-  const jwtRefreshSecret = process.env.JWT_REFRESH_SECRET || 'replace_with_different_64_char_random_hex_string';
-  if (!process.env.JWT_SECRET) {
-    console.warn('[sync] JWT_SECRET not set in the environment — using an insecure placeholder. ' +
-      'Sync device auto-registration will fail (401) until this matches the remote backend\'s JWT_SECRET.');
-  }
+  const BAKED_JWT_SECRET="c40a86c06abebc69aba7f0d4c992fe286fc4c729ca23d1f26d7d3e19af23e474eb417bdcca5399392e6855b626462cb5cb12f61585d159fc3aa0ef0fc46deecd";
+  const BAKED_JWT_REFRESH_SECRET="2e6e773380393918bb1905aaf4dc45d13efc72c5df3b1cdc78cc6f80026d071c377518a7f1697f4fc4b4e343163ab3e895662988f1d971c854184855d8b48c41";
+  const jwtSecret = BAKED_JWT_SECRET || process.env.JWT_SECRET;
+  const jwtRefreshSecret = BAKED_JWT_REFRESH_SECRET || process.env.JWT_REFRESH_SECRET;
 
   backendProcess = spawn(process.execPath, [entry], {
     env: {
