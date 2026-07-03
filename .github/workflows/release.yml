@@ -108,12 +108,23 @@ jobs:
         # the binary requires, so it runs on Debian 10 / Ubuntu 20.04 and newer — which
         # covers the large majority of Linux machines still in use. Node itself requires
         # glibc >= 2.28 to run at all, so this is close to the practical floor.
+        #
+        # --user matches the container process to the host runner's UID/GID so the
+        # compiled files aren't root-owned — electron-builder hard-links these files
+        # later as the normal runner user, and Linux's hardlink protection refuses to
+        # link files you don't own (that's the EPERM/.forge-meta failure otherwise).
+        # @electron/rebuild itself is already installed in electron/node_modules from
+        # the earlier "Install electron dependencies" step (bind-mounted in), so no
+        # extra install is needed inside the container.
         run: |
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e npm_config_cache=/tmp/.npm-cache \
             -v "${{ github.workspace }}:/workspace" \
             -w /workspace/electron \
             node:18-buster \
-            bash -c "npm install -g @electron/rebuild && npx @electron/rebuild --module-dir .staging/backend --only better-sqlite3 --force --verbose"
+            npx --no-install @electron/rebuild --module-dir .staging/backend --only better-sqlite3 --force --verbose
         timeout-minutes: 20
 
       - name: Package (Linux)
