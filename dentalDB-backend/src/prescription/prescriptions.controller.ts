@@ -5,6 +5,7 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
+import { UPLOADS_DIR } from '../common/utils/uploads-dir.util';
 import { v4 as uuid } from 'uuid';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -67,7 +68,7 @@ export class PrescriptionsController {
   @UseInterceptors(
     FilesInterceptor('file', 1, {
       storage: diskStorage({
-        destination: join(process.cwd(), 'uploads'),
+        destination: UPLOADS_DIR,
         filename: (_req, file, cb) => cb(null, `rx-logo-${uuid()}${extname(file.originalname)}`),
       }),
       fileFilter: (_req, file, cb) => {
@@ -89,7 +90,7 @@ export class PrescriptionsController {
   @UseInterceptors(
     FilesInterceptor('file', 1, {
       storage: diskStorage({
-        destination: join(process.cwd(), 'uploads'),
+        destination: UPLOADS_DIR,
         filename: (_req, file, cb) => cb(null, `rx-sig-${uuid()}${extname(file.originalname)}`),
       }),
       fileFilter: (_req, file, cb) => {

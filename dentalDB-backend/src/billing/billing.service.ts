@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
-import { ilike } from '../database/sql-helpers';
+import { ilike, withAdvisoryLock } from '../database/sql-helpers';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -14,6 +14,7 @@ import { AuditAction, AuditEntityType } from '../audit/entities/audit-log.entity
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { BloodTestService } from '../blood-test/blood-test.service';
 import { LabWorkService } from '../lab-work/lab-work.service';
+import { nepalDayBoundsUTC, nepalTodayParts, nepalWallClockToUTC } from '../common/utils/timezone.util';
 
 @Injectable()
 export class BillingService {
@@ -34,13 +35,17 @@ export class BillingService {
 
   /**
    * Generates a collision-safe invoice number using a DB-level advisory lock
-   * and retries on unique constraint violations.
+   * on Postgres, and retries on unique constraint violations.
+   *
+   * On SQLite (Electron), pg_advisory_xact_lock doesn't exist — see
+   * withAdvisoryLock in sql-helpers.ts, which no-ops there since SQLite's own
+   * transaction locking already serializes writers on a single-file DB.
    */
   private async generateInvoiceNumber(clinicId: string): Promise<string> {
     const year = new Date().getFullYear();
     const lockKey = Buffer.from(clinicId).reduce((a, b) => a + b, 0) % 2147483647;
     return await this.dataSource.transaction(async (manager) => {
-      await manager.query('SELECT pg_advisory_xact_lock($1)', [lockKey]);
+      await withAdvisoryLock(manager, lockKey);
       const count = await manager.count(Invoice, { where: { clinicId } });
       const seq = String(count + 1).padStart(5, '0');
       return 'INV-' + year + '-' + seq;
@@ -355,35 +360,76 @@ export class BillingService {
       .select('COALESCE(SUM(i.dueAmount), 0)', 'val')
       .getRawOne();
 
+    // NOTE: date_trunc()/now()/INTERVAL/TO_CHAR() below used to be raw
+    // Postgres-only SQL. That's fine on the hosted server, but this method
+    // runs identically on the Electron/SQLite offline build (billing is an
+    // OFFLINE-CAPABLE module — see typeorm-options.factory.ts's
+    // OFFLINE_MODULES list), and better-sqlite3 has none of those
+    // functions. Every call to GET /billing/analytics on the desktop app
+    // threw "no such function: date_trunc" (wrapped as a 500 by
+    // AllExceptionsFilter). Fixed by computing the date boundaries in JS
+    // (using the app's existing Nepal-timezone helpers, so "today" and
+    // "this month" mean clinic-local Nepal time either way, not the DB
+    // server's clock) and binding them as plain parameters — this works
+    // identically on Postgres and SQLite.
+    const { year, month } = nepalTodayParts();
+    const monthStart = nepalWallClockToUTC(year, month, 1, 0, 0);
+    const nextMonth  = month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 };
+    const monthEnd   = nepalWallClockToUTC(nextMonth.y, nextMonth.m, 1, 0, 0);
+    const { start: todayStart, end: todayEnd } = nepalDayBoundsUTC(0);
+
     const paidMonthRaw = await base()
       .andWhere('i.status IN (:...paidStatuses)', { paidStatuses: [InvoiceStatus.PAID, InvoiceStatus.PARTIALLY_PAID] })
-      .andWhere("i.paidAt >= date_trunc('month', now())")
-      .andWhere("i.paidAt <  date_trunc('month', now()) + INTERVAL '1 month'")
+      .andWhere('i.paidAt >= :monthStart AND i.paidAt < :monthEnd', { monthStart, monthEnd })
       .select('COALESCE(SUM(i.paidAmount), 0)', 'val')
       .getRawOne();
 
     const todayRevRaw = await base()
       .andWhere('i.status IN (:...paidStatuses)', { paidStatuses: [InvoiceStatus.PAID, InvoiceStatus.PARTIALLY_PAID] })
-      .andWhere("i.paidAt >= date_trunc('day', now())")
-      .andWhere("i.paidAt <  date_trunc('day', now()) + INTERVAL '1 day'")
+      .andWhere('i.paidAt >= :todayStart AND i.paidAt <= :todayEnd', { todayStart, todayEnd })
       .select('COALESCE(SUM(i.paidAmount), 0)', 'val')
       .getRawOne();
 
-    const chartRows = await base()
+    // Last 7 Nepal-local days' revenue, grouped in JS instead of with
+    // driver-specific date-truncation/formatting SQL — portable across
+    // Postgres and SQLite, and avoids a second timezone (DB server vs.
+    // Nepal clinic time) entering the picture at all.
+    const sevenDaysAgoStart = nepalDayBoundsUTC(6).start;
+    const rawInvoices = await base()
       .andWhere('i.status IN (:...paidStatuses)', { paidStatuses: [InvoiceStatus.PAID, InvoiceStatus.PARTIALLY_PAID] })
-      .andWhere("i.paidAt >= now() - INTERVAL '7 days'")
-      .select("TO_CHAR(CAST(i.paidAt AS date), 'Dy')", 'date')
-      .addSelect('COALESCE(SUM(i.paidAmount), 0)', 'revenue')
-      .groupBy("CAST(i.paidAt AS date), TO_CHAR(CAST(i.paidAt AS date), 'Dy')")
-      .orderBy("CAST(i.paidAt AS date)", 'ASC')
+      .andWhere('i.paidAt >= :sevenDaysAgoStart', { sevenDaysAgoStart })
+      .select(['i.paidAt AS "paidAt"', 'i.paidAmount AS "paidAmount"'])
       .getRawMany();
+
+    const dayBuckets = new Map<string, number>();
+    const dayLabels: string[] = [];
+    for (let daysAgo = 6; daysAgo >= 0; daysAgo--) {
+      const { start } = nepalDayBoundsUTC(daysAgo);
+      const key = start.toISOString().slice(0, 10); // YYYY-MM-DD (Nepal-local day)
+      dayBuckets.set(key, 0);
+      dayLabels.push(key);
+    }
+    for (const row of rawInvoices) {
+      const paidAt = new Date(row.paidAt);
+      // Bucket by Nepal-local calendar day, not UTC day.
+      const shifted = new Date(paidAt.getTime() + 5 * 60 * 60 * 1000 + 45 * 60 * 1000);
+      const key = shifted.toISOString().slice(0, 10);
+      if (dayBuckets.has(key)) {
+        dayBuckets.set(key, (dayBuckets.get(key) ?? 0) + Number(row.paidAmount || 0));
+      }
+    }
+    const revenueChart = dayLabels.map((key) => ({
+      date: new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kathmandu', weekday: 'short' })
+        .format(new Date(`${key}T12:00:00Z`)), // noon UTC keeps us clear of the day boundary regardless of host TZ
+      revenue: dayBuckets.get(key) ?? 0,
+    }));
 
     return {
       totalRevenue:  Number(totalRevRaw?.val  ?? 0),
       outstanding:   Number(outstandingRaw?.val ?? 0),
       paidThisMonth: Number(paidMonthRaw?.val  ?? 0),
       todayRevenue:  Number(todayRevRaw?.val   ?? 0),
-      revenueChart:  chartRows,
+      revenueChart,
     };
   }
 }

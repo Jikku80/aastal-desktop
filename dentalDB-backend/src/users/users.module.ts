@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
 import { join } from 'path';
+import { UPLOADS_DIR } from '../common/utils/uploads-dir.util';
 import { mkdir } from 'fs/promises';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
@@ -19,7 +20,7 @@ import { ShiftsModule } from '../shifts/shifts.module';
 import { AuthModule } from '../auth/auth.module';
 
 // Ensure avatars directory exists at startup
-mkdir(join(process.cwd(), 'uploads', 'avatars'), { recursive: true }).catch(() => {});
+mkdir(join(UPLOADS_DIR, 'avatars'), { recursive: true }).catch(() => {});
 
 @Module({
   imports: [

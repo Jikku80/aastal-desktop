@@ -5,6 +5,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
+import { UPLOADS_DIR } from '../common/utils/uploads-dir.util';
 import { v4 as uuid } from 'uuid';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
@@ -39,7 +40,7 @@ export class UsersController {
   @Post('me/avatar')
   @UseInterceptors(FileInterceptor('avatar', {
     storage: diskStorage({
-      destination: join(process.cwd(), 'uploads', 'avatars'),
+      destination: join(UPLOADS_DIR, 'avatars'),
       filename: (_req, file, cb) => cb(null, `${uuid()}${extname(file.originalname)}`),
     }),
     limits: { fileSize: 5 * 1024 * 1024 },
@@ -58,7 +59,7 @@ export class UsersController {
   @Post('me/signature')
   @UseInterceptors(FileInterceptor('file', {
     storage: diskStorage({
-      destination: join(process.cwd(), 'uploads', 'signatures'),
+      destination: join(UPLOADS_DIR, 'signatures'),
       filename: (_req, file, cb) => cb(null, `sig-${uuid()}${extname(file.originalname)}`),
     }),
     limits: { fileSize: 5 * 1024 * 1024 },
@@ -78,7 +79,7 @@ export class UsersController {
   @RequirePermissions('staff.manage')
   @UseInterceptors(FileInterceptor('file', {
     storage: diskStorage({
-      destination: join(process.cwd(), 'uploads', 'signatures'),
+      destination: join(UPLOADS_DIR, 'signatures'),
       filename: (_req, file, cb) => cb(null, `sig-${uuid()}${extname(file.originalname)}`),
     }),
     limits: { fileSize: 5 * 1024 * 1024 },

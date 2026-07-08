@@ -7,6 +7,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { buildTypeOrmOptions } from './database/typeorm-options.factory';
+import { UPLOADS_DIR } from './common/utils/uploads-dir.util';
 
 import { AuthModule }           from './auth/auth.module';
 import { UsersModule }          from './users/users.module';
@@ -84,7 +85,7 @@ import { DoctorPortalModule }    from './doctor-portal/doctor-portal.module';
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     ScheduleModule.forRoot(),
     ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), 'uploads'),
+      rootPath: UPLOADS_DIR,
       serveRoot: '/uploads',
       serveStaticOptions: {
         setHeaders: (res: any) => {

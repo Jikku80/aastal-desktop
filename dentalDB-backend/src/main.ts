@@ -17,6 +17,7 @@ import { mkdir }           from 'fs/promises';
 import { join }            from 'path';
 import { setupOnlineOnlyGate } from './database/online-only-gate.middleware';
 import { installPendingSyncRepositoryPatch } from './sync/pending-sync-repository.patch';
+import { UPLOADS_DIR } from './common/utils/uploads-dir.util';
 
 // Must run before any Repository.update() call anywhere in the app — see
 // pending-sync-repository.patch.ts. No-ops entirely when DB_DRIVER isn't
@@ -26,8 +27,22 @@ installPendingSyncRepositoryPatch();
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
-  // Ensure uploads directory exists
-  await mkdir(join(process.cwd(), 'uploads'), { recursive: true });
+  // Ensure uploads directory exists. Uses UPLOADS_DIR (see
+  // uploads-dir.util.ts) instead of a process.cwd()-relative path — on the
+  // packaged Electron build, cwd depends on how the OS launched the app and
+  // is sometimes read-only (e.g. a Windows install under Program Files),
+  // which previously threw here and — since bootstrap() was called with no
+  // .catch() below — crashed the entire backend process before it ever
+  // bound a port. Every request, including login/register, then failed
+  // because there was simply no backend listening, which is what made it
+  // look like a "database problem" from the desktop app.
+  try {
+    await mkdir(UPLOADS_DIR, { recursive: true });
+  } catch (err: any) {
+    logger.error(`Could not create uploads directory at ${UPLOADS_DIR}: ${err?.message ?? err}`);
+    logger.error('Continuing startup anyway — file uploads will fail until this is fixed, ' +
+      'but the rest of the API (auth, patients, billing, etc.) will still work.');
+  }
 
 
   const ROOT_DOMAIN = process.env.ROOT_DOMAIN || 'clinickarobar.com';
@@ -171,4 +186,15 @@ async function bootstrap() {
   logger.log(`ClinicKarobar API running on :${port}`);
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  // Without this .catch(), a rejected bootstrap() (failed DB connection,
+  // failed migration, port already in use, etc.) becomes an unhandled
+  // promise rejection, which Node terminates the process for — silently,
+  // with no clear message about what actually failed. On the Electron
+  // desktop build this looked like "the app opens but login/signup just
+  // doesn't work", because the backend process had already exited before
+  // main.js's health check even had something to poll.
+  // eslint-disable-next-line no-console
+  console.error('[Bootstrap] Fatal error during startup:', err);
+  process.exit(1);
+});

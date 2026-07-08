@@ -3,6 +3,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
 const { readSyncConfig, writeSyncConfig, clearDeviceToken, resolveSyncConfig, configPath } = require('./sync-config');
+const { getOrCreateLocalJwtSecrets } = require('./local-jwt-secrets');
 
 const BACKEND_PORT = process.env.BACKEND_PORT || 4000;
 const FRONTEND_PORT = process.env.FRONTEND_PORT || 3100;
@@ -76,6 +77,16 @@ function waitForHealth(port, label, healthPath = '/') {
 function spawnBackend() {
   const entry = resolveResourcePath('backend', 'dist', 'main.js');
   const sqlitePath = path.join(app.getPath('userData'), 'offline-data.sqlite');
+  // Uploaded files (avatars, signatures, clinic logos, product photos,
+  // prescription PDFs, website assets) must live under userData, not
+  // wherever the backend's process.cwd() happens to be. cwd for a spawned
+  // child process is inherited from whatever directory launched Electron —
+  // not necessarily the install directory, and not necessarily writable
+  // (e.g. a per-machine Windows install under Program Files requires admin
+  // rights to write there). userData is always a writable, OS-appropriate,
+  // stable location (AppData\Roaming, ~/.config, ~/Library/Application
+  // Support) — see src/common/utils/uploads-dir.util.ts on the backend side.
+  const uploadsDir = path.join(app.getPath('userData'), 'uploads');
   const syncConfig = resolveSyncConfig(app);
 
   if (!syncConfig.remoteBaseUrl) {
@@ -83,16 +94,36 @@ function spawnBackend() {
       'until configured from Settings > Sync. Connectivity polling stays disabled until then.');
   }
 
-  const BAKED_JWT_SECRET="c40a86c06abebc69aba7f0d4c992fe286fc4c729ca23d1f26d7d3e19af23e474eb417bdcca5399392e6855b626462cb5cb12f61585d159fc3aa0ef0fc46deecd";
-  const BAKED_JWT_REFRESH_SECRET="2e6e773380393918bb1905aaf4dc45d13efc72c5df3b1cdc78cc6f80026d071c377518a7f1697f4fc4b4e343163ab3e895662988f1d971c854184855d8b48c41";
-  const jwtSecret = BAKED_JWT_SECRET || process.env.JWT_SECRET;
-  const jwtRefreshSecret = BAKED_JWT_REFRESH_SECRET || process.env.JWT_REFRESH_SECRET;
+  // Spawning process.execPath (Electron's own binary) with
+  // ELECTRON_RUN_AS_NODE=1 runs it as plain Node against `entry`, using
+  // Electron's bundled Node runtime — this is the standard way to run a
+  // Node backend alongside Electron WITHOUT requiring a separate Node.js
+  // install on the user's machine. It is not a typo for a system `node`
+  // binary.
+  // JWT_SECRET/JWT_REFRESH_SECRET only need to sign/verify tokens for THIS
+  // machine's local/offline sessions against the local SQLite database —
+  // they no longer need to match the hosted/remote backend's secret at all.
+  // (They used to: AuthService.login's auto-registration hook used to POST
+  // this instance's own JWT to the remote as Bearer auth, which only
+  // worked if both secrets matched — see SyncService.autoRegisterDeviceIfNeeded
+  // for how that flow now works instead, via a real remote login.)
+  // Generated once per install and persisted in userData — see
+  // local-jwt-secrets.js. Never hardcode a secret here again: a literal
+  // baked into main.js ships identically inside every copy of the app and
+  // can be extracted from the packaged app.asar.
+  const { jwtSecret, jwtRefreshSecret } = getOrCreateLocalJwtSecrets(app);
 
   backendProcess = spawn(process.execPath, [entry], {
+    // Explicit, fixed cwd — never inherit whatever directory launched
+    // Electron (see the uploadsDir comment above; the same reasoning
+    // applies to anything else in the backend that might resolve a
+    // relative path off process.cwd()).
+    cwd: path.dirname(entry),
     env: {
       ...process.env,
       DB_DRIVER: 'sqlite',
       SQLITE_DB_PATH: sqlitePath,
+      UPLOADS_DIR: uploadsDir,
       PORT: String(BACKEND_PORT),
       SQLITE_AUTO_MIGRATE: 'true',
       JWT_SECRET: jwtSecret,

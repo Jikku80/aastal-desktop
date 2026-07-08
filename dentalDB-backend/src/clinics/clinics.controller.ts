@@ -5,6 +5,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { join, extname } from 'path';
+import { UPLOADS_DIR } from '../common/utils/uploads-dir.util';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { ClinicsService } from './clinics.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -40,7 +41,7 @@ export class ClinicsController {
   @Post('me/logo')
   @UseInterceptors(FileInterceptor('logo', {
     storage: diskStorage({
-      destination: join(process.cwd(), 'uploads', 'logos'),
+      destination: join(UPLOADS_DIR, 'logos'),
       filename: (_req, file, cb) => {
         const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
         cb(null, `${unique}${extname(file.originalname)}`);

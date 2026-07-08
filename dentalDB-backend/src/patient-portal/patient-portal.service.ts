@@ -312,9 +312,11 @@ export class PatientPortalService {
     const links = await this.linkRepo.find({ where: { patientAccountId } });
     const patientIds = links.map(l => l.clinicPatientId).filter(Boolean);
 
+    // Appointment has no 'clinic' relation (only a clinicId column) — same
+    // pattern already used elsewhere in this file: fetch appt, then look up
+    // the clinic separately by clinicId.
     const appt = await this.apptRepo.findOne({
       where: { id: appointmentId },
-      relations: ['clinic'],
     });
 
     if (!appt || !patientIds.includes((appt as any).patientId)) {
@@ -322,8 +324,10 @@ export class PatientPortalService {
     }
 
     // Enforce clinic cancellation window
-    const clinic = (appt as any).clinic;
-    const windowHours = clinic?.cancellationWindowHours ?? 24;
+    const clinic = (appt as any).clinicId
+      ? await this.clinicRepo.findOne({ where: { id: (appt as any).clinicId } })
+      : null;
+    const windowHours = (clinic as any)?.cancellationWindowHours ?? 24;
     const hoursUntil = (new Date((appt as any).scheduledAt).getTime() - Date.now()) / 3600000;
     if (hoursUntil < windowHours) {
       throw new BadRequestException(`Cannot cancel within ${windowHours} hours of the appointment`);
@@ -497,11 +501,27 @@ export class PatientPortalService {
     if (patientIds.length === 0) return { data: [], total: 0 };
 
     const invoiceRepo = this.apptRepo.manager.getRepository('Invoice');
-    const [data, total] = await invoiceRepo.createQueryBuilder('inv')
-      .leftJoinAndSelect('inv.clinic', 'clinic')
+    // Invoice only stores clinicId (no `clinic` relation exists on the
+    // entity — same situation as appointments above), so
+    // leftJoinAndSelect('inv.clinic', ...) throws
+    // "Relation with property path clinic ... was not found". Batch-fetch
+    // clinics separately and merge in JS instead, to avoid N+1 queries.
+    const [rows, total] = await invoiceRepo.createQueryBuilder('inv')
       .where('inv.patientId IN (:...patientIds)', { patientIds })
       .orderBy('inv.createdAt', 'DESC')
       .getManyAndCount();
+
+    const clinicIds = [...new Set(rows.map(r => (r as any).clinicId).filter(Boolean))];
+    const clinics = clinicIds.length > 0
+      ? await this.clinicRepo.find({ where: { id: In(clinicIds) }, select: ['id', 'name', 'address'] as any })
+      : [];
+    const clinicMap = new Map(clinics.map((c: any) => [c.id, c]));
+
+    const data = rows.map(inv => ({
+      ...inv,
+      clinic: (inv as any).clinicId ? (clinicMap.get((inv as any).clinicId) ?? null) : null,
+    }));
+
     return { data, total };
   }
 
@@ -509,15 +529,25 @@ export class PatientPortalService {
     const links = await this.linkRepo.find({ where: { patientAccountId } });
     const patientIds = links.map(l => l.clinicPatientId).filter(Boolean);
 
+    // Invoice has no `clinic` relation (only a plain `clinicId` column — see
+    // getInvoices() above), so `relations: ['clinic']` throws "Relation
+    // with property path clinic was not found" on every call. This is the
+    // TypeORM crash that broke "Pay Invoice" on the patient portal (mobile
+    // + web). Fetch the clinic manually instead, same pattern as getInvoices.
     const invoiceRepo = this.apptRepo.manager.getRepository('Invoice');
-    const invoice = await invoiceRepo.findOne({ where: { id: invoiceId }, relations: ['clinic'] });
+    const invoice = await invoiceRepo.findOne({ where: { id: invoiceId } });
 
     if (!invoice || !patientIds.includes((invoice as any).patientId)) {
       throw new NotFoundException('Invoice not found');
     }
 
-    const paymentUrl = `${process.env.FRONTEND_URL || 'https://app.clinickarobar.com'}/pay?invoiceId=${invoiceId}`;
-    return { invoice, paymentUrl, message: 'Redirect to payment gateway' };
+    const clinicId = (invoice as any).clinicId;
+    const clinic = clinicId
+      ? await this.clinicRepo.findOne({ where: { id: clinicId }, select: ['id', 'name', 'address'] as any })
+      : null;
+
+    const paymentUrl = `${process.env.FRONTEND_URL || 'https://www.clinickarobar.com'}/pay?invoiceId=${invoiceId}`;
+    return { invoice: { ...invoice, clinic }, paymentUrl, message: 'Redirect to payment gateway' };
   }
 
   // ── Reschedule ────────────────────────────────────────────────────────────

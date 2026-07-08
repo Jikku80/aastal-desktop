@@ -29,8 +29,13 @@ export class PaymentsService {
 
     const merchantId = this.config.get('ESEWA_MERCHANT_CODE', this.config.get('ESEWA_MERCHANT_ID',));
     const baseUrl = this.config.get('ESEWA_URL', this.config.get('ESEWA_BASE_URL',));
-    const successUrl = `${this.config.get('FRONTEND_URL')}/payments/esewa/success`;
-    const failureUrl = `${this.config.get('FRONTEND_URL')}/payments/esewa/failure`;
+    // Same default used elsewhere in this file (initKhalti, _initEsewaSubscription).
+    // Previously had NO fallback here, so an unset FRONTEND_URL produced the
+    // literal string "undefined/payments/esewa/success" as the redirect URL --
+    // a silent, hard-to-diagnose payment failure.
+    const frontendUrlForEsewa = this.config.get('FRONTEND_URL', 'http://localhost:3000');
+    const successUrl = `${frontendUrlForEsewa}/payments/esewa/success`;
+    const failureUrl = `${frontendUrlForEsewa}/payments/esewa/failure`;
     const transactionUuid = `${invoice.id}-${Date.now()}`;
 
     // Generate HMAC signature (production requirement)
@@ -198,8 +203,9 @@ export class PaymentsService {
             },
           }],
           application_context: {
-            return_url: `${this.config.get('FRONTEND_URL')}/payments/paypal/success`,
-            cancel_url: `${this.config.get('FRONTEND_URL')}/payments/paypal/cancel`,
+            // Same undefined-string bug as eSewa above -- must have a fallback.
+            return_url: `${this.config.get('FRONTEND_URL', 'http://localhost:3000')}/payments/paypal/success`,
+            cancel_url: `${this.config.get('FRONTEND_URL', 'http://localhost:3000')}/payments/paypal/cancel`,
           },
         },
         { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } },

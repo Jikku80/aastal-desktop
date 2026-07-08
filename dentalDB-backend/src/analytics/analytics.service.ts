@@ -8,6 +8,10 @@ import { Branch } from '../branch/entities/branch.entity';
 import { Appointment, AppointmentStatus } from '../appointments/entities/appointment.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { Invoice, InvoiceStatus } from '../billing/entities/invoice.entity';
+import { Expense, ApprovalStatus as ExpenseApprovalStatus } from '../expenses/entities/expense.entity';
+import { PurchaseOrder, PurchaseOrderStatus } from '../inventory/entities/purchase-order.entity';
+import { PayrollRun, PayrollRunStatus } from '../payroll/entities/payroll-run.entity';
+import { WebsiteOrder } from '../website-builder/entities/website-order.entity';
 import { startOfDay, endOfDay, startOfMonth, endOfMonth, subMonths, format } from 'date-fns';
 import { nepalStartOfTodayUTC, nepalEndOfTodayUTC, nepalDayBoundsUTC, nepalDayOfWeek } from '../common/utils/timezone.util';
 // @ts-ignore — nepali-date-converter has no bundled types
@@ -284,98 +288,87 @@ export class AnalyticsService {
     const { dateFrom, dateTo, branchId } = params;
     const mgr = this.invoiceRepo.manager;
 
-    const branchClause = branchId ? `AND "branchId" = $4` : '';
-    const baseArgs = branchId ? [clinicId, dateFrom, dateTo, branchId] : [clinicId, dateFrom, dateTo];
+    // Total paid revenue (paid + partially_paid) in range — QueryBuilder, driver-agnostic.
+    let totalQb = this.invoiceRepo.createQueryBuilder('i')
+      .select('COALESCE(SUM(i."paidAmount"), 0)', 'val')
+      .where('i."clinicId" = :clinicId', { clinicId })
+      .andWhere('i.status IN (:...paid)', { paid: ['paid', 'partially_paid'] })
+      .andWhere('CAST(i."paidAt" AS date) BETWEEN :from AND :to', { from: dateFrom, to: dateTo });
+    if (branchId) totalQb = totalQb.andWhere('i."branchId" = :branchId', { branchId });
+    const totalRaw = await totalQb.getRawOne();
 
-    const totalRaw = await mgr.query(
-      `SELECT COALESCE(SUM("paidAmount"), 0) as val
-       FROM invoices
-       WHERE "clinicId" = $1
-         AND status IN ('paid','partially_paid')
-         AND CAST("paidAt" AS date) BETWEEN $2 AND $3
-         ${branchClause}`,
-      baseArgs,
-    ).catch(() => [{ val: 0 }]);
+    // Consultations vs pharmacy split by line item. jsonb_array_elements() only
+    // exists on Postgres, and `items` is stored as simple-json (a plain TEXT
+    // column) on SQLite, so instead of branching raw SQL per driver we just
+    // fetch the matching invoices' items and sum them in JS — this works
+    // identically on both drivers.
+    let itemsQb = this.invoiceRepo.createQueryBuilder('i')
+      .select(['i.id', 'i.items'])
+      .where('i."clinicId" = :clinicId', { clinicId })
+      .andWhere('i.status IN (:...paid)', { paid: ['paid', 'partially_paid'] })
+      .andWhere('CAST(i."paidAt" AS date) BETWEEN :from AND :to', { from: dateFrom, to: dateTo });
+    if (branchId) itemsQb = itemsQb.andWhere('i."branchId" = :branchId', { branchId });
+    const invoicesForItems = await itemsQb.getMany();
 
-    const consultRaw = await mgr.query(
-      `SELECT COALESCE(SUM((item->>'unitPrice')::numeric * (item->>'quantity')::numeric), 0) as val
-       FROM invoices i,
-            jsonb_array_elements(i.items::jsonb) AS item
-       WHERE i."clinicId" = $1
-         AND i.status IN ('paid','partially_paid')
-         AND CAST(i."paidAt" AS date) BETWEEN $2 AND $3
-         AND item->>'serviceId' IS NOT NULL
-         ${branchId ? 'AND i."branchId" = $4' : ''}`,
-      baseArgs,
-    ).catch(() => [{ val: 0 }]);
+    let consultTotal = 0;
+    let pharmacyTotal = 0;
+    for (const inv of invoicesForItems) {
+      for (const item of (inv.items || []) as any[]) {
+        const lineTotal = Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0);
+        if (item?.serviceId != null) consultTotal += lineTotal;
+        else if (item?.productId != null) pharmacyTotal += lineTotal;
+      }
+    }
 
-    const pharmacyRaw = await mgr.query(
-      `SELECT COALESCE(SUM((item->>'unitPrice')::numeric * (item->>'quantity')::numeric), 0) as val
-       FROM invoices i,
-            jsonb_array_elements(i.items::jsonb) AS item
-       WHERE i."clinicId" = $1
-         AND i.status IN ('paid','partially_paid')
-         AND CAST(i."paidAt" AS date) BETWEEN $2 AND $3
-         AND item->>'productId' IS NOT NULL
-         ${branchId ? 'AND i."branchId" = $4' : ''}`,
-      baseArgs,
-    ).catch(() => [{ val: 0 }]);
-
-    const websiteOrderRaw = await mgr.query(
-      `SELECT COALESCE(SUM("totalAmount"), 0) as total
-       FROM website_orders
-       WHERE "clinicId" = $1 AND status = 'delivered'
-         AND CAST("createdAt" AS date) BETWEEN $2 AND $3`,
-      [clinicId, dateFrom, dateTo],
-    ).catch(() => [{ total: 0 }]);
-    const websiteOrderRevenue = Number(websiteOrderRaw[0]?.total ?? 0);
+    const websiteOrderRaw = await mgr.getRepository(WebsiteOrder).createQueryBuilder('w')
+      .select('COALESCE(SUM(w."totalAmount"), 0)', 'total')
+      .where('w."clinicId" = :clinicId', { clinicId })
+      .andWhere('w.status = :status', { status: 'delivered' })
+      .andWhere('CAST(w."createdAt" AS date) BETWEEN :from AND :to', { from: dateFrom, to: dateTo })
+      .getRawOne();
+    const websiteOrderRevenue = Number(websiteOrderRaw?.total ?? 0);
 
     const revenue = {
-      consultations: Number(consultRaw[0]?.val ?? 0),
-      pharmacy:      Number(pharmacyRaw[0]?.val ?? 0),
+      consultations: consultTotal,
+      pharmacy:      pharmacyTotal,
       websiteOrders: websiteOrderRevenue,
       labWork:       0,
       other:         0,
-      total:         Number(totalRaw[0]?.val ?? 0) + websiteOrderRevenue,
+      total:         Number(totalRaw?.val ?? 0) + websiteOrderRevenue,
     };
     revenue.other = Math.max(0, revenue.total - revenue.consultations - revenue.pharmacy - revenue.labWork - revenue.websiteOrders);
 
-    const [expenseRows, catRows] = await Promise.all([
-      mgr.query(
-        `SELECT COALESCE(SUM(amount), 0) as total
-         FROM expenses
-         WHERE "clinicId" = $1 AND "expenseDate" BETWEEN $2 AND $3 AND "approvalStatus" = 'approved'
-         ${branchClause}`,
-        baseArgs,
-      ),
-      mgr.query(
-        `SELECT category, COALESCE(SUM(amount), 0) as amount
-         FROM expenses
-         WHERE "clinicId" = $1 AND "expenseDate" BETWEEN $2 AND $3 AND "approvalStatus" = 'approved'
-         ${branchClause}
-         GROUP BY category`,
-        baseArgs,
-      ),
+    let expenseQb = mgr.getRepository(Expense).createQueryBuilder('e')
+      .where('e."clinicId" = :clinicId', { clinicId })
+      .andWhere('e."expenseDate" BETWEEN :from AND :to', { from: dateFrom, to: dateTo })
+      .andWhere('e."approvalStatus" = :status', { status: ExpenseApprovalStatus.APPROVED });
+    if (branchId) expenseQb = expenseQb.andWhere('e."branchId" = :branchId', { branchId });
+
+    const [expenseTotalRow, catRows] = await Promise.all([
+      expenseQb.clone().select('COALESCE(SUM(e.amount), 0)', 'total').getRawOne(),
+      expenseQb.clone()
+        .select('e.category', 'category')
+        .addSelect('COALESCE(SUM(e.amount), 0)', 'amount')
+        .groupBy('e.category')
+        .getRawMany(),
     ]);
-    const expensesTotal = Number(expenseRows[0]?.total ?? 0);
+    const expensesTotal = Number(expenseTotalRow?.total ?? 0);
 
-    const cogsRaw = await mgr.query(
-      `SELECT COALESCE(SUM("totalCost"), 0) as total
-       FROM purchase_orders
-       WHERE "clinicId" = $1 AND status = 'received'
-         AND CAST("receivedAt" AS date) BETWEEN $2 AND $3`,
-      [clinicId, dateFrom, dateTo],
-    ).catch(() => [{ total: 0 }]);
-    const cogs = Number(cogsRaw[0]?.total ?? 0);
+    const cogsRaw = await mgr.getRepository(PurchaseOrder).createQueryBuilder('po')
+      .select('COALESCE(SUM(po."totalCost"), 0)', 'total')
+      .where('po."clinicId" = :clinicId', { clinicId })
+      .andWhere('po.status = :status', { status: PurchaseOrderStatus.RECEIVED })
+      .andWhere('CAST(po."receivedAt" AS date) BETWEEN :from AND :to', { from: dateFrom, to: dateTo })
+      .getRawOne();
+    const cogs = Number(cogsRaw?.total ?? 0);
 
-    const payrollRaw = await mgr.query(
-      `SELECT COALESCE(SUM("totalNet"), 0) as total
-       FROM payroll_runs
-       WHERE "clinicId" = $1 AND status IN ('finalized','paid')
-         AND "periodEnd" BETWEEN $2 AND $3`,
-      [clinicId, dateFrom, dateTo],
-    ).catch(() => [{ total: 0 }]);
-    const payrollTotal = Number(payrollRaw[0]?.total ?? 0);
+    const payrollRaw = await mgr.getRepository(PayrollRun).createQueryBuilder('p')
+      .select('COALESCE(SUM(p."totalNet"), 0)', 'total')
+      .where('p."clinicId" = :clinicId', { clinicId })
+      .andWhere('p.status IN (:...statuses)', { statuses: [PayrollRunStatus.FINALIZED, PayrollRunStatus.PAID] })
+      .andWhere('p."periodEnd" BETWEEN :from AND :to', { from: dateFrom, to: dateTo })
+      .getRawOne();
+    const payrollTotal = Number(payrollRaw?.total ?? 0);
 
     const grossProfit  = revenue.total - cogs;
     const totalOperatingExpenses = expensesTotal + payrollTotal;
@@ -515,13 +508,16 @@ export class AnalyticsService {
         .andWhere('CAST(i."paidAt" AS date) BETWEEN :from AND :to', { from: dateFrom, to: dateTo })
         .select('COALESCE(SUM(i."paidAmount"),0)', 'val').getRawOne();
 
-      const expRaw = await this.invoiceRepo.manager.query(
-        `SELECT COALESCE(SUM(amount),0) as val FROM expenses WHERE "clinicId"=$1 AND "branchId"=$2 AND "expenseDate" BETWEEN $3 AND $4 AND "approvalStatus" = 'approved'`,
-        [clinicId, branch.id, dateFrom, dateTo],
-      );
+      const expRaw = await this.invoiceRepo.manager.getRepository(Expense).createQueryBuilder('e')
+        .select('COALESCE(SUM(e.amount), 0)', 'val')
+        .where('e."clinicId" = :clinicId', { clinicId })
+        .andWhere('e."branchId" = :branchId', { branchId: branch.id })
+        .andWhere('e."expenseDate" BETWEEN :from AND :to', { from: dateFrom, to: dateTo })
+        .andWhere('e."approvalStatus" = :status', { status: ExpenseApprovalStatus.APPROVED })
+        .getRawOne();
 
       const revenue  = Number(revenueRaw?.val ?? 0);
-      const expenses = Number(expRaw[0]?.val ?? 0);
+      const expenses = Number(expRaw?.val ?? 0);
       const net      = revenue - expenses;
       return {
         branchId: branch.id, branchName: branch.name, revenue, expenses,
@@ -535,33 +531,47 @@ export class AnalyticsService {
   }
 
   async markOverdue(clinicId: string): Promise<number> {
-    const result = await this.invoiceRepo.manager.query(
-      `UPDATE invoices SET status = 'overdue'
-       WHERE "clinicId" = $1
-         AND status NOT IN ('paid','cancelled','refunded','overdue')
-         AND "dueDate" < NOW()::date
-       RETURNING id`,
-      [clinicId],
-    );
-    return result.length;
+    // NOW()::date and RETURNING id are Postgres-only. Use a JS-computed
+    // today string plus QueryBuilder .update(), which works on both drivers,
+    // and report affected row count instead of relying on RETURNING.
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const result = await this.invoiceRepo.createQueryBuilder()
+      .update(Invoice)
+      .set({ status: InvoiceStatus.OVERDUE })
+      .where('"clinicId" = :clinicId', { clinicId })
+      .andWhere('status NOT IN (:...excluded)', {
+        excluded: [InvoiceStatus.PAID, InvoiceStatus.CANCELLED, InvoiceStatus.REFUNDED, InvoiceStatus.OVERDUE],
+      })
+      .andWhere('"dueDate" < :today', { today: todayStr })
+      .execute();
+    return result.affected ?? 0;
   }
 
   async getTaxReport(clinicId: string, params: { dateFrom: string; dateTo: string; calendarType?: string; branchId?: string }) {
     const { dateFrom, dateTo, branchId } = params;
-    const q = this.invoiceRepo.createQueryBuilder('i')
+    let q = this.invoiceRepo.createQueryBuilder('i')
+      .select(['i.paidAt', 'i.paidAmount', 'i.vatAmount', 'i.taxAmount'])
       .where('i."clinicId" = :clinicId', { clinicId })
       .andWhere('i.status IN (:...paid)', { paid: ['paid', 'partially_paid'] })
       .andWhere('CAST(i."paidAt" AS date) BETWEEN :from AND :to', { from: dateFrom, to: dateTo });
-    if (branchId) q.andWhere('i."branchId" = :branchId', { branchId });
+    if (branchId) q = q.andWhere('i."branchId" = :branchId', { branchId });
 
-    const rows = await q
-      .select(`TO_CHAR(DATE_TRUNC('month', CAST(i."paidAt" AS date)), 'YYYY-MM')`, 'month')
-      .addSelect('COALESCE(SUM(i."paidAmount"),0)', 'totalRevenue')
-      .addSelect('COALESCE(SUM(i."vatAmount"),0)', 'vatCollected')
-      .addSelect('COALESCE(SUM(i."taxAmount"),0)', 'taxCollected')
-      .groupBy(`DATE_TRUNC('month', CAST(i."paidAt" AS date))`)
-      .orderBy(`DATE_TRUNC('month', CAST(i."paidAt" AS date))`, 'ASC')
-      .getRawMany();
+    // TO_CHAR/DATE_TRUNC are Postgres-only — fetch matching invoices and
+    // bucket them by month in JS instead, which works on both drivers.
+    const invoices = await q.getMany();
+    const byMonth = new Map<string, { totalRevenue: number; vatCollected: number; taxCollected: number }>();
+    for (const inv of invoices) {
+      if (!inv.paidAt) continue;
+      const month = format(new Date(inv.paidAt), 'yyyy-MM');
+      const bucket = byMonth.get(month) ?? { totalRevenue: 0, vatCollected: 0, taxCollected: 0 };
+      bucket.totalRevenue += Number(inv.paidAmount ?? 0);
+      bucket.vatCollected += Number((inv as any).vatAmount ?? 0);
+      bucket.taxCollected += Number((inv as any).taxAmount ?? 0);
+      byMonth.set(month, bucket);
+    }
+    const rows = [...byMonth.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, v]) => ({ month, ...v }));
 
     const totals = rows.reduce((acc, r) => ({
       totalRevenue:  acc.totalRevenue  + Number(r.totalRevenue),

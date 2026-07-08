@@ -5,6 +5,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
+import { UPLOADS_DIR } from '../common/utils/uploads-dir.util';
 import { v4 as uuid } from 'uuid';
 import { mkdir } from 'fs/promises';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
@@ -18,8 +19,8 @@ import { ClinicWebsite } from './entities/clinic-website.entity';
 import { Product } from '../inventory/entities/product.entity';
 
 // Ensure upload directories exist at startup
-mkdir(join(process.cwd(), 'uploads', 'favicons'),       { recursive: true }).catch(() => {});
-mkdir(join(process.cwd(), 'uploads', 'website-images'), { recursive: true }).catch(() => {});
+mkdir(join(UPLOADS_DIR, 'favicons'),       { recursive: true }).catch(() => {});
+mkdir(join(UPLOADS_DIR, 'website-images'), { recursive: true }).catch(() => {});
 
 @ApiTags('Website Builder')
 @ApiBearerAuth()
@@ -252,7 +253,7 @@ export class WebsiteBuilderController {
   @UseInterceptors(FileInterceptor('file', {
     storage: diskStorage({
       destination: async (_req, _file, cb) => {
-        const dir = join(process.cwd(), 'uploads', 'website-images');
+        const dir = join(UPLOADS_DIR, 'website-images');
         await mkdir(dir, { recursive: true });
         cb(null, dir);
       },
@@ -276,7 +277,7 @@ export class WebsiteBuilderController {
   @Post('favicon')
   @UseInterceptors(FileInterceptor('favicon', {
     storage: diskStorage({
-      destination: join(process.cwd(), 'uploads', 'favicons'),
+      destination: join(UPLOADS_DIR, 'favicons'),
       filename: (_req, file, cb) => cb(null, `${uuid()}${extname(file.originalname)}`),
     }),
     limits: { fileSize: 2 * 1024 * 1024 },

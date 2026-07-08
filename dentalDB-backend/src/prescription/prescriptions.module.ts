@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { join } from 'path';
+import { UPLOADS_DIR } from '../common/utils/uploads-dir.util';
 import { v4 as uuid } from 'uuid';
 import { extname } from 'path';
 
@@ -21,7 +22,7 @@ import { User } from 'src/users/entities/user.entity';
     TypeOrmModule.forFeature([PrescriptionTemplate, ClinicalRecord, Appointment, Clinic, Branch, User]),
     MulterModule.register({
       storage: diskStorage({
-        destination: join(process.cwd(), 'uploads'),
+        destination: UPLOADS_DIR,
         filename: (_req, file, cb) => cb(null, `${uuid()}${extname(file.originalname)}`),
       }),
     }),

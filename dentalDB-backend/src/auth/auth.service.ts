@@ -148,7 +148,11 @@ export class AuthService {
     // successful one (SyncService checks for an existing token). Never
     // awaited: a slow/unreachable remote must not delay login itself, and
     // failure just means "try again next login" (see the method's docs).
-    this.syncService.autoRegisterDeviceIfNeeded(tokens.accessToken).catch((err) => {
+    // Passes the credentials (not tokens.accessToken) — the local JWT no
+    // longer shares a signing secret with the remote, so registration now
+    // performs its own real login against the remote to get a genuine
+    // remote-issued token. See SyncService.autoRegisterDeviceIfNeeded.
+    this.syncService.autoRegisterDeviceIfNeeded(dto.email, dto.password).catch((err) => {
       this.logger.warn(`Sync device auto-registration threw unexpectedly: ${err?.message ?? err}`);
     });
 

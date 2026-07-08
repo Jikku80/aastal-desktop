@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { join } from 'path';
+import { UPLOADS_DIR } from '../common/utils/uploads-dir.util';
 import { unlinkSync, existsSync } from 'fs';
 import { PatientFile, FileCategory } from './entities/patient-file.entity';
 
@@ -81,6 +82,6 @@ export class FilesService {
   }
 
   getAbsolutePath(file: PatientFile): string {
-    return join(process.cwd(), 'uploads', file.storedName);
+    return join(UPLOADS_DIR, file.storedName);
   }
 }

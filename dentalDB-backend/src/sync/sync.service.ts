@@ -226,26 +226,43 @@ export class SyncService {
    * the next login attempt, so failures here are silent by design rather
    * than blocking login.
    *
-   * IMPORTANT: this POSTs the *local* backend's own just-issued JWT to the
-   * remote as Bearer auth. That only verifies if both instances sign JWTs
-   * with the same JWT_SECRET — the local Electron backend must be
-   * configured with the SAME JWT_SECRET as the remote/hosted backend (see
-   * electron/main.js). If they differ, the remote returns 401 here and
-   * this device simply stays unregistered until that's fixed — it does
-   * NOT fall back to re-sending the user's plaintext password to remote.
+   * SECURITY: this used to POST the *local* backend's own just-issued JWT
+   * to the remote as Bearer auth, which only verified because the local
+   * Electron backend was (wrongly) configured with the SAME JWT_SECRET as
+   * the remote/hosted backend — a secret baked into every shipped copy of
+   * the desktop app (see electron/main.js history). That meant anyone who
+   * extracted the secret from the packaged app could forge a token valid
+   * against the production API for any account.
+   *
+   * The local and remote JWT signing domains are now fully independent:
+   * the local backend signs its own random, install-unique secret, so a
+   * locally-issued token would never validate on the remote anyway. To
+   * register a device we instead perform a REAL login against the remote
+   * hosted backend over HTTPS with the same credentials the user just used
+   * locally, and use the genuine remote-issued access token that comes
+   * back as Bearer auth for POST /sync/register-device. The plaintext
+   * password never touches disk — it's only held in memory for the
+   * duration of this call.
    */
-  async autoRegisterDeviceIfNeeded(accessToken: string): Promise<boolean> {
+  async autoRegisterDeviceIfNeeded(email: string, password: string): Promise<boolean> {
     const remote = this.getRemoteBaseUrl();
     if (!remote) return false; // hosted/Postgres instance — nothing to register itself as
     if (this.syncConfigStore.getDeviceToken()) return false; // already registered
 
     try {
+      const { data: remoteAuth } = await firstValueFrom(
+        this.http.post<{ accessToken: string }>(
+          `${remote}/api/v1/auth/login`,
+          { email, password },
+        ),
+      );
+
       const deviceName = `${os.hostname()} / ${process.platform}`;
       const { data } = await firstValueFrom(
         this.http.post<{ token: string }>(
           `${remote}/api/v1/sync/register-device`,
           { deviceName },
-          { headers: { Authorization: `Bearer ${accessToken}` } },
+          { headers: { Authorization: `Bearer ${remoteAuth.accessToken}` } },
         ),
       );
       this.syncConfigStore.writeDeviceToken(data.token);

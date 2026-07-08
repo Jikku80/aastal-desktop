@@ -5,6 +5,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
+import { UPLOADS_DIR } from '../common/utils/uploads-dir.util';
 import { v4 as uuid } from 'uuid';
 import { InventoryService } from './inventory.service';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
@@ -53,7 +54,7 @@ export class InventoryController {
   @Post(':id/image')
   @UseInterceptors(FileInterceptor('image', {
     storage: diskStorage({
-      destination: join(process.cwd(), 'uploads', 'products'),
+      destination: join(UPLOADS_DIR, 'products'),
       filename: (_req, file, cb) => cb(null, `product-${uuid()}${extname(file.originalname)}`),
     }),
     limits: { fileSize: 5 * 1024 * 1024 },
