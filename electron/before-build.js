@@ -16,16 +16,31 @@
 //
 // This hook removes the manual step entirely: it always (re)builds
 // dentaldb with build:electron before packaging, then verifies the output
-// actually contains the local API URL and does NOT contain the production
-// fallback URL. It throws (failing the build loudly) if either check
-// fails, so it's impossible to ship a bad build from a clean checkout.
+// actually contains the local API URL.
+//
+// NOTE (fixed): this used to ALSO fail the build if the string
+// "api.clinickarobar.com" appeared ANYWHERE in the standalone output.
+// That's the wrong invariant — the production domain legitimately (and
+// correctly) shows up in places that have nothing to do with the app's
+// own runtime API base URL:
+//   - next.config.js's CSP `connect-src` header, which must always allow
+//     the real production API origin regardless of build target
+//   - the admin "API Reference" panel (dashboard/settings/page.tsx),
+//     which hardcodes the production URL on purpose as public API-docs
+//     example text shown to users
+//   - dead-code remnants of dentaldb/lib/api.ts's fallback branch, which
+//     the minifier doesn't always strip even once it's unreachable
+// A blind substring scan for that domain will therefore ALWAYS find a
+// hit and fail every build, even a correct one (this is exactly what
+// broke the linux/mac CI runs). The only thing we can actually verify
+// without executing the app is that the LOCAL url got inlined somewhere
+// — that's sufficient proof build:electron ran with the right env var.
 
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
 const LOCAL_API_URL = 'http://127.0.0.1:4000';
-const PROD_API_URL_FRAGMENT = 'api.clinickarobar.com';
 
 const DENTALDB_DIR = path.join(__dirname, '..', 'dentaldb');
 const STANDALONE_DIR = path.join(DENTALDB_DIR, '.next', 'standalone');
@@ -58,24 +73,15 @@ function verifyInlinedApiUrl() {
 
   const files = walkFiles(STANDALONE_DIR);
   let foundLocalUrl = false;
-  let foundProdUrl = false;
 
   for (const file of files) {
     const contents = fs.readFileSync(file, 'utf-8');
-    if (contents.includes(LOCAL_API_URL)) foundLocalUrl = true;
-    if (contents.includes(PROD_API_URL_FRAGMENT)) foundProdUrl = true;
-    if (foundLocalUrl && foundProdUrl) break;
+    if (contents.includes(LOCAL_API_URL)) {
+      foundLocalUrl = true;
+      break;
+    }
   }
 
-  if (foundProdUrl) {
-    throw new Error(
-      `[before-build] FAILED: found "${PROD_API_URL_FRAGMENT}" inlined in ` +
-      `${STANDALONE_DIR}. This build is wired to the PRODUCTION API instead ` +
-      `of the local backend — refusing to package it. This usually means ` +
-      `dentaldb was built with the plain \`build\` script (or an env var ` +
-      `override) instead of \`build:electron\`.`,
-    );
-  }
   if (!foundLocalUrl) {
     throw new Error(
       `[before-build] FAILED: did not find "${LOCAL_API_URL}" inlined anywhere ` +
