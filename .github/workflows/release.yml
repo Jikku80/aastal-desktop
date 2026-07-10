@@ -150,9 +150,32 @@ jobs:
         # Build-runner only — never do this on a machine that isn't disposable CI.
         # Defender scanning every file electron-builder/NSIS touches (full backend
         # node_modules + Next.js standalone output) is what was blowing the
-        # 20-minute step timeout; this is a known electron-builder x windows-latest
-        # issue, not a hang in the build itself.
-        run: Set-MpPreference -DisableRealtimeMonitoring $true
+        # step timeout; this is a known electron-builder x windows-latest issue,
+        # not a hang in the build itself.
+        #
+        # Belt-and-suspenders: Set-MpPreference can silently no-op if Tamper
+        # Protection is active on this runner image (this has been observed to
+        # vary between windows-latest image rollouts) — a terminating error
+        # would fail loud, but a silent no-op just brings back the exact same
+        # multi-hour hang with zero indication why. So: try the full disable,
+        # then verify it actually took with Get-MpComputerStatus, and layer on
+        # path/process exclusions regardless — those still help even when the
+        # runner refuses to fully disable real-time protection.
+        run: |
+          Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+
+          Add-MpPreference -ExclusionPath "${{ github.workspace }}" -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionPath "$env:TEMP" -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron-builder" -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionProcess "makensis.exe" -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionProcess "node.exe" -ErrorAction SilentlyContinue
+
+          $status = Get-MpComputerStatus
+          Write-Host "RealTimeProtectionEnabled: $($status.RealTimeProtectionEnabled)"
+          Write-Host "IsTamperProtected: $($status.IsTamperProtected)"
+          if ($status.RealTimeProtectionEnabled) {
+            Write-Warning "Real-time protection is still ON (likely Tamper Protection on this runner image) - relying on path/process exclusions only. If Package (Windows) still times out, that's the next thing to escalate to GitHub support or work around by moving to a self-hosted runner."
+          }
 
       - name: Package (Windows)
         if: matrix.platform == 'win'
