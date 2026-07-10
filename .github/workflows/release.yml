@@ -90,6 +90,15 @@ jobs:
           npm install --prefix electron/.staging/backend --omit=dev
         timeout-minutes: 15
 
+      - name: Bundle backend
+        shell: bash
+        # Collapses the ~26,600-file staged node_modules tree into a single
+        # esbuild bundle (+ ~950 files that genuinely can't be bundled — see
+        # electron/bundle-backend.js for why). This is what actually fixes
+        # the Windows packaging timeout below; staging alone doesn't.
+        run: npm run electron:bundle-backend
+        timeout-minutes: 10
+
       - name: Rebuild native modules for Electron (Windows/Mac)
         if: matrix.platform != 'linux'
         run: npx @electron/rebuild --module-dir .staging/backend --only better-sqlite3 --force --verbose

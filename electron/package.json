@@ -35,7 +35,7 @@
     ],
     "extraResources": [
       {
-        "from": "../dentalDB-backend/dist",
+        "from": ".staging/backend/dist",
         "to": "backend/dist",
         "filter": [
           "**/*"
@@ -56,7 +56,14 @@
         "from": "../dentaldb/.next/standalone",
         "to": "frontend",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.md",
+          "!**/*.map",
+          "!**/LICENSE*",
+          "!**/license*",
+          "!**/test/**",
+          "!**/tests/**",
+          "!**/__tests__/**"
         ]
       }
     ],

@@ -3,7 +3,8 @@
 // Both are selected at runtime in app.module.ts via DB_DRIVER env var.
 import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
-import { join } from 'path';
+import { ALL_ENTITIES } from './database/all-entities';
+import { POSTGRES_MIGRATIONS } from './database/postgres-migrations';
 
 dotenv.config();
 
@@ -14,8 +15,8 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME ?? 'postgres',
   password: process.env.DB_PASSWORD ?? '',
   database: process.env.DB_NAME     ?? 'dentalos',
-  entities:   [join(__dirname, '**/*.entity{.ts,.js}')],
-  migrations: [join(__dirname, 'migrations/*{.ts,.js}')],
+  entities:   ALL_ENTITIES,
+  migrations: POSTGRES_MIGRATIONS,
   ssl: process.env.NODE_ENV === 'production'
     ? { rejectUnauthorized: false }
     : false,

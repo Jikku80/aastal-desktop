@@ -33,6 +33,7 @@ const ONLINE_ONLY_PREFIXES = [
   'patient',            // patient-portal (NOT 'patients' — that's offline-capable, different exact prefix)
   'analytics',
   'doctor-portal',
+  'reviews',
 ];
 
 function matchesOnlineOnlyPrefix(path: string): boolean {

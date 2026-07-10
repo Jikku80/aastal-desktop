@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Clinic, SubscriptionPlan } from '../clinics/entities/clinic.entity';
@@ -17,9 +18,20 @@ export class SuperAdminSeeder implements OnApplicationBootstrap {
     @InjectRepository(User)         private userRepo:   Repository<User>,
     @InjectRepository(Clinic)       private clinicRepo: Repository<Clinic>,
     @InjectRepository(Subscription) private subRepo:    Repository<Subscription>,
+    private config: ConfigService,
   ) {}
 
   async onApplicationBootstrap() {
+    // This seeds the platform's single global super-admin account and its
+    // enterprise Subscription record — both online/server-only concepts.
+    // On the offline desktop (SQLite) build there is no Subscription entity
+    // registered at all (subscriptions is an online-only module, see
+    // data-source.sqlite.ts), so running this against a per-clinic offline
+    // install would throw EntityMetadataNotFoundError on first boot.
+    if (this.config.get('DB_DRIVER', 'postgres') === 'sqlite') {
+      this.logger.log('Skipping super-admin seed — offline/desktop build has no platform-admin or Subscription entity.');
+      return;
+    }
     await this.seed();
   }
 
