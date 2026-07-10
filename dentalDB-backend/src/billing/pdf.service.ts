@@ -1,44 +1,207 @@
 import { Injectable } from '@nestjs/common';
 import { Invoice } from '../billing/entities/invoice.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
+import { renderPdfDoc, fetchImageAsDataUri, PDF_COLORS } from '../common/pdf/pdf-printer.util';
 
 @Injectable()
 export class PdfService {
+  // NOTE: buildInvoiceHtml() below is kept as-is and untouched — it's a
+  // plain HTML template, not involved in PDF generation anymore. Rendering
+  // now goes through pdfmake (see pdf-printer.util.ts) instead of
+  // html-pdf-node/puppeteer, so this method no longer needs a headless
+  // browser at all.
   async generateInvoicePdf(invoice: Invoice, clinic: Clinic): Promise<Buffer> {
-    const html = this.buildInvoiceHtml(invoice, clinic);
+    const fmtDate = (d: any) =>
+      d ? new Date(d).toLocaleDateString('en', { year: 'numeric', month: 'long', day: 'numeric' }) : '—';
+    const fmtNPR = (n: number | string) => `NPR ${Number(n).toLocaleString('en')}`;
 
-    // Try html-pdf-node first
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const htmlPdf = require('html-pdf-node');
-      const file = { content: html };
-      const options = {
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '15mm', bottom: '15mm', left: '12mm', right: '12mm' },
-      };
-      const buf: Buffer = await new Promise((res, rej) =>
-        htmlPdf.generatePdf(file, options, (err: Error, buf: Buffer) =>
-          err ? rej(err) : res(buf),
-        ),
-      );
-      return buf;
-    } catch {}
+    const tpl = clinic.billingTemplate || {};
+    const themeColor = tpl.themeColor || '#027cc6';
+    const showLogo = tpl.showLogo === true;
+    const showVat = tpl.showVatNumber === true;
+    const showReg = tpl.showRegistrationNumber === true;
+    const showLicense = tpl.showLicenseNumber === true;
 
-    // Try puppeteer
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const puppeteer = require('puppeteer');
-      const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: 'networkidle0' });
-      const buf = await page.pdf({ format: 'A4', printBackground: true });
-      await browser.close();
-      return Buffer.from(buf);
-    } catch {}
+    const API_BASE = process.env.API_BASE_URL || 'http://localhost:4000';
+    let logoDataUri: string | null = null;
+    if (showLogo && clinic?.logo) {
+      const logoUrl = clinic.logo.startsWith('http') ? clinic.logo : `${API_BASE}${clinic.logo}`;
+      logoDataUri = await fetchImageAsDataUri(logoUrl);
+    }
 
-    // Final fallback: return HTML buffer (client detects via content-type)
-    return Buffer.from(html, 'utf-8');
+    const clinicMetaLines = [
+      clinic?.address,
+      clinic?.phone,
+      clinic?.email,
+      showLicense && clinic?.licenseNumber ? `License: ${clinic.licenseNumber}` : null,
+      showReg && clinic?.registrationNumber ? `Reg No: ${clinic.registrationNumber}` : null,
+      showVat && clinic?.vatNumber ? `VAT No: ${clinic.vatNumber}` : null,
+    ].filter(Boolean) as string[];
+
+    const isPaid = invoice.status === 'paid';
+    const itemRows = (invoice.items || []).map((item: any) => [
+      { text: item.description, margin: [0, 4, 0, 4] as [number, number, number, number] },
+      { text: String(item.quantity), alignment: 'center', margin: [0, 4, 0, 4] as [number, number, number, number] },
+      { text: fmtNPR(item.unitPrice), alignment: 'right', margin: [0, 4, 0, 4] as [number, number, number, number] },
+      { text: fmtNPR(item.total), alignment: 'right', bold: true, margin: [0, 4, 0, 4] as [number, number, number, number] },
+    ]);
+
+    const totalsRows: any[] = [
+      ['Subtotal', { text: fmtNPR(invoice.subtotal), alignment: 'right' }],
+    ];
+    if (Number(invoice.taxAmount) > 0) {
+      totalsRows.push([`VAT (${invoice.taxPercent}%)`, { text: fmtNPR(invoice.taxAmount), alignment: 'right' }]);
+    }
+    if (Number(invoice.discountAmount) > 0) {
+      totalsRows.push(['Discount', { text: `- ${fmtNPR(invoice.discountAmount)}`, alignment: 'right' }]);
+    }
+    totalsRows.push([
+      { text: 'Total', bold: true, fillColor: themeColor, color: '#ffffff', margin: [4, 4, 4, 4] },
+      { text: fmtNPR(invoice.total), alignment: 'right', bold: true, fillColor: themeColor, color: '#ffffff', margin: [4, 4, 4, 4] },
+    ]);
+    if (Number(invoice.paidAmount) > 0) {
+      totalsRows.push([
+        { text: 'Paid', color: PDF_COLORS.mutedText },
+        { text: fmtNPR(invoice.paidAmount), alignment: 'right', color: PDF_COLORS.mutedText },
+      ]);
+    }
+    if (Number(invoice.dueAmount) > 0) {
+      totalsRows.push([
+        { text: 'Balance Due', bold: true, color: '#dc2626' },
+        { text: fmtNPR(invoice.dueAmount), alignment: 'right', bold: true, color: '#dc2626' },
+      ]);
+    }
+
+    const footerParts = [`Generated by DentalOS • ${new Date().getFullYear()}`];
+    if (showVat && clinic?.vatNumber) footerParts.push(`VAT: ${clinic.vatNumber}`);
+    if (showReg && clinic?.registrationNumber) footerParts.push(`Reg: ${clinic.registrationNumber}`);
+
+    const docDefinition: any = {
+      pageSize: 'A4',
+      pageMargins: [36, 36, 36, 36],
+      content: [
+        {
+          columns: [
+            {
+              width: '*',
+              stack: [
+                { text: 'INVOICE', fontSize: 20, bold: true, color: PDF_COLORS.darkText },
+                { text: `#${invoice.invoiceNumber}`, bold: true, margin: [0, 6, 0, 2] },
+                { text: `Issued: ${fmtDate(invoice.createdAt)}`, color: PDF_COLORS.mutedText, fontSize: 9 },
+                ...(invoice.dueDate ? [{ text: `Due: ${fmtDate(invoice.dueDate)}`, color: PDF_COLORS.mutedText, fontSize: 9 }] : []),
+                {
+                  table: {
+                    body: [[
+                      {
+                        text: invoice.status.replace('_', ' ').toUpperCase(),
+                        bold: true,
+                        fontSize: 8,
+                        color: isPaid ? '#065f46' : '#991b1b',
+                        fillColor: isPaid ? '#d1fae5' : '#fee2e2',
+                        margin: [6, 3, 6, 3],
+                      },
+                    ]],
+                  },
+                  layout: 'noBorders',
+                  margin: [0, 8, 0, 0] as [number, number, number, number],
+                },
+              ],
+            },
+            {
+              width: 220,
+              stack: [
+                ...(logoDataUri ? [{ image: logoDataUri, width: 100, alignment: 'right' as const, margin: [0, 0, 0, 6] as [number, number, number, number] }] : []),
+                { text: clinic?.name || 'Dental Clinic', bold: true, alignment: 'right' as const },
+                ...clinicMetaLines.map((line) => ({ text: line, fontSize: 8, color: PDF_COLORS.mutedText, alignment: 'right' as const })),
+              ],
+            },
+          ],
+          columnGap: 20,
+        },
+        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 523, y2: 0, lineWidth: 3, lineColor: themeColor }], margin: [0, 16, 0, 20] },
+
+        {
+          columns: [
+            {
+              width: '*',
+              fillColor: PDF_COLORS.panelBg,
+              margin: [10, 8, 10, 8],
+              stack: [
+                { text: 'BILLED TO', fontSize: 7, bold: true, color: PDF_COLORS.lightText },
+                { text: `${invoice.patient?.firstName || ''} ${invoice.patient?.lastName || ''}`.trim(), bold: true, margin: [0, 4, 0, 0] },
+                ...(invoice.patient?.phone ? [{ text: invoice.patient.phone, fontSize: 9 }] : []),
+                ...(invoice.patient?.email ? [{ text: invoice.patient.email, fontSize: 9 }] : []),
+              ],
+            },
+            {
+              width: '*',
+              fillColor: PDF_COLORS.panelBg,
+              margin: [10, 8, 10, 8],
+              stack: [
+                { text: 'PAYMENT INFO', fontSize: 7, bold: true, color: PDF_COLORS.lightText },
+                {
+                  text: invoice.paymentMethod ? `Method: ${String(invoice.paymentMethod).replace('_', ' ')}` : 'Payment pending',
+                  fontSize: 9,
+                  margin: [0, 4, 0, 0],
+                },
+                ...(invoice.paidAt ? [{ text: `Paid: ${fmtDate(invoice.paidAt)}`, fontSize: 9 }] : []),
+                ...((invoice as any).paymentTransactionId ? [{ text: `Txn: ${(invoice as any).paymentTransactionId}`, fontSize: 8, color: PDF_COLORS.mutedText }] : []),
+              ],
+            },
+          ],
+          columnGap: 16,
+          margin: [0, 0, 0, 20],
+        },
+
+        {
+          table: {
+            headerRows: 1,
+            widths: ['*', 50, 80, 80],
+            body: [
+              [
+                { text: 'Description', fillColor: themeColor, color: '#ffffff', bold: true, fontSize: 9 },
+                { text: 'Qty', fillColor: themeColor, color: '#ffffff', bold: true, fontSize: 9, alignment: 'center' },
+                { text: 'Unit Price', fillColor: themeColor, color: '#ffffff', bold: true, fontSize: 9, alignment: 'right' },
+                { text: 'Total', fillColor: themeColor, color: '#ffffff', bold: true, fontSize: 9, alignment: 'right' },
+              ],
+              ...itemRows,
+            ],
+          },
+          layout: {
+            hLineWidth: () => 0.5,
+            vLineWidth: () => 0,
+            hLineColor: () => PDF_COLORS.border,
+          },
+          margin: [0, 0, 0, 16],
+        },
+
+        {
+          table: { widths: [140, 100], body: totalsRows },
+          layout: 'noBorders',
+          alignment: 'right',
+          margin: [283, 0, 0, 0],
+        },
+
+        ...(invoice.notes
+          ? [{
+              text: [{ text: 'Notes: ', bold: true, color: PDF_COLORS.darkText }, invoice.notes],
+              fillColor: PDF_COLORS.panelBg,
+              fontSize: 9,
+              color: PDF_COLORS.mutedText,
+              margin: [10, 28, 10, 8] as [number, number, number, number],
+            }]
+          : []),
+
+        {
+          text: footerParts.join('  •  '),
+          fontSize: 8,
+          color: PDF_COLORS.lightText,
+          alignment: 'center',
+          margin: [0, 40, 0, 0],
+        },
+      ],
+    };
+    return renderPdfDoc(docDefinition);
   }
 
   buildInvoiceHtml(invoice: Invoice, clinic: Clinic): string {

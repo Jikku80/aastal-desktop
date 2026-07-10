@@ -91,10 +91,9 @@ export class BillingController {
       userAgent:  req.headers['user-agent'],
     }));
 
-    const isHtml = pdfBuffer.slice(0, 15).toString().includes('<');
     res.set({
-      'Content-Type':        isHtml ? 'text/html' : 'application/pdf',
-      'Content-Disposition': `attachment; filename="Invoice-${invoice.invoiceNumber}.${isHtml ? 'html' : 'pdf'}"`,
+      'Content-Type':        'application/pdf',
+      'Content-Disposition': `attachment; filename="Invoice-${invoice.invoiceNumber}.pdf"`,
       'Content-Length':      pdfBuffer.length,
     });
     const { Readable } = require('stream');

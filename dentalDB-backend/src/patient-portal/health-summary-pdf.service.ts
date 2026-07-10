@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { renderPdfDoc, PDF_COLORS } from '../common/pdf/pdf-printer.util';
 
 export interface HealthSummaryData {
   account: {
@@ -200,32 +201,166 @@ export class HealthSummaryPdfService {
   }
 
   async generatePdf(data: HealthSummaryData): Promise<Buffer> {
-    const html = this.buildHtml(data);
+    const { account, visits, medications, labResults, generatedAt } = data;
+    const fmtDate = (d: any) =>
+      d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '—';
 
-    try {
-      const htmlPdf = require('html-pdf-node');
-      const options = {
-        format: 'A4', printBackground: true,
-        margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' },
+    const badgeRow = (items: string[] | undefined, color: string, bg: string) => {
+      if (!items || items.length === 0) {
+        return { text: 'None reported', color: PDF_COLORS.lightText, fontSize: 9 };
+      }
+      return {
+        table: { body: [items.map((t) => ({ text: t, color, fillColor: bg, fontSize: 8, bold: true, margin: [6, 3, 6, 3] }))] },
+        layout: 'noBorders',
       };
-      return await new Promise((res, rej) =>
-        htmlPdf.generatePdf({ content: html }, options, (err: any, buf: Buffer) =>
-          err ? rej(err) : res(buf),
-        ),
-      );
-    } catch { /* fall through */ }
+    };
 
-    try {
-      const puppeteer = require('puppeteer');
-      const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: 'networkidle0' });
-      const buf = await page.pdf({ format: 'A4', printBackground: true });
-      await browser.close();
-      return Buffer.from(buf);
-    } catch { /* fall through */ }
+    const vitals = account.vitals || {};
+    const vitalsBody = Object.entries(vitals)
+      .filter(([, v]) => v)
+      .map(([k, v]) => {
+        const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
+        return [{ text: label, fontSize: 8, color: PDF_COLORS.mutedText }, { text: String(v), fontSize: 9, bold: true }];
+      });
 
-    // Last resort: return the HTML as a UTF-8 buffer
-    return Buffer.from(html, 'utf-8');
+    const sectionTable = (headers: string[], rows: any[][], emptyLabel: string) => {
+      if (rows.length === 0) {
+        return { text: emptyLabel, color: PDF_COLORS.lightText, fontSize: 9, fillColor: PDF_COLORS.panelBg, margin: [8, 8, 8, 8] };
+      }
+      return {
+        table: {
+          headerRows: 1,
+          widths: headers.map(() => '*'),
+          body: [
+            headers.map((h) => ({ text: h, fillColor: '#0369a1', color: '#fff', bold: true, fontSize: 8 })),
+            ...rows,
+          ],
+        },
+        layout: { hLineWidth: () => 0.5, vLineWidth: () => 0, hLineColor: () => PDF_COLORS.border },
+        margin: [0, 0, 0, 4],
+      };
+    };
+
+    const visitRows = visits.slice(0, 10).map((v) => [
+      { text: fmtDate(v.date), fontSize: 8, color: PDF_COLORS.mutedText },
+      { text: v.clinicName, fontSize: 9, bold: true },
+      { text: v.doctorName, fontSize: 8 },
+      { text: v.diagnosis || v.notes || '—', fontSize: 8, color: '#374151' },
+    ]);
+
+    const medRows = medications.slice(0, 20).map((m) => [
+      { text: m.name, fontSize: 9, bold: true },
+      { text: m.dosage || '—', fontSize: 8 },
+      { text: m.frequency || '—', fontSize: 8 },
+      { text: m.clinicName, fontSize: 8, color: PDF_COLORS.mutedText },
+    ]);
+
+    const labRows = labResults.slice(0, 20).map((l) => {
+      const params = l.results || [];
+      const content: any[] = [
+        {
+          columns: [
+            { text: l.title, bold: true, fontSize: 9, width: '*' },
+            { text: `${l.clinicName} · ${fmtDate(l.date)}`, fontSize: 8, color: PDF_COLORS.mutedText, alignment: 'right' },
+          ],
+        },
+      ];
+      if (l.summary) content.push({ text: l.summary, fontSize: 8, color: '#374151', margin: [0, 2, 0, 0] });
+      if (params.length) {
+        content.push({
+          table: {
+            widths: ['*', 'auto', 'auto', 'auto'],
+            body: [
+              [{ text: 'Parameter', fontSize: 7, color: PDF_COLORS.mutedText }, { text: 'Value', fontSize: 7, color: PDF_COLORS.mutedText }, { text: 'Reference', fontSize: 7, color: PDF_COLORS.mutedText }, { text: 'Flag', fontSize: 7, color: PDF_COLORS.mutedText }],
+              ...params.map((p) => [
+                { text: p.parameter, fontSize: 8 },
+                { text: `${p.value}${p.unit ? ' ' + p.unit : ''}`, fontSize: 8, bold: true },
+                { text: p.referenceRange || '—', fontSize: 8, color: PDF_COLORS.mutedText },
+                { text: p.flag || 'normal', fontSize: 8, color: p.flag && p.flag !== 'normal' ? '#dc2626' : '#16a34a', bold: !!(p.flag && p.flag !== 'normal') },
+              ]),
+            ],
+          },
+          layout: { hLineWidth: () => 0.5, vLineWidth: () => 0, hLineColor: () => PDF_COLORS.border },
+          margin: [0, 4, 0, 0],
+        });
+      }
+      return [{ stack: content, colSpan: 4, fillColor: PDF_COLORS.panelBg, margin: [6, 6, 6, 6] } as any, {}, {}, {}];
+    });
+
+    const docDefinition: any = {
+      pageSize: 'A4',
+      pageMargins: [32, 32, 32, 32],
+      content: [
+        {
+          columns: [
+            {
+              width: '*',
+              stack: [
+                { text: 'Health Summary', fontSize: 18, bold: true, color: '#0369a1' },
+                { text: `${account.firstName} ${account.lastName}`, fontSize: 9, color: PDF_COLORS.mutedText, margin: [0, 2, 0, 0] },
+              ],
+            },
+            {
+              width: 220,
+              stack: [
+                { text: `Generated: ${fmtDate(generatedAt)}`, fontSize: 8, color: PDF_COLORS.lightText, alignment: 'right' },
+                { text: 'CONFIDENTIAL — FOR MEDICAL USE ONLY', fontSize: 7, color: '#ef4444', alignment: 'right', margin: [0, 2, 0, 0] },
+              ],
+            },
+          ],
+        },
+        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 531, y2: 0, lineWidth: 3, lineColor: '#0369a1' }], margin: [0, 10, 0, 16] },
+
+        { text: 'PATIENT INFORMATION', fontSize: 9, bold: true, color: PDF_COLORS.mutedText, margin: [0, 0, 0, 6] },
+        {
+          table: {
+            widths: ['*', '*', '*', '*'],
+            body: [[
+              { stack: [{ text: 'Date of Birth', fontSize: 7, color: PDF_COLORS.lightText }, { text: fmtDate(account.dateOfBirth), bold: true, fontSize: 9, margin: [0, 2, 0, 0] }] },
+              { stack: [{ text: 'Gender', fontSize: 7, color: PDF_COLORS.lightText }, { text: account.gender || '—', bold: true, fontSize: 9, margin: [0, 2, 0, 0] }] },
+              { stack: [{ text: 'Phone', fontSize: 7, color: PDF_COLORS.lightText }, { text: account.phone || '—', bold: true, fontSize: 9, margin: [0, 2, 0, 0] }] },
+              { stack: [{ text: 'Email', fontSize: 7, color: PDF_COLORS.lightText }, { text: account.email || '—', bold: true, fontSize: 8, margin: [0, 2, 0, 0] }] },
+            ]],
+          },
+          layout: 'noBorders',
+          fillColor: PDF_COLORS.panelBg,
+          margin: [0, 0, 0, 14],
+        },
+
+        { text: 'ALLERGIES', fontSize: 9, bold: true, color: PDF_COLORS.mutedText, margin: [0, 0, 0, 6] },
+        { ...badgeRow(account.allergies, '#b91c1c', '#fef2f2'), margin: [0, 0, 0, 14] },
+
+        { text: 'CHRONIC CONDITIONS', fontSize: 9, bold: true, color: PDF_COLORS.mutedText, margin: [0, 0, 0, 6] },
+        { ...badgeRow(account.chronicConditions, '#1d4ed8', '#eff6ff'), margin: [0, 0, 0, 14] },
+
+        ...(vitalsBody.length
+          ? [
+              { text: 'SELF-REPORTED VITALS', fontSize: 9, bold: true, color: PDF_COLORS.mutedText, margin: [0, 0, 0, 6] },
+              { table: { widths: ['*', '*'], body: vitalsBody }, layout: 'noBorders', fillColor: PDF_COLORS.panelBg, margin: [0, 0, 0, 14] },
+            ]
+          : []),
+
+        { text: 'RECENT VISITS (ACROSS ALL CLINICS)', fontSize: 9, bold: true, color: PDF_COLORS.mutedText, margin: [0, 0, 0, 6] },
+        { ...sectionTable(['Date', 'Clinic', 'Doctor', 'Diagnosis / Notes'], visitRows, 'No visit history found.'), margin: [0, 0, 0, 14] },
+
+        { text: 'CURRENT MEDICATIONS', fontSize: 9, bold: true, color: PDF_COLORS.mutedText, margin: [0, 0, 0, 6] },
+        { ...sectionTable(['Medication', 'Dosage', 'Frequency', 'Clinic'], medRows, 'No medications on record.'), margin: [0, 0, 0, 14] },
+
+        { text: 'LAB RESULTS & REPORTS', fontSize: 9, bold: true, color: PDF_COLORS.mutedText, margin: [0, 0, 0, 6] },
+        labResults.length === 0
+          ? { text: 'No lab results on file.', color: PDF_COLORS.lightText, fontSize: 9, fillColor: PDF_COLORS.panelBg, margin: [8, 8, 8, 8] }
+          : { table: { widths: ['*', '*', '*', '*'], body: labRows }, layout: 'noBorders' },
+
+        {
+          text: `This health summary was generated via Clinic Karobar on ${fmtDate(generatedAt)}. Please verify all information with your treating physician before use.`,
+          fontSize: 8,
+          color: PDF_COLORS.lightText,
+          alignment: 'center',
+          margin: [0, 30, 0, 0],
+        },
+      ],
+    };
+
+    return renderPdfDoc(docDefinition);
   }
 }

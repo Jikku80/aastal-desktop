@@ -5,6 +5,7 @@ import { Clinic } from '../clinics/entities/clinic.entity';
 import { User } from '../users/entities/user.entity';
 import { ClinicalRecord } from '../clinical-records/entities/clinical-record.entity';
 import { Appointment } from '../appointments/entities/appointment.entity';
+import { renderPdfDoc, fetchImageAsDataUri, PDF_COLORS } from '../common/pdf/pdf-printer.util';
 
 export interface PrescriptionPrintData {
   clinicalRecord:  ClinicalRecord;
@@ -66,8 +67,8 @@ export class PrescriptionPdfService {
   // ── PDF generators ────────────────────────────────────────────────────────────
 
   async generateForRecord(clinicId: string, recordId: string): Promise<Buffer> {
-    const { html } = await this._buildHtmlForRecord(clinicId, recordId);
-    return this.renderPdf(html);
+    const { data } = await this._buildHtmlForRecord(clinicId, recordId);
+    return this.renderPrescriptionPdf(data);
   }
 
   async generateForAppointment(clinicId: string, appointmentId: string): Promise<Buffer> {
@@ -82,8 +83,8 @@ export class PrescriptionPdfService {
     } as any);
     if (!record) throw new NotFoundException('No clinical record found for this appointment');
 
-    const { html } = await this._buildHtmlForRecord(clinicId, record.id);
-    return this.renderPdf(html);
+    const { data } = await this._buildHtmlForRecord(clinicId, record.id);
+    return this.renderPrescriptionPdf(data);
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -91,7 +92,7 @@ export class PrescriptionPdfService {
   private async _buildHtmlForRecord(
     clinicId: string,
     recordId: string,
-  ): Promise<{ html: string }> {
+  ): Promise<{ html: string; data: PrescriptionPrintData }> {
     const clinic = await this.clinicRepo.findOne({ where: { id: clinicId } });
     if (!clinic) throw new NotFoundException('Clinic not found');
 
@@ -107,8 +108,9 @@ export class PrescriptionPdfService {
         ({ firstName: 'Unknown', lastName: '' } as any)
       : ({ firstName: 'Unknown', lastName: '' } as any);
 
-    const html = this.buildHtml({ clinicalRecord: record, doctor, clinic });
-    return { html };
+    const data: PrescriptionPrintData = { clinicalRecord: record, doctor, clinic };
+    const html = this.buildHtml(data);
+    return { html, data };
   }
 
   /**
@@ -131,8 +133,7 @@ export class PrescriptionPdfService {
     });
     if (!record) throw new NotFoundException('Clinical record not found');
 
-    const html = this.buildHtml({ clinicalRecord: record, doctor, clinic });
-    return this.renderPdf(html);
+    return this.renderPrescriptionPdf({ clinicalRecord: record, doctor, clinic });
   }
 
   buildHtml({ clinicalRecord, doctor, clinic }: PrescriptionPrintData): string {
@@ -269,25 +270,133 @@ export class PrescriptionPdfService {
 </html>`;
   }
 
-  private async renderPdf(html: string): Promise<Buffer> {
-    try {
-      const htmlPdf = require('html-pdf-node');
-      const options = { format: 'A4', printBackground: true, margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' } };
-      return await new Promise((res, rej) =>
-        htmlPdf.generatePdf({ content: html }, options, (err: any, buf: Buffer) => err ? rej(err) : res(buf)),
-      );
-    } catch {}
+  private async renderPrescriptionPdf({ clinicalRecord, doctor, clinic }: PrescriptionPrintData): Promise<Buffer> {
+    const API_BASE   = process.env.API_BASE_URL || 'http://localhost:4000';
+    const tpl        = clinic.prescriptionTemplate || {};
+    const themeColor = tpl.themeColor || '#0369a1';
 
-    try {
-      const puppeteer = require('puppeteer');
-      const browser   = await puppeteer.launch({ args: ['--no-sandbox'] });
-      const page      = await browser.newPage();
-      await page.setContent(html, { waitUntil: 'networkidle0' });
-      const buf = await page.pdf({ format: 'A4', printBackground: true });
-      await browser.close();
-      return Buffer.from(buf);
-    } catch {}
+    const logoUrl = clinic.logo
+      ? (clinic.logo.startsWith('http') ? clinic.logo : `${API_BASE}${clinic.logo}`)
+      : null;
+    const logoDataUri = await fetchImageAsDataUri(logoUrl);
 
-    return Buffer.from(html, 'utf-8');
+    const sigUrl = (doctor as any).signature
+      ? ((doctor as any).signature.startsWith('http') ? (doctor as any).signature : `${API_BASE}${(doctor as any).signature}`)
+      : null;
+    const sigDataUri = await fetchImageAsDataUri(sigUrl);
+
+    const fmtDate = (d: any) => d
+      ? new Date(d).toLocaleDateString('en', { year: 'numeric', month: 'long', day: 'numeric' })
+      : '—';
+
+    const rxBody = (clinicalRecord.prescriptions || []).map((p: any) => [
+      { text: p.medicineName, bold: true, fontSize: 9 },
+      { text: p.dosage || '—', fontSize: 9 },
+      { text: p.frequency || '—', fontSize: 9 },
+      { text: p.duration || '—', fontSize: 9 },
+      { text: p.instructions || '', fontSize: 8, color: PDF_COLORS.mutedText },
+    ]);
+    if (rxBody.length === 0) {
+      rxBody.push([{ text: 'No prescriptions', colSpan: 5, alignment: 'center', color: PDF_COLORS.lightText, fontSize: 9 } as any, {}, {}, {}, {}]);
+    }
+
+    const patient = (clinicalRecord as any).patient || {};
+
+    const docDefinition: any = {
+      pageSize: 'A4',
+      pageMargins: [32, 32, 32, 32],
+      content: [
+        {
+          columns: [
+            {
+              width: '*',
+              stack: [
+                ...(logoDataUri
+                  ? [{ image: logoDataUri, width: 90 }]
+                  : [{ text: clinic.name, fontSize: 18, bold: true, color: themeColor }]),
+                ...[clinic.address ? `${clinic.address}${clinic.city ? ', ' + clinic.city : ''}` : null, clinic.phone ? `Tel: ${clinic.phone}` : null, clinic.email ? `Email: ${clinic.email}` : null]
+                  .filter(Boolean)
+                  .map((line) => ({ text: line, fontSize: 8, color: PDF_COLORS.mutedText })),
+              ],
+            },
+            { width: 60, text: 'Rx', fontSize: 36, bold: true, color: themeColor, alignment: 'right' },
+          ],
+        },
+        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 531, y2: 0, lineWidth: 3, lineColor: themeColor }], margin: [0, 12, 0, 16] },
+
+        {
+          table: {
+            widths: ['*', '*'],
+            body: [
+              [
+                { stack: [{ text: 'PATIENT NAME', fontSize: 7, color: PDF_COLORS.lightText }, { text: `${patient.firstName || ''} ${patient.lastName || '—'}`.trim(), bold: true, fontSize: 10, margin: [0, 2, 0, 0] }] },
+                { stack: [{ text: 'DATE', fontSize: 7, color: PDF_COLORS.lightText }, { text: fmtDate(clinicalRecord.createdAt), bold: true, fontSize: 10, margin: [0, 2, 0, 0] }] },
+              ],
+              [
+                { stack: [{ text: 'AGE / GENDER', fontSize: 7, color: PDF_COLORS.lightText }, { text: `${patient.age || '—'} / ${patient.gender || '—'}`, bold: true, fontSize: 10, margin: [0, 2, 0, 0] }] },
+                { stack: [{ text: 'DIAGNOSIS', fontSize: 7, color: PDF_COLORS.lightText }, { text: (clinicalRecord.diagnosisNotes || '—').slice(0, 80), bold: true, fontSize: 10, margin: [0, 2, 0, 0] }] },
+              ],
+            ],
+          },
+          layout: 'noBorders',
+          fillColor: PDF_COLORS.panelBg,
+          margin: [0, 0, 0, 20],
+        },
+
+        {
+          table: {
+            headerRows: 1,
+            widths: ['*', 60, 65, 55, '*'],
+            body: [
+              [
+                { text: 'Medicine', fillColor: themeColor, color: '#fff', bold: true, fontSize: 9 },
+                { text: 'Dosage', fillColor: themeColor, color: '#fff', bold: true, fontSize: 9 },
+                { text: 'Frequency', fillColor: themeColor, color: '#fff', bold: true, fontSize: 9 },
+                { text: 'Duration', fillColor: themeColor, color: '#fff', bold: true, fontSize: 9 },
+                { text: 'Instructions', fillColor: themeColor, color: '#fff', bold: true, fontSize: 9 },
+              ],
+              ...rxBody,
+            ],
+          },
+          layout: { hLineWidth: () => 0.5, vLineWidth: () => 0, hLineColor: () => PDF_COLORS.border },
+          margin: [0, 0, 0, 28],
+        },
+
+        ...(clinicalRecord.treatmentPlan
+          ? [{
+              table: { widths: ['*'], body: [[{ text: [{ text: 'Treatment Notes: ', bold: true }, { text: clinicalRecord.treatmentPlan, fontSize: 9, color: PDF_COLORS.mutedText }], margin: [8, 8, 8, 8] }]] },
+              layout: 'noBorders',
+              fillColor: PDF_COLORS.panelBg,
+              margin: [0, 0, 0, 28] as [number, number, number, number],
+            }]
+          : []),
+
+        {
+          columns: [
+            { width: '*', text: '' },
+            {
+              width: 200,
+              stack: [
+                ...(sigDataUri
+                  ? [{ image: sigDataUri, width: 140, alignment: 'right' as const }]
+                  : [{ canvas: [{ type: 'line', x1: 0, y1: 0, x2: 140, y2: 0, lineWidth: 1, lineColor: '#374151' }], alignment: 'right' as const }]),
+                { text: `Dr. ${doctor.firstName} ${doctor.lastName}`, bold: true, fontSize: 11, alignment: 'right', margin: [0, 4, 0, 0] },
+                { text: (doctor as any).specialization || (doctor as any).role || 'Physician', fontSize: 9, color: PDF_COLORS.mutedText, alignment: 'right' },
+              ],
+            },
+          ],
+        },
+
+        {
+          text: `This prescription is generated electronically via ${clinic.name} — Clinic Karobar`,
+          fontSize: 8,
+          color: PDF_COLORS.lightText,
+          alignment: 'center',
+          margin: [0, 40, 0, 0],
+        },
+      ],
+    };
+
+    return renderPdfDoc(docDefinition);
   }
 }
