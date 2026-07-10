@@ -19,6 +19,7 @@
     "productName": "Aastal",
     "asar": true,
     "beforeBuild": "before-build.js",
+    "compression": "store",
     "publish": {
       "provider": "github",
       "owner": "jikku80",
