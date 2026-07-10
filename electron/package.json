@@ -69,7 +69,8 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "differentialPackage": false
     },
     "mac": {
       "target": [
@@ -91,5 +92,5 @@
       "category": "Office"
     }
   },
-  "author": "Jeshan Maharjan <jeshan@aastal.com>"
+  "author": "Aastal <admin@aastal.com>"
 }
