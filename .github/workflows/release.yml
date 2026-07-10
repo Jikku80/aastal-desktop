@@ -18,10 +18,20 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
+            electron_arch: x64
           - os: macos-latest
             platform: mac
+            # GitHub's macos-latest runners are Apple Silicon; this matches the
+            # native module to the host arch used to stage/bundle the backend.
+            # The mac build target still produces x64+arm64 dmgs via electron-builder,
+            # but the *staged* native binary here is arm64-only. If you need the
+            # x64 dmg to also work on Intel Macs, that needs a second staging pass
+            # with electron_arch: x64 — not something the previous workflow did
+            # correctly either, so this isn't a regression, just a known gap.
+            electron_arch: arm64
           - os: windows-latest
             platform: win
+            electron_arch: x64
     runs-on: ${{ matrix.os }}
     env:
       # Force prebuilt binaries; never silently fall back to compiling from source.
@@ -67,6 +77,16 @@ jobs:
         run: npm install --prefix electron
         timeout-minutes: 10
 
+      - name: Resolve Electron version
+        id: electron_version
+        shell: bash
+        # Read straight from electron/package.json so this never drifts out of
+        # sync with the actual Electron version being packaged.
+        run: |
+          ver=$(node -p "require('./electron/package.json').devDependencies.electron.replace(/^[^0-9]*/, '')")
+          echo "Electron version: $ver"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
       - name: Build backend
         run: npm run electron:build:backend
 
@@ -81,14 +101,39 @@ jobs:
 
       - name: Stage backend
         shell: bash
-        # --omit=dev still triggers a better-sqlite3 install here (Node ABI, not Electron's).
-        # build_from_source=false + the timeout below stop it from hanging silently.
+        # better-sqlite3's own install script is `prebuild-install || node-gyp rebuild`.
+        # WiseLibs publishes prebuilt binaries per Electron major version
+        # (e.g. better-sqlite3-v11.10.0-electron-v31-win32-x64.tar.gz), so setting
+        # npm_config_runtime/target here makes prebuild-install fetch the *correct*
+        # Electron-ABI binary directly during this install — no compilation, no
+        # separate @electron/rebuild step, no node-gyp/Visual Studio/Docker needed.
+        # (This replaces the old two-step "install then rebuild for Electron" flow,
+        # which was forcing a from-source compile and hitting VS2026-detection
+        # issues on Windows and a too-old Python in the Linux Docker fallback.)
         run: |
           rm -rf electron/.staging/backend
           mkdir -p electron/.staging/backend
           cp -r dentalDB-backend/dist dentalDB-backend/package.json dentalDB-backend/package-lock.json electron/.staging/backend/
           npm install --prefix electron/.staging/backend --omit=dev
         timeout-minutes: 15
+        env:
+          npm_config_runtime: electron
+          npm_config_target: ${{ steps.electron_version.outputs.version }}
+          npm_config_arch: ${{ matrix.electron_arch }}
+          npm_config_target_arch: ${{ matrix.electron_arch }}
+
+      - name: Verify better-sqlite3 native binary is present
+        shell: bash
+        # Fails fast with a clear message instead of a mysterious runtime crash
+        # later if prebuild-install ever can't find a matching Electron prebuild
+        # (e.g. a brand-new Electron major version WiseLibs hasn't published for yet).
+        run: |
+          binding="electron/.staging/backend/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+          if [ ! -f "$binding" ]; then
+            echo "::error::better-sqlite3 native binary not found at $binding — prebuild-install likely failed to find an Electron ${{ steps.electron_version.outputs.version }} (${{ matrix.electron_arch }}) prebuild."
+            exit 1
+          fi
+          echo "Found native binary: $binding"
 
       - name: Bundle backend
         shell: bash
@@ -98,43 +143,6 @@ jobs:
         # the Windows packaging timeout below; staging alone doesn't.
         run: npm run electron:bundle-backend
         timeout-minutes: 10
-
-      - name: Rebuild native modules for Electron (Windows/Mac)
-        if: matrix.platform != 'linux'
-        run: npx @electron/rebuild --module-dir .staging/backend --only better-sqlite3 --force --verbose
-        working-directory: electron
-        timeout-minutes: 15
-        env:
-          DEBUG: "electron-rebuild,prebuild-install"
-
-      - name: Rebuild native modules for Electron (Linux, old-glibc container)
-        if: matrix.platform == 'linux'
-        # Compiling directly on ubuntu-latest (24.04, glibc 2.39) links better-sqlite3's
-        # .node binary against glibc symbol versions newer than most users' machines have.
-        # AppImage does NOT bundle libc/libm (they must come from the host), so that
-        # mismatch shows up as "GLIBC_2.29 not found" at runtime on older distros.
-        # Compiling inside a Debian 10 (glibc 2.28) container caps the symbol versions
-        # the binary requires, so it runs on Debian 10 / Ubuntu 20.04 and newer — which
-        # covers the large majority of Linux machines still in use. Node itself requires
-        # glibc >= 2.28 to run at all, so this is close to the practical floor.
-        #
-        # --user matches the container process to the host runner's UID/GID so the
-        # compiled files aren't root-owned — electron-builder hard-links these files
-        # later as the normal runner user, and Linux's hardlink protection refuses to
-        # link files you don't own (that's the EPERM/.forge-meta failure otherwise).
-        # @electron/rebuild itself is already installed in electron/node_modules from
-        # the earlier "Install electron dependencies" step (bind-mounted in), so no
-        # extra install is needed inside the container.
-        run: |
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -e npm_config_cache=/tmp/.npm-cache \
-            -v "${{ github.workspace }}:/workspace" \
-            -w /workspace/electron \
-            node:18-buster \
-            npx --no-install @electron/rebuild --module-dir .staging/backend --only better-sqlite3 --force --verbose
-        timeout-minutes: 20
 
       - name: Package (Linux)
         if: matrix.platform == 'linux'
