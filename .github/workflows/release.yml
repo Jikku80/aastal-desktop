@@ -66,15 +66,18 @@ jobs:
         timeout-minutes: 10
 
       - name: Install backend dependencies
-        run: npm install --prefix dentalDB-backend
+        run: npm install
+        working-directory: dentalDB-backend
         timeout-minutes: 10
 
       - name: Install frontend dependencies
-        run: npm install --prefix dentaldb
+        run: npm install
+        working-directory: dentaldb
         timeout-minutes: 10
 
       - name: Install electron dependencies
-        run: npm install --prefix electron
+        run: npm install
+        working-directory: electron
         timeout-minutes: 10
 
       - name: Resolve Electron version
@@ -114,7 +117,7 @@ jobs:
           rm -rf electron/.staging/backend
           mkdir -p electron/.staging/backend
           cp -r dentalDB-backend/dist dentalDB-backend/package.json dentalDB-backend/package-lock.json electron/.staging/backend/
-          npm install --prefix electron/.staging/backend --omit=dev
+          (cd electron/.staging/backend && npm install --omit=dev)
         timeout-minutes: 15
         env:
           npm_config_runtime: electron

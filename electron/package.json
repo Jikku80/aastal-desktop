@@ -21,7 +21,7 @@
     "appId": "com.aastal.desktop",
     "productName": "Aastal",
     "asar": true,
-    "beforeBuild": "before-build.js",
+    "beforeBuild": "./before-build.js",
     "compression": "store",
     "publish": {
       "provider": "github",
@@ -36,7 +36,11 @@
       "*.js",
       "build/**/*",
       "node_modules/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/aastal-monorepo",
+      "!node_modules/aastal-monorepo/**/*",
+      "!node_modules/aastal-desktop",
+      "!node_modules/aastal-desktop/**/*"
     ],
     "extraResources": [
       {
@@ -50,7 +54,9 @@
         "from": ".staging/backend/node_modules",
         "to": "backend/node_modules",
         "filter": [
-          "**/*"
+          "**/*",
+          "!aastal-monorepo",
+          "!aastal-monorepo/**/*"
         ]
       },
       {
