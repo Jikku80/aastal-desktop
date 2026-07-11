@@ -34,7 +34,9 @@
     },
     "files": [
       "*.js",
-      "build/**/*"
+      "build/**/*",
+      "node_modules/**/*",
+      "package.json"
     ],
     "extraResources": [
       {
