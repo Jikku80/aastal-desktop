@@ -80,6 +80,19 @@ jobs:
         working-directory: electron
         timeout-minutes: 10
 
+      - name: Verify electron-updater is installed
+        shell: bash
+        # Fails fast instead of shipping a build that throws
+        # "Cannot find module 'electron-updater'" at runtime. This module
+        # previously fell out of sync between package.json and
+        # package-lock.json, which let this slip through silently.
+        run: |
+          if [ ! -d "electron/node_modules/electron-updater" ]; then
+            echo "::error::electron-updater is not installed in electron/node_modules — check electron/package-lock.json is in sync with electron/package.json."
+            exit 1
+          fi
+          echo "Found electron-updater: $(node -p "require('./electron/node_modules/electron-updater/package.json').version")"
+
       - name: Resolve Electron version
         id: electron_version
         shell: bash
