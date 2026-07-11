@@ -7,6 +7,7 @@ import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { Request as Req, Response as Res } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
+import { ClaimClinicDto } from './dto/claim-clinic.dto';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
@@ -28,6 +29,16 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto, @Response({ passthrough: true }) res: Res) {
     return this.authService.login(dto, res);
+  }
+
+  // Called only by another backend instance's own SyncService (see
+  // sync.service.ts), never directly by a browser — turns a locally
+  // seeded placeholder clinic into a real hosted record. Same rate limit
+  // as register() since it does the same kind of write.
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Post('claim-clinic')
+  claimClinic(@Body() dto: ClaimClinicDto, @Response({ passthrough: true }) res: Res) {
+    return this.authService.claimClinic(dto, res);
   }
 
   // 10 per minute — token refresh is called silently in the background,

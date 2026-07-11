@@ -79,7 +79,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' https: data: blob:",
-              "connect-src 'self' https://app.clinickarobar.com https://api.clinickarobar.com https://*.clinickarobar.com https://nominatim.openstreetmap.org http://localhost:4000",
+              "connect-src 'self' https://app.clinickarobar.com https://www.clinickarobar.com https://api.clinickarobar.com https://*.clinickarobar.com https://nominatim.openstreetmap.org http://localhost:4000",
               "frame-src https://www.google.com https://maps.google.com https://www.openstreetmap.org",
               "object-src 'none'",
               "base-uri 'self'",

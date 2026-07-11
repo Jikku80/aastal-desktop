@@ -27,6 +27,7 @@ import { LeaveModule }          from './leave/leave.module';
 import { ShiftsModule }         from './shifts/shifts.module';
 import { ApiKeysModule }        from './api-keys/api-keys.module';
 import { SuperAdminSeeder }     from './database/super-admin.seeder';
+import { OfflineAdminSeeder }   from './database/offline-admin.seeder';
 import { SuperAdminModule }     from './super-admin/super-admin.module';
 import { RbacModule }           from './rbac/rbac.module';
 import { RbacService }          from './rbac/rbac.service';
@@ -177,6 +178,7 @@ import { DoctorPortalModule }    from './doctor-portal/doctor-portal.module';
   ],
   providers: [
     SuperAdminSeeder,
+    OfflineAdminSeeder,
     // Register ThrottlerGuard globally via DI — the correct NestJS pattern.
     // Using APP_GUARD lets the guard participate in the DI container so it
     // can access ThrottlerStorage, Reflector, and per-route @Throttle() metadata.

@@ -4,6 +4,7 @@ const path = require('path');
 const http = require('http');
 const { readSyncConfig, writeSyncConfig, clearDeviceToken, resolveSyncConfig, configPath } = require('./sync-config');
 const { getOrCreateLocalJwtSecrets } = require('./local-jwt-secrets');
+const { setupAutoUpdates } = require('./auto-update');
 
 const BACKEND_PORT = process.env.BACKEND_PORT || 4000;
 const FRONTEND_PORT = process.env.FRONTEND_PORT || 3100;
@@ -244,6 +245,7 @@ async function startup() {
   }
 
   createWindow();
+  setupAutoUpdates();
 }
 
 function shutdown() {

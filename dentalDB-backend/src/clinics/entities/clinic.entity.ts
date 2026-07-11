@@ -91,6 +91,18 @@ export class Clinic {
   @Column({ default: true })
   isActive: boolean;
 
+  /**
+   * True only for a clinic created by OfflineAdminSeeder on a fresh
+   * desktop/SQLite install that has never synced (see that file). Lets
+   * SyncService.claimPlaceholderClinicIfEligible() tell "a real clinic
+   * that just hasn't synced yet" apart from "a placeholder that still
+   * needs to be created on the hosted backend" — only the latter is
+   * eligible to be claimed via POST /auth/claim-clinic. Always false on
+   * the hosted/Postgres deployment.
+   */
+  @Column({ default: false })
+  isLocalPlaceholder: boolean;
+
   @Column({ nullable: true })
   trialEndsAt: Date;
 

@@ -9,6 +9,9 @@ import { SyncMeta } from './entities/sync-meta.entity';
 import { SYNC_REGISTRY, SyncRegistryEntry, ClinicScope } from './sync-registry';
 import { runInsideSyncApply } from './sync-context';
 import { SyncConfigStore } from './sync-config-store';
+import { Clinic } from '../clinics/entities/clinic.entity';
+import { User } from '../users/entities/user.entity';
+import * as bcrypt from 'bcryptjs';
 
 const LAST_SYNC_KEY = 'lastSyncAt';
 
@@ -250,19 +253,27 @@ export class SyncService {
     if (this.syncConfigStore.getDeviceToken()) return false; // already registered
 
     try {
-      const { data: remoteAuth } = await firstValueFrom(
-        this.http.post<{ accessToken: string }>(
-          `${remote}/api/v1/auth/login`,
-          { email, password },
-        ),
-      );
+      let accessToken: string;
+      try {
+        const { data: remoteAuth } = await firstValueFrom(
+          this.http.post<{ accessToken: string }>(
+            `${remote}/api/v1/auth/login`,
+            { email, password },
+          ),
+        );
+        accessToken = remoteAuth.accessToken;
+      } catch (loginErr: any) {
+        const claimedToken = await this.claimPlaceholderClinicIfEligible(remote, email, password);
+        if (!claimedToken) throw loginErr;
+        accessToken = claimedToken;
+      }
 
       const deviceName = `${os.hostname()} / ${process.platform}`;
       const { data } = await firstValueFrom(
         this.http.post<{ token: string }>(
           `${remote}/api/v1/sync/register-device`,
           { deviceName },
-          { headers: { Authorization: `Bearer ${remoteAuth.accessToken}` } },
+          { headers: { Authorization: `Bearer ${accessToken}` } },
         ),
       );
       this.syncConfigStore.writeDeviceToken(data.token);
@@ -273,6 +284,45 @@ export class SyncService {
         `Sync device auto-registration failed (will retry on next login): ${err?.response?.status ?? ''} ${err?.message ?? err}`,
       );
       return false;
+    }
+  }
+
+  private async claimPlaceholderClinicIfEligible(remote: string, email: string, password: string): Promise<string | null> {
+    const clinicRepo = this.dataSource.getRepository(Clinic);
+    const userRepo = this.dataSource.getRepository(User);
+
+    const user = await userRepo
+      .createQueryBuilder('u')
+      .addSelect('u.password')
+      .where('u.email = :email', { email })
+      .getOne();
+    if (!user) return null;
+
+    if (!(await bcrypt.compare(password, user.password))) return null;
+
+    const clinic = await clinicRepo.findOne({ where: { id: user.clinicId } });
+    if (!clinic || !clinic.isLocalPlaceholder) return null;
+
+    try {
+      const { data } = await firstValueFrom(
+        this.http.post<{ accessToken: string }>(`${remote}/api/v1/auth/claim-clinic`, {
+          clinicId:   clinic.id,
+          userId:     user.id,
+          clinicName: clinic.name,
+          firstName:  user.firstName,
+          lastName:   user.lastName,
+          email,
+          password,
+        }),
+      );
+      await clinicRepo.update(clinic.id, { isLocalPlaceholder: false });
+      this.logger.log(`Claimed local placeholder clinic ${clinic.id} on the hosted backend`);
+      return data.accessToken;
+    } catch (err: any) {
+      this.logger.warn(
+        `Failed to claim placeholder clinic on remote: ${err?.response?.status ?? ''} ${err?.message ?? err}`,
+      );
+      return null;
     }
   }
 

@@ -13,6 +13,7 @@ import { User, UserRole } from '../users/entities/user.entity';
 import { Clinic, SubscriptionPlan } from '../clinics/entities/clinic.entity';
 import { DoctorProfile } from '../doctor-profile/entities/doctor-profile.entity';
 import { RegisterDto } from './dto/register.dto';
+import { ClaimClinicDto } from './dto/claim-clinic.dto';
 import { LoginDto } from './dto/login.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RbacService } from '../rbac/rbac.service';
@@ -109,6 +110,63 @@ export class AuthService {
       user: this.sanitize(user),
       clinic,
       permissions,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
+  }
+
+  async claimClinic(dto: ClaimClinicDto, res: Response) {
+    if (this.config.get('DB_DRIVER', 'postgres') === 'sqlite') {
+      throw new BadRequestException('claim-clinic is only available against the hosted backend');
+    }
+
+    const existingEmail = await this.userRepo.findOne({ where: { email: dto.email } });
+    if (existingEmail) throw new ConflictException('Email already registered');
+
+    const existingClinic = await this.clinicRepo.findOne({ where: { id: dto.clinicId } });
+    if (existingClinic) throw new ConflictException('This clinic has already been claimed');
+
+    const hashed = await bcrypt.hash(dto.password, 12);
+
+    const clinic = this.clinicRepo.create({
+      id:          dto.clinicId,
+      name:        dto.clinicName,
+      slug:        this.generateSlug(dto.clinicName),
+      plan:        SubscriptionPlan.FREE,
+      trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      isLocalPlaceholder: false,
+    });
+    await this.clinicRepo.save(clinic);
+
+    const user = this.userRepo.create({
+      id:        dto.userId,
+      firstName: dto.firstName,
+      lastName:  dto.lastName,
+      email:     dto.email,
+      password:  hashed,
+      role:      UserRole.OWNER,
+      clinicId:  clinic.id,
+      isActive:  true,
+    });
+    await this.userRepo.save(user);
+
+    const ownerRole = await this.rbac.seedOwnerRoleForClinic(clinic.id);
+    await this.rbac.assignRolesToUser(
+      user.id,
+      { roleIds: [ownerRole.id] },
+      clinic.id,
+      'super_admin',
+    );
+
+    const tokens = await this.generateTokens(user);
+    await this.saveRefreshToken(user.id, tokens.refreshToken);
+    this.setTokenCookies(res, tokens.accessToken, tokens.refreshToken);
+
+    this.logger.log(`Clinic ${clinic.id} claimed onto the hosted backend (was a local placeholder)`);
+
+    return {
+      user: this.sanitize(user),
+      clinic,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
     };

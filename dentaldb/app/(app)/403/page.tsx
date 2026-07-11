@@ -15,7 +15,7 @@ export default function ForbiddenPage() {
         <p className="text-sm text-[var(--text-muted)] max-w-sm mx-auto mb-8">
           You do not have permission to access this page. Contact your administrator if you believe this is an error.
         </p>
-        <button onClick={() => router.push('/dashboard')}
+        <button onClick={() => router.push('/dashboard/profile')}
           className="btn-primary mx-auto">
           <ArrowLeft size={14} />
           Back to Dashboard

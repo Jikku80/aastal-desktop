@@ -64,7 +64,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <p className="text-sm text-[var(--text-muted)] max-w-sm mx-auto mb-8">
               You don't have permission to view this page. Contact your administrator if you believe this is an error.
             </p>
-            <button onClick={() => router.push('/dashboard')} className="btn-primary mx-auto">← Back to Dashboard</button>
+            <button onClick={() => router.push('/dashboard/profile')} className="btn-primary mx-auto">← Back to Dashboard</button>
           </div>
         </main>
       </div>

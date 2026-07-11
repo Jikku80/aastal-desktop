@@ -17,10 +17,10 @@ import { UserRole } from '../../users/entities/user.entity';
 // We intentionally avoid blocking specific patterns (e.g. "no spaces") so we
 // don't accidentally prevent passphrases, which are often stronger.
 
-const PASSWORD_REGEX =
+export const PASSWORD_REGEX =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]).{8,72}$/;
 
-const PASSWORD_MESSAGE =
+export const PASSWORD_MESSAGE =
   'Password must be 8–72 characters and include at least one uppercase letter, ' +
   'one lowercase letter, one number, and one special character (e.g. !@#$%).';
 

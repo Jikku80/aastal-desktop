@@ -45,7 +45,7 @@ export default function LoginPage() {
         setBranches([]);
       }
       toast.success(`Welcome back, ${user.firstName}!`);
-      window.location.href = '/dashboard';
+      window.location.href = '/dashboard/profile';
       // NOTE: do NOT setLoading(false) here — we want the spinner to stay
       // while the browser navigates to /dashboard.
     } catch (err: any) {

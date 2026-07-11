@@ -9,7 +9,7 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   (process.env.NODE_ENV === 'production'
-    ? 'https://api.clinickarobar.com'   // ← dedicated API subdomain (recommended)
+    ? 'https://clinickarobar.com'   // ← dedicated API subdomain (recommended)
     // Dev fallback must be the BACKEND's port (see dentalDB-backend/src/main.ts,
     // `PORT || 4000`), not this app's own dev port (3002) — pointing at 3002
     // made every unconfigured local dev API call 404 against this Next.js app

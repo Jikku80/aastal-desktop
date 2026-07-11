@@ -102,7 +102,7 @@ export default function AdminSidebar() {
         {/* Back to app */}
         <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
           <Link
-            href="/dashboard"
+            href="/dashboard/profile"
             onClick={() => setMobileOpen(false)}
             className="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium
               text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all duration-150 group"

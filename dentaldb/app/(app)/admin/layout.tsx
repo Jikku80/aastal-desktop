@@ -12,7 +12,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     if (!isHydrated) return;
     if (!isAuthenticated) { router.replace('/auth/login'); return; }
-    if (user?.role !== 'super_admin') { router.replace('/dashboard'); }
+    if (user?.role !== 'super_admin') { router.replace('/dashboard/profile'); }
   }, [isHydrated, isAuthenticated, user, router]);
 
   if (!isHydrated || !isAuthenticated || user?.role !== 'super_admin') {

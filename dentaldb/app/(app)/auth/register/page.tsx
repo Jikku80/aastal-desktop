@@ -109,7 +109,7 @@ export default function RegisterPage() {
       const { user, clinic } = res.data;
       setAuth(user, clinic);
       setDone(true);
-      setTimeout(() => { window.location.href = '/dashboard'; }, 2000);
+      setTimeout(() => { window.location.href = '/dashboard/profile'; }, 2000);
     } catch (err: any) {
       const msg =
         err.response?.data?.message?.[0] ||

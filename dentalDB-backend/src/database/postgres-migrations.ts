@@ -15,7 +15,8 @@ import { Migration1782471025559 } from '../migrations/1782471025559-Migration';
 import { Migration1782474517701 } from '../migrations/1782474517701-Migration';
 import { SyncDevices1782900000000 } from '../migrations/1782900000000-SyncDevices';
 import { Migration1782924499469 } from '../migrations/1782924499469-Migration';
-
+import { Migration1783496503624 } from '../migrations/1783496503624-Migration';
+import { Migration1783754843181 } from '../migrations/1783754843181-Migration';
 export const POSTGRES_MIGRATIONS = [
   SeoInfrastructure1700000000001,
   Migration1778951127866,
@@ -30,4 +31,6 @@ export const POSTGRES_MIGRATIONS = [
   Migration1782474517701,
   SyncDevices1782900000000,
   Migration1782924499469,
+  Migration1783496503624,
+  Migration1783754843181,
 ];

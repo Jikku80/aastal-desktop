@@ -180,7 +180,7 @@ export function BuilderToolbar({ clinicId, subdomain, onSave }: Props) {
 
         {/* ── Left ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto', minWidth: 0 }}>
-          <Link href="/dashboard" style={{
+          <Link href="/dashboard/profile" style={{
             display: 'flex', alignItems: 'center', gap: 5,
             color: '#5a5f72', textDecoration: 'none', fontSize: 12, fontWeight: 500,
             padding: '4px 8px', borderRadius: 6, transition: 'all 0.15s',
@@ -188,7 +188,7 @@ export function BuilderToolbar({ clinicId, subdomain, onSave }: Props) {
             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#c9ccd8'; (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'; }}
             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#5a5f72'; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}>
             <Icon.chevronLeft />
-            Dashboard
+            Back
           </Link>
 
           <div style={divider} />
