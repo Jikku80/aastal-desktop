@@ -326,6 +326,106 @@ export class SyncService {
     }
   }
 
+  /**
+   * Fallback path for AuthService.login() when the email isn't found in the
+   * LOCAL sqlite DB at all — i.e. someone with an existing hosted/online
+   * account logging into this desktop install for the very first time,
+   * before autoRegisterDeviceIfNeeded has ever had a chance to mirror them
+   * down. Without this, a real hosted account can never log into a fresh
+   * desktop install: AuthService.login only ever looks at the local table,
+   * so it always answers "Invalid email or password" for a user it has
+   * simply never seen before.
+   *
+   * On success, mirrors the remote User + Clinic rows into the local
+   * sqlite DB (syncStatus 'synced', not 'pending' — this data originated
+   * from the remote, it doesn't need to be pushed back) and stores the
+   * plaintext password's bcrypt hash locally so this same login works
+   * offline from now on. Returns the local User id to resume in
+   * AuthService.login(), or null if the remote rejected the credentials
+   * (or there's no remote configured at all, e.g. genuinely offline).
+   */
+  async remoteLoginFallback(email: string, password: string): Promise<string | null> {
+    const remote = this.getRemoteBaseUrl();
+    if (!remote) return null;
+
+    let remoteAuth: {
+      user: { id: string; firstName: string; lastName: string; email: string; role: string; clinicId: string; isActive: boolean; avatar?: string };
+      clinic: Record<string, any> | null;
+      accessToken: string;
+    };
+    try {
+      const { data } = await firstValueFrom(
+        this.http.post<typeof remoteAuth>(`${remote}/api/v1/auth/login`, { email, password }),
+      );
+      remoteAuth = data;
+    } catch (err: any) {
+      this.logger.warn(
+        `Remote login fallback failed for ${email}: ${err?.response?.status ?? ''} ${err?.message ?? err}`,
+      );
+      return null;
+    }
+
+    const { user: remoteUser, clinic: remoteClinic, accessToken } = remoteAuth;
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    await runInsideSyncApply(async () => {
+      const clinicRepo = this.dataSource.getRepository(Clinic);
+      const userRepo = this.dataSource.getRepository(User);
+
+      if (remoteClinic) {
+        const existingClinic = await clinicRepo.findOne({ where: { id: remoteClinic.id } });
+        const clinicRow = clinicRepo.create({
+          ...(existingClinic ?? {}),
+          ...remoteClinic,
+          isLocalPlaceholder: false,
+          syncStatus: 'synced' as any,
+        });
+        await clinicRepo.save(clinicRow);
+      }
+
+      const existingUser = await userRepo.findOne({ where: { id: remoteUser.id } });
+      const userRow = userRepo.create({
+        ...(existingUser ?? {}),
+        id:         remoteUser.id,
+        firstName:  remoteUser.firstName,
+        lastName:   remoteUser.lastName,
+        email:      remoteUser.email,
+        role:       remoteUser.role as any,
+        clinicId:   remoteUser.clinicId,
+        isActive:   remoteUser.isActive,
+        avatar:     remoteUser.avatar ?? existingUser?.avatar ?? null,
+        password:   passwordHash,
+        syncStatus: 'synced' as any,
+      });
+      await userRepo.save(userRow);
+    });
+
+    // Register this device against the remote right away — we already have
+    // a genuine remote access token from the login above, no need to log
+    // in again the way autoRegisterDeviceIfNeeded does.
+    if (!this.syncConfigStore.getDeviceToken()) {
+      try {
+        const deviceName = `${os.hostname()} / ${process.platform}`;
+        const { data } = await firstValueFrom(
+          this.http.post<{ token: string }>(
+            `${remote}/api/v1/sync/register-device`,
+            { deviceName },
+            { headers: { Authorization: `Bearer ${accessToken}` } },
+          ),
+        );
+        this.syncConfigStore.writeDeviceToken(data.token);
+        this.logger.log(`Sync device registered for mirrored hosted account ${email}`);
+      } catch (err: any) {
+        this.logger.warn(
+          `Device registration after remote login fallback failed (will retry on next login): ${err?.message ?? err}`,
+        );
+      }
+    }
+
+    this.logger.log(`Mirrored hosted account ${email} into the local offline DB after remote login fallback`);
+    return remoteUser.id;
+  }
+
   /** Pull remote changes since last sync and apply them locally. */
   async pullChanges(): Promise<{ pulled: number; conflicts: number }> {
     const remote = this.getRemoteBaseUrl();

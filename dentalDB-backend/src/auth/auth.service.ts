@@ -173,10 +173,30 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, res: Response) {
-    const user = await this.userRepo.findOne({
+    let user = await this.userRepo.findOne({
       where: { email: dto.email },
       select: ['id', 'email', 'password', 'role', 'clinicId', 'firstName', 'lastName', 'isActive', 'avatar'],
     });
+
+    // Not found locally — on the offline/sqlite build this may simply be
+    // someone with an existing hosted account logging into this desktop
+    // install for the first time, before they've ever been mirrored down.
+    // Try a real login against the hosted backend and, if it succeeds,
+    // mirror the account locally so this (and every future offline) login
+    // works. No-op on the hosted/Postgres deployment itself, and a no-op
+    // whenever there's no remote configured or the remote is unreachable —
+    // in either case we fall through to the normal "Invalid email or
+    // password" below. See SyncService.remoteLoginFallback.
+    if (!user) {
+      const mirroredUserId = await this.syncService.remoteLoginFallback(dto.email, dto.password);
+      if (mirroredUserId) {
+        user = await this.userRepo.findOne({
+          where: { id: mirroredUserId },
+          select: ['id', 'email', 'password', 'role', 'clinicId', 'firstName', 'lastName', 'isActive', 'avatar'],
+        });
+      }
+    }
+
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid email or password');
     if (!(await bcrypt.compare(dto.password, user.password)))
       throw new UnauthorizedException('Invalid email or password');
