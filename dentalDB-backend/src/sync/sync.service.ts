@@ -504,6 +504,38 @@ export class SyncService {
     return sanitized;
   }
 
+  // Fields that are `select: false` on their entity — so a plain
+  // repo.find() never includes them — but that ARE needed in the outgoing
+  // sync payload for that entity. Right now this is just User.password:
+  // without re-selecting it here, a staff user created locally (offline)
+  // and pushed up to the server would arrive with no password at all, and
+  // could never then log into the web with the account they were given
+  // offline. (The reverse direction — pulling a user down — doesn't have
+  // this problem: remoteLoginFallback gets the password from a real login
+  // response, not from the generic sync path.)
+  private static readonly SELECT_FALSE_FIELDS_TO_SYNC: Record<string, string[]> = {
+    User: ['password'],
+  };
+
+  private async attachSelectFalseFields(entityName: string, repo: Repository<any>, rows: any[]): Promise<void> {
+    const fields = SyncService.SELECT_FALSE_FIELDS_TO_SYNC[entityName];
+    if (!fields?.length || !rows.length) return;
+
+    const ids = rows.map((r) => r.id).filter((id) => id != null);
+    if (!ids.length) return;
+
+    const qb = repo.createQueryBuilder('e').where('e.id IN (:...ids)', { ids });
+    for (const f of fields) qb.addSelect(`e.${f}`);
+    const withFields = await qb.getMany();
+    const byId = new Map(withFields.map((r: any) => [r.id, r]));
+
+    for (const row of rows) {
+      const extra = byId.get(row.id);
+      if (!extra) continue;
+      for (const f of fields) (row as any)[f] = (extra as any)[f];
+    }
+  }
+
   async pushPending(): Promise<{ pushed: number; conflicts: number }> {
     const remote = this.getRemoteBaseUrl();
     if (!remote) throw new Error('SYNC_REMOTE_BASE_URL not configured — cannot push');
@@ -514,6 +546,7 @@ export class SyncService {
       const repo = this.getRepo(entry);
       const rows = await repo.find({ where: { syncStatus: 'pending' } as any });
       if (!rows.length) continue;
+      await this.attachSelectFalseFields(entry.name, repo, rows);
       const outgoing = rows.map((row) => this.sanitizeOutgoingRow(entry.name, row as any));
       const { data } = await firstValueFrom(
         this.http.post<PushResult>(
