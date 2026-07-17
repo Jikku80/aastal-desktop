@@ -81,6 +81,25 @@ function nepalShiftedNow(): Date {
   return new Date(Date.now() + NEPAL_OFFSET_MINUTES * 60 * 1000);
 }
 
+/**
+ * Correct UTC start/end instants for an arbitrary "YYYY-MM-DD" calendar day,
+ * interpreted as a Nepal-local day (not the server process's own timezone).
+ *
+ * This is the piece that was missing from `AppointmentsService.findAll` —
+ * that query built its `from`/`to` range with plain date-fns
+ * `startOfDay`/`endOfDay`, which resolve against the *server's* local
+ * timezone (UTC in production), not Nepal's UTC+5:45. That silently shifted
+ * every day-range query by 5h45m, so anything scheduled between Nepal
+ * midnight and ~5:45 AM landed in the *previous* UTC calendar day and fell
+ * outside the "today" window entirely.
+ */
+export function nepalDateStringBoundsUTC(dateStr: string): { start: Date; end: Date } {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const start = nepalWallClockToUTC(year, month, day, 0, 0);
+  const end   = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+  return { start, end };
+}
+
 /** Correct UTC instant for the start of "today" in Nepal (00:00 NPT), regardless of server timezone. */
 export function nepalStartOfTodayUTC(): Date {
   const n = nepalShiftedNow();

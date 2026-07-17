@@ -5,8 +5,8 @@ import { Appointment, AppointmentStatus } from './entities/appointment.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
-import { addMinutes, startOfDay, endOfDay, startOfMonth, endOfMonth, parseISO, format } from 'date-fns';
-import { parseAsNepalTime, formatNepalTime, formatNepalDateTime, nepalTodayParts, nepalWallClockToUTC } from '../common/utils/timezone.util';
+import { addMinutes, format } from 'date-fns';
+import { parseAsNepalTime, formatNepalTime, formatNepalDateTime, nepalTodayParts, nepalWallClockToUTC, nepalDateStringBoundsUTC } from '../common/utils/timezone.util';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { NotificationType } from '../notifications/entities/notification.entity';
@@ -100,21 +100,56 @@ export class AppointmentsService {
     const scheduledAt = parseAsNepalTime(dto.scheduledAt);
     const endsAt      = addMinutes(scheduledAt, dto.durationMinutes || 30);
 
-    const conflict = await this.findConflict(dto.dentistId, scheduledAt, endsAt);
-    if (conflict) {
-      const isSameBranch = !dto.branchId || conflict.branchId === dto.branchId;
-      const where = isSameBranch
-        ? 'at this branch'
-        : 'at another branch';
-      throw new ForbiddenException(
-        `Doctor already has an appointment ${where} from ` +
-        `${formatNepalTime(conflict.scheduledAt)} ` +
-        `to ${formatNepalTime(conflict.endsAt)}`,
-      );
-    }
+    // The conflict check (SELECT) and the insert (INSERT) used to run as two
+    // separate, unsynchronized steps. If the same booking was submitted twice
+    // in quick succession — a double-click/double-tap on "Book Appointment",
+    // or a slow network response tempting the user to tap again — both
+    // requests could pass the conflict check before either had committed,
+    // silently creating two identical appointments for the same slot. The
+    // duplicate would usually go unnoticed until the 30-minute auto-no-show
+    // job flipped its still-"scheduled" status to "no_show", which looked
+    // like the system had spontaneously generated a bogus appointment.
+    //
+    // Wrapping this in a transaction with a pessimistic write lock on any
+    // matching rows for this dentist serializes concurrent create calls, so
+    // the second request now sees the first's row (once committed) and is
+    // correctly rejected as a conflict instead of slipping through.
+    // SQLite (used for offline branch mode) has no row-level locking support —
+    // TypeORM throws if setLock() is used against it. SQLite already
+    // serializes concurrent write transactions at the connection/file level,
+    // so simply running the check-then-insert inside a transaction is enough
+    // to close the race there; Postgres additionally gets an explicit
+    // pessimistic lock since its transactions don't serialize by default.
+    const isSQLite = process.env.DB_DRIVER === 'sqlite';
+    const saved = await this.repo.manager.transaction(async (manager) => {
+      let query = manager
+        .createQueryBuilder(Appointment, 'a')
+        .where('a.dentistId = :dentistId', { dentistId: dto.dentistId });
+      if (!isSQLite) query = query.setLock('pessimistic_write');
+      const lockedConflict = await query
+        .andWhere('a.status NOT IN (:...cancelled)', {
+          cancelled: [AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW],
+        })
+        .andWhere('a.scheduledAt < :endsAt AND a.endsAt > :scheduledAt', {
+          scheduledAt,
+          endsAt,
+        })
+        .getOne();
 
-    const apt   = this.repo.create({ ...dto, clinicId, scheduledAt, endsAt });
-    const saved = await this.repo.save(apt);
+      if (lockedConflict) {
+        const isSameBranch = !dto.branchId || lockedConflict.branchId === dto.branchId;
+        const where = isSameBranch ? 'at this branch' : 'at another branch';
+        throw new ForbiddenException(
+          `Doctor already has an appointment ${where} from ` +
+          `${formatNepalTime(lockedConflict.scheduledAt)} ` +
+          `to ${formatNepalTime(lockedConflict.endsAt)}`,
+        );
+      }
+
+      const apt = manager.create(Appointment, { ...dto, clinicId, scheduledAt, endsAt });
+      return manager.save(apt);
+    });
+
     await this.patientRepo.update(dto.patientId, { lastVisitAt: scheduledAt } as any);
 
     // Load relations needed for notification
@@ -160,22 +195,24 @@ export class AppointmentsService {
     }
 
     if (date) {
-      const d = parseISO(date);
-      qb = qb.andWhere('a.scheduledAt BETWEEN :start AND :end', {
-        start: startOfDay(d),
-        end:   endOfDay(d),
-      });
+      // `date` is a plain "YYYY-MM-DD" naming a Nepal calendar day — resolve
+      // its bounds against Nepal's UTC+5:45 offset, not the server's own
+      // timezone (see nepalDateStringBoundsUTC for why this matters).
+      const { start, end } = nepalDateStringBoundsUTC(date);
+      qb = qb.andWhere('a.scheduledAt BETWEEN :start AND :end', { start, end });
     } else if (from && to) {
-      qb = qb.andWhere('a.scheduledAt BETWEEN :start AND :end', {
-        start: startOfDay(parseISO(from)),
-        end:   endOfDay(parseISO(to)),
-      });
+      const { start } = nepalDateStringBoundsUTC(from);
+      const { end }   = nepalDateStringBoundsUTC(to);
+      qb = qb.andWhere('a.scheduledAt BETWEEN :start AND :end', { start, end });
     } else if (month) {
-      const d = parseISO(`${month}-01`);
-      qb = qb.andWhere('a.scheduledAt BETWEEN :start AND :end', {
-        start: startOfMonth(d),
-        end:   endOfMonth(d),
-      });
+      // `month` is "YYYY-MM" — compute the last calendar day with plain
+      // arithmetic (safe; no timezone involved), then resolve both ends as
+      // Nepal-local day bounds.
+      const [y, m] = month.split('-').map(Number);
+      const lastDay = new Date(y, m, 0).getDate();
+      const { start } = nepalDateStringBoundsUTC(`${month}-01`);
+      const { end }   = nepalDateStringBoundsUTC(`${month}-${String(lastDay).padStart(2, '0')}`);
+      qb = qb.andWhere('a.scheduledAt BETWEEN :start AND :end', { start, end });
     }
 
     qb = qb.orderBy('a.scheduledAt', order === 'DESC' ? 'DESC' : 'ASC');

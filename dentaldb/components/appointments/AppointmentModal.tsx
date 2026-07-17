@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -79,6 +79,13 @@ export default function AppointmentModal({
   const hasNewPatientData = !!(newPatient.firstName.trim() && newPatient.lastName.trim());
   const vatPercent = (clinic as any)?.settings?.vatPercent ?? 0;
   useBodyScrollLock(true);
+
+  // `mutation.isPending` is React state — it doesn't flip to `true` until the
+  // next render, so two clicks/taps within the same event-loop tick (a real
+  // double-click, or a double-tap fired by some touchscreens) can both call
+  // mutation.mutate() before the submit button actually disables. This ref
+  // updates synchronously, closing that gap so only the first submit goes out.
+  const submittingRef = useRef(false);
 
   const defaultScheduledAt = initialDate
     ? format(initialDate, "yyyy-MM-dd'T'HH:mm")

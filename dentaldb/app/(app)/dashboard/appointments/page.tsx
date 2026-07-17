@@ -3,9 +3,9 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Calendar as BigCalendar, dateFnsLocalizer } from 'react-big-calendar';
 import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop';
-import { format, parse, startOfWeek, getDay, isToday, parseISO } from 'date-fns';
+import { format, parse, startOfWeek, getDay, parseISO } from 'date-fns';
 import { enUS } from 'date-fns/locale';
-import { formatNepalClockTime, formatNepalClockTimeParts, formatNepalDateKey, nepalLocalInputToUTCISOString, utcToNepalLocalInputValue } from '@/lib/timezone';
+import { formatNepalClockTime, formatNepalClockTimeParts, formatNepalDateKey, getNepalToday, nepalLocalInputToUTCISOString, utcToNepalLocalInputValue } from '@/lib/timezone';
 import { AnimatePresence } from 'framer-motion';
 import {
   Clock, ChevronLeft, ChevronRight, List, Search, X, Calendar, Plus, SortAsc, SortDesc, Upload,
@@ -156,7 +156,7 @@ function ADMonthCalendar({
   const firstDay  = new Date(year, month, 1);
   const totalDays = new Date(year, month + 1, 0).getDate();
   const startWeekday = firstDay.getDay(); // 0=Sun
-  const today = new Date();
+  const today = getNepalToday();
 
   const aptsByDate = useMemo(() => {
     const map = new Map<string, Appointment[]>();
@@ -295,7 +295,7 @@ function BSMonthCalendar({
   const totalDays    = getDaysInBSMonth(bsYear, bsMonth);
   const firstADDate  = bsToAD(bsYear, bsMonth, 1);
   const startWeekday = firstADDate.getDay(); // 0=Sun
-  const todayBS      = adToBS(new Date());
+  const todayBS      = adToBS(getNepalToday());
 
   const aptsByDate = useMemo(() => {
     const map = new Map<string, Appointment[]>();
@@ -409,7 +409,7 @@ function BSMonthCalendar({
 
 // ── Desktop Today Sidebar ─────────────────────────────────────────────────────
 function TodaySidebar({ todayApts, onSelect, calendarType }: { todayApts: Appointment[]; onSelect: (a: Appointment) => void; calendarType: 'BS' | 'AD' }) {
-  const today = new Date();
+  const today = getNepalToday();
   const todayLabel = calendarType === 'BS' ? toBSFull(today) : format(today, 'EEEE, MMMM d, yyyy');
   return (
     <div className="hidden lg:flex w-64 shrink-0 flex-col border-l" style={{ borderColor: 'var(--border)' }}>
@@ -529,7 +529,7 @@ function ListView({
           </div>
         ) : groups.map(([dateStr, apts]) => {
           const d = parseISO(dateStr);
-          const todayFlag = isToday(d);
+          const todayFlag = dateStr === formatNepalDateKey(new Date());
           return (
             <div key={dateStr}>
               <div className="flex items-center gap-2 mb-2">
@@ -580,7 +580,7 @@ function ListView({
 export default function AppointmentsPage() {
   const [pageView, setPageView]     = useState<PageView>('calendar');
   const [calView, setCalView]       = useState<CalView>('month');
-  const [date, setDate]             = useState(new Date());
+  const [date, setDate]             = useState(getNepalToday);
   const [showModal, setShowModal]   = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [selectedApt, setSelected]  = useState<Appointment | null>(null);
@@ -654,9 +654,9 @@ export default function AppointmentsPage() {
     color: TYPE_COLORS[apt.type] || TYPE_COLORS.default,
   })), [filtered]);
 
-  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const todayStr = formatNepalDateKey(new Date());
   const todayApts = appointments
-    .filter(a => format(new Date(a.scheduledAt), 'yyyy-MM-dd') === todayStr)
+    .filter(a => formatNepalDateKey(a.scheduledAt) === todayStr)
     .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
 
   // Calendar navigation — BS navigates by Nepali month, AD by Gregorian month
@@ -867,7 +867,7 @@ export default function AppointmentsPage() {
                   </button>
                 ))}
               </div>
-              <button onClick={() => setDate(new Date())}
+              <button onClick={() => setDate(getNepalToday())}
                 className="btn-secondary text-xs h-9 px-3 shrink-0">
                 Today
               </button>

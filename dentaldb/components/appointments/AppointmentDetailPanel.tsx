@@ -5,6 +5,7 @@ import {
   X, Clock, User, Stethoscope, FileText, DollarSign,
   CheckCircle, XCircle, RotateCcw, AlertCircle, Trash2, Loader2, Printer, Activity,
   FlaskConical, Phone, Mail, MapPin, Cake, Droplet, ChevronRight, Users, ClipboardList,
+  CalendarClock,
 } from 'lucide-react';
 import { format, addMonths } from 'date-fns';
 import { formatNepalDate, formatNepalClockTime, formatNepalTime, formatNepalDateTime } from '@/lib/timezone';
@@ -659,140 +660,164 @@ export default function AppointmentDetailPanel({
       )}
 
       {/* ── Recall prompt after completing an appointment ── */}
-      {showRecallPrompt && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-[var(--bg-surface)] rounded-2xl shadow-xl p-6 w-full max-w-sm space-y-4">
-            <h3 className="font-semibold text-[var(--text-primary)] text-base">Schedule a Follow-up Recall?</h3>
-            <p className="text-sm text-[var(--text-secondary)]">
-              Would you like to schedule a recall for <strong>{patient?.firstName} {patient?.lastName}</strong>?
-            </p>
-            {/* Relative ("in N days/weeks/months") vs an exact date, picked in
-                whichever calendar the clinic uses (BS or AD). */}
-            <div className="flex gap-1 p-1 rounded-full bg-[var(--bg-elevated)]">
-              <button
-                type="button"
-                onClick={() => setRecallMode('relative')}
-                className={`flex-1 h-8 text-xs font-medium rounded-full transition-colors ${
-                  recallMode === 'relative'
-                    ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
-                    : 'text-[var(--text-secondary)]'
-                }`}
-              >
-                In...
-              </button>
-              <button
-                type="button"
-                onClick={() => setRecallMode('date')}
-                className={`flex-1 h-8 text-xs font-medium rounded-full transition-colors ${
-                  recallMode === 'date'
-                    ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
-                    : 'text-[var(--text-secondary)]'
-                }`}
-              >
-                Pick a date
-              </button>
-            </div>
-
-            {recallMode === 'relative' ? (
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs font-medium text-[var(--text-secondary)] block mb-1">Due in</label>
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={recallAmount}
-                    onChange={e => {
-                      const n = Math.floor(Number(e.target.value));
-                      setRecallAmount(Number.isFinite(n) && n > 0 ? n : 1);
-                    }}
-                    className="input w-full"
-                  />
+      <AnimatePresence>
+        {showRecallPrompt && (
+          <motion.div
+            className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-[var(--bg-surface)] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+              style={{ border: '1px solid var(--border)' }}
+              initial={{ opacity: 0, scale: 0.94, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 12 }}
+              transition={{ type: 'spring', duration: 0.35, bounce: 0.15 }}
+            >
+              <div className="p-6 pb-5 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-brand-500/15 text-brand-400">
+                    <CalendarClock size={22} />
+                  </div>
+                  <div className="pt-1">
+                    <h3 className="font-semibold text-[var(--text-primary)] text-base leading-snug">Schedule a Follow-up Recall?</h3>
+                    <p className="text-sm text-[var(--text-secondary)] mt-1">
+                      Would you like to schedule a recall for <strong className="text-[var(--text-primary)]">{patient?.firstName} {patient?.lastName}</strong>?
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-medium text-[var(--text-secondary)] block mb-1">Unit</label>
-                  <select
-                    value={recallUnit}
-                    onChange={e => setRecallUnit(e.target.value as 'days' | 'weeks' | 'months')}
-                    className="input w-full"
+
+                {/* Relative ("in N days/weeks/months") vs an exact date, picked in
+                    whichever calendar the clinic uses (BS or AD). */}
+                <div className="flex gap-1 p-1 rounded-full bg-[var(--bg-elevated)]">
+                  <button
+                    type="button"
+                    onClick={() => setRecallMode('relative')}
+                    className={`flex-1 h-9 text-xs font-medium rounded-full transition-colors ${
+                      recallMode === 'relative'
+                        ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
+                        : 'text-[var(--text-secondary)]'
+                    }`}
                   >
-                    <option value="days">Day{recallAmount > 1 ? 's' : ''}</option>
-                    <option value="weeks">Week{recallAmount > 1 ? 's' : ''}</option>
-                    <option value="months">Month{recallAmount > 1 ? 's' : ''}</option>
-                  </select>
+                    In...
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRecallMode('date')}
+                    className={`flex-1 h-9 text-xs font-medium rounded-full transition-colors ${
+                      recallMode === 'date'
+                        ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
+                        : 'text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    Pick a date
+                  </button>
                 </div>
+
+                {recallMode === 'relative' ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs font-medium text-[var(--text-secondary)] block mb-1">Due in</label>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={recallAmount}
+                        onChange={e => {
+                          const n = Math.floor(Number(e.target.value));
+                          setRecallAmount(Number.isFinite(n) && n > 0 ? n : 1);
+                        }}
+                        className="input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-[var(--text-secondary)] block mb-1">Unit</label>
+                      <select
+                        value={recallUnit}
+                        onChange={e => setRecallUnit(e.target.value as 'days' | 'weeks' | 'months')}
+                        className="input w-full"
+                      >
+                        <option value="days">Day{recallAmount > 1 ? 's' : ''}</option>
+                        <option value="weeks">Week{recallAmount > 1 ? 's' : ''}</option>
+                        <option value="months">Month{recallAmount > 1 ? 's' : ''}</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="text-xs font-medium text-[var(--text-secondary)] block mb-1">
+                      Recall date{calendarType === 'BS' ? ' (BS)' : ''}
+                    </label>
+                    <RegistrationDateField value={recallDateValue} onChange={setRecallDateValue} />
+                  </div>
+                )}
               </div>
-            ) : (
-              <div>
-                <label className="text-xs font-medium text-[var(--text-secondary)] block mb-1">
-                  Recall date{calendarType === 'BS' ? ' (BS)' : ''}
-                </label>
-                <RegistrationDateField value={recallDateValue} onChange={setRecallDateValue} />
+
+              <div className="flex items-center gap-3 px-6 py-4" style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
+                <button
+                  onClick={() => { setShowRecallPrompt(false); onClose(); }}
+                  className="text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors px-2"
+                >
+                  Skip for now
+                </button>
+                <button
+                  onClick={() => {
+                    let amount = recallAmount;
+                    let unit = recallUnit;
+                    let dueLabel = `${recallAmount} ${recallUnit} from now`;
+
+                    if (recallMode === 'date') {
+                      const chosen = parseDatetimeLocal(recallDateValue);
+                      const diffDays = Math.ceil((chosen.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                      if (diffDays < 1) {
+                        toast.error('Pick a recall date in the future');
+                        return;
+                      }
+                      // The recalls API takes amount+unit (not a raw date), so an exact
+                      // pick is expressed as "N days from now" under the hood — the
+                      // toast/label below still shows the real calendar date chosen.
+                      amount = diffDays;
+                      unit = 'days';
+                      dueLabel = calendarType === 'BS' ? toBSFull(chosen) : format(chosen, 'MMM d, yyyy');
+                    }
+
+                    recallsApi.bulkCreate({
+                      patientId: apt.patientId,
+                      amount,
+                      unit,
+                      reason: apt.type ? `Follow-up: ${apt.type.replace(/_/g, ' ')}` : 'Follow-up',
+                      recallType: 'followup',
+                      // The appointment entity requires a dentist, so without these
+                      // the backend silently fails to auto-book the follow-up
+                      // appointment (it still saves the recall as PENDING).
+                      // Defaulting to the same dentist/branch as this appointment
+                      // means the follow-up actually gets booked and shows up on
+                      // the calendar/appointment list right away.
+                      dentistId: apt.dentistId,
+                      branchId: apt.branchId,
+                    }).then((res: any) => {
+                      const appointmentCreated = !!res?.data?.appointment;
+                      if (appointmentCreated) {
+                        toast.success(`Recall scheduled and follow-up appointment booked for ${dueLabel}`);
+                      } else {
+                        toast.success(`Recall scheduled for ${dueLabel}, but no follow-up appointment was auto-booked — book it manually from the Recalls page.`);
+                      }
+                      setShowRecallPrompt(false);
+                      qc.invalidateQueries({ queryKey: ['appointments'] });
+                      onClose();
+                    }).catch((e: any) => toast.error(e?.response?.data?.message || 'Failed to create recall'));
+                  }}
+                  className="btn-primary flex-1 justify-center h-10 text-sm rounded-full shadow-lg shadow-brand-500/20"
+                >
+                  Schedule Recall
+                </button>
               </div>
-            )}
-
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => {
-                  let amount = recallAmount;
-                  let unit = recallUnit;
-                  let dueLabel = `${recallAmount} ${recallUnit} from now`;
-
-                  if (recallMode === 'date') {
-                    const chosen = parseDatetimeLocal(recallDateValue);
-                    const diffDays = Math.ceil((chosen.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                    if (diffDays < 1) {
-                      toast.error('Pick a recall date in the future');
-                      return;
-                    }
-                    // The recalls API takes amount+unit (not a raw date), so an exact
-                    // pick is expressed as "N days from now" under the hood — the
-                    // toast/label below still shows the real calendar date chosen.
-                    amount = diffDays;
-                    unit = 'days';
-                    dueLabel = calendarType === 'BS' ? toBSFull(chosen) : format(chosen, 'MMM d, yyyy');
-                  }
-
-                  recallsApi.bulkCreate({
-                    patientId: apt.patientId,
-                    amount,
-                    unit,
-                    reason: apt.type ? `Follow-up: ${apt.type.replace(/_/g, ' ')}` : 'Follow-up',
-                    recallType: 'followup',
-                    // The appointment entity requires a dentist, so without these
-                    // the backend silently fails to auto-book the follow-up
-                    // appointment (it still saves the recall as PENDING).
-                    // Defaulting to the same dentist/branch as this appointment
-                    // means the follow-up actually gets booked and shows up on
-                    // the calendar/appointment list right away.
-                    dentistId: apt.dentistId,
-                    branchId: apt.branchId,
-                  }).then((res: any) => {
-                    const appointmentCreated = !!res?.data?.appointment;
-                    if (appointmentCreated) {
-                      toast.success(`Recall scheduled and follow-up appointment booked for ${dueLabel}`);
-                    } else {
-                      toast.success(`Recall scheduled for ${dueLabel}, but no follow-up appointment was auto-booked — book it manually from the Recalls page.`);
-                    }
-                    setShowRecallPrompt(false);
-                    qc.invalidateQueries({ queryKey: ['appointments'] });
-                    onClose();
-                  }).catch((e: any) => toast.error(e?.response?.data?.message || 'Failed to create recall'));
-                }}
-                className="btn-primary flex-1 justify-center h-10 text-sm rounded-full"
-              >
-                Schedule Recall
-              </button>
-              <button
-                onClick={() => { setShowRecallPrompt(false); onClose(); }}
-                className="btn-secondary flex-1 justify-center h-10 text-sm rounded-full"
-              >
-                Skip
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

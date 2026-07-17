@@ -111,6 +111,27 @@ export function formatNepalClockTimeParts(value: string | Date | null | undefine
   return { time: `${get('hour')}:${get('minute')}`, ampm: get('dayPeriod') };
 }
 
+/**
+ * Today's calendar date *in Nepal time*, returned as a plain JS Date
+ * constructed from local (runtime) year/month/day components at noon.
+ *
+ * Why this exists: `new Date()` gives the runtime's own local "now", which
+ * only matches Nepal's calendar day by coincidence (when the server/browser
+ * happens to also be set to UTC+5:45). Anywhere the app needs to know
+ * *which day it is in Nepal* — e.g. highlighting "today" on the calendar
+ * grid, or building `NepaliDate`/date-fns comparisons that read a Date's
+ * local getters (getFullYear/getMonth/getDate) — pass the result of this
+ * function instead of `new Date()`. Because it's built with the local
+ * `Date(y, m, d, 12)` constructor, any code that later reads it back with
+ * local getters (date-fns, nepali-date-converter, etc.) reconstructs the
+ * same y/m/d, regardless of what timezone the runtime is actually in.
+ */
+export function getNepalToday(): Date {
+  const key = formatNepalDateKey(new Date());
+  const [year, month, day] = key.split('-').map(Number);
+  return new Date(year, month - 1, day, 12, 0, 0);
+}
+
 /** "2026-06-24" in Nepal time — use this (not date-fns format on a raw Date) when grouping/keying by calendar day. */
 export function formatNepalDateKey(value: string | Date | null | undefined): string {
   if (!value) return '';
