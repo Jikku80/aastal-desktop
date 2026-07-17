@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -21,7 +21,18 @@ export class OfflineAdminSeeder implements OnApplicationBootstrap {
     if (this.config.get('DB_DRIVER', 'postgres') !== 'sqlite') return;
 
     const existingClinicCount = await this.clinicRepo.count();
-    if (existingClinicCount > 0) return;
+    if (existingClinicCount > 0) {
+      // Backfill for installs that were created before this file started
+      // setting trialEndsAt — otherwise an app upgraded in place would have
+      // a FREE-plan clinic with no trial deadline at all, i.e. never locks.
+      await this.clinicRepo
+        .update(
+          { plan: SubscriptionPlan.FREE, trialEndsAt: IsNull() },
+          { trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) },
+        )
+        .catch((err) => this.logger.warn(`Trial backfill skipped: ${err?.message ?? err}`));
+      return;
+    }
 
     const email = 'owner@local.aastal';
     const generatedPassword = this.generateCompliantPassword();
@@ -34,6 +45,11 @@ export class OfflineAdminSeeder implements OnApplicationBootstrap {
         plan: SubscriptionPlan.FREE,
         isActive: true,
         isLocalPlaceholder: true,
+        // Starts the 14-day free trial clock from the moment the app is
+        // first installed and run — enforced offline by the license check
+        // in jwt.strategy.ts / offline-license.util.ts, independent of
+        // whether this device ever goes online before the trial ends.
+        trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
       }),
     );
 

@@ -32,6 +32,12 @@ const LOCK_MESSAGES: Record<string, { title: string; desc: string; icon: any; co
     icon:  Lock,
     color: 'text-red-400',
   },
+  deactivated: {
+    title: 'Account Deactivated',
+    desc:  'This clinic account has been deactivated. Please contact support.',
+    icon:  Lock,
+    color: 'text-red-400',
+  },
 };
 
 const PLANS = [

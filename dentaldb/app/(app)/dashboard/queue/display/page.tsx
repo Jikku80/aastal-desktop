@@ -29,10 +29,20 @@ export default function QueueDisplayPage() {
     if (!clinic?.id || !branchId) return;
     const socket = io(`${SOCKET_URL}/queue`, {
       auth: { token: localStorage.getItem('accessToken') },
-      transports: ['websocket'],
+      // 'websocket' only fails hard behind proxies/CDNs that don't forward
+      // the Upgrade header — this is the TV board, so falling back to
+      // polling matters even more here since there's no manual refresh.
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: Infinity,
     });
     socketRef.current = socket;
-    socket.on('connect', () => socket.emit('join-queue-room', { clinicId: clinic.id, branchId }));
+    socket.on('connect', () => {
+      socket.emit('join-queue-room', { clinicId: clinic.id, branchId });
+      // Catch up on anything missed while disconnected/reconnecting.
+      fetchQueue();
+    });
     socket.on('queue:update', (payload: any) => {
       if (payload?.queue) setQueue(payload.queue); else fetchQueue();
     });

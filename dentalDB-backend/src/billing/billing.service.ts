@@ -14,6 +14,7 @@ import { AuditAction, AuditEntityType } from '../audit/entities/audit-log.entity
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { BloodTestService } from '../blood-test/blood-test.service';
 import { LabWorkService } from '../lab-work/lab-work.service';
+import { PatientWalletService } from '../patient-wallet/patient-wallet.service';
 import { nepalDayBoundsUTC, nepalTodayParts, nepalWallClockToUTC } from '../common/utils/timezone.util';
 
 @Injectable()
@@ -31,26 +32,17 @@ export class BillingService {
     private auditService: AuditService,
     private bloodTestService: BloodTestService,
     private labWorkService: LabWorkService,
+    private patientWalletService: PatientWalletService,
   ) {}
 
   /**
-   * Generates a collision-safe invoice number using a DB-level advisory lock
-   * on Postgres, and retries on unique constraint violations.
-   *
-   * On SQLite (Electron), pg_advisory_xact_lock doesn't exist — see
-   * withAdvisoryLock in sql-helpers.ts, which no-ops there since SQLite's own
-   * transaction locking already serializes writers on a single-file DB.
+   * NOTE: invoice-number generation used to live in its own helper here, but
+   * that meant the advisory lock released (transaction commit) before the
+   * actual insert happened — leaving a race window where two concurrent
+   * requests could compute the same number and collide on insert. It's now
+   * inlined directly into create()'s transaction so the lock covers both the
+   * count-read and the insert. See create() below.
    */
-  private async generateInvoiceNumber(clinicId: string): Promise<string> {
-    const year = new Date().getFullYear();
-    const lockKey = Buffer.from(clinicId).reduce((a, b) => a + b, 0) % 2147483647;
-    return await this.dataSource.transaction(async (manager) => {
-      await withAdvisoryLock(manager, lockKey);
-      const count = await manager.count(Invoice, { where: { clinicId } });
-      const seq = String(count + 1).padStart(5, '0');
-      return 'INV-' + year + '-' + seq;
-    });
-  }
 
   /**
    * Shared commission trigger used by create(), markPaid(), and update().
@@ -93,6 +85,32 @@ export class BillingService {
   }
 
   async create(clinicId: string, dto: any): Promise<Invoice> {
+    // create() persists whatever paymentMethod/paidAmount/status the client
+    // sends — it has no wiring into PatientWalletService at all (unlike
+    // markPaid() and PatientWalletService.applyToInvoice(), which actually
+    // call .debit()). The legitimate frontend flow DOES send
+    // paymentMethod: 'wallet_debit' here as a label — the invoice is created
+    // first (status not yet 'paid', since the wallet portion isn't applied
+    // yet), and a separate call to applyToInvoice() debits the wallet and
+    // then flips the invoice to Paid. So paymentMethod alone isn't the
+    // problem. What must never happen is a client creating an invoice that's
+    // ALREADY marked fully Paid with paymentMethod 'wallet_debit' — that
+    // combination can only be produced honestly by applyToInvoice/markPaid
+    // (which debit first, then update), never by create() itself. Blocking
+    // just that combination stops the exploit while leaving the normal
+    // create-then-apply flow untouched.
+    if (dto.paymentMethod === PaymentMethod.WALLET_DEBIT) {
+      const total       = Number(dto.total ?? 0);
+      const paidAmount  = Number(dto.paidAmount ?? 0);
+      const claimsFullyPaidNow =
+        dto.status === InvoiceStatus.PAID || (total > 0 && paidAmount >= total);
+      if (claimsFullyPaidNow) {
+        throw new BadRequestException(
+          'An invoice cannot be created already marked Paid with paymentMethod "wallet_debit" — the wallet has not actually been debited yet. Create the invoice first (status not_yet_paid/partially_paid), then settle it via the wallet apply-to-invoice endpoint.',
+        );
+      }
+    }
+
     const items: any[] = dto.items || [];
     for (const item of items) {
       if (item.productId && item.quantity > 0) {
@@ -111,34 +129,78 @@ export class BillingService {
 
     for (let attempt = 1; attempt <= 5; attempt++) {
       try {
-        const invoiceNumber   = await this.generateInvoiceNumber(clinicId);
-        const invoiceUuid     = uuidv4();
-        const resolvedStatus: InvoiceStatus = dto.status
-          ? (dto.status as InvoiceStatus)
-          : InvoiceStatus.DRAFT;
+        const saved = await this.dataSource.transaction(async (manager) => {
+          // The advisory lock must be held for the ENTIRE read-count + insert
+          // sequence, not just the read. pg_advisory_xact_lock releases when
+          // this transaction commits, so as long as the insert happens inside
+          // here too, a second concurrent request blocks until this one is
+          // fully committed and sees an up-to-date count — no more races.
+          const lockKey = Buffer.from(clinicId).reduce((a, b) => a + b, 0) % 2147483647;
+          await withAdvisoryLock(manager, lockKey);
 
-        const isPaidOnCreate = resolvedStatus === InvoiceStatus.PAID;
-        const total          = Number(dto.total ?? 0);
+          const year = new Date().getFullYear();
+          const prefix = `INV-${year}-`;
 
-        // Auto-populate vatNumber from clinic when vatPercent > 0
-        let vatNumber = dto.vatNumber;
-        if (!vatNumber && Number(dto.vatPercent ?? 0) > 0) {
-          const clinic = await this.clinicRepo.findOne({ where: { id: clinicId } });
-          vatNumber = clinic?.vatNumber ?? undefined;
-        }
+          // IMPORTANT: this must be based on the highest invoice number actually
+          // in use, not row count. Count breaks permanently the first time any
+          // invoice is ever deleted — the count drops but existing invoices keep
+          // their higher numbers, so count()+1 recomputes a number that's
+          // already taken, and every retry recomputes the exact same collision
+          // since a failed insert never changes the count.
+          const last = await manager
+            .createQueryBuilder(Invoice, 'i')
+            .select('i.invoiceNumber', 'invoiceNumber')
+            .where('i.clinicId = :clinicId', { clinicId })
+            .andWhere('i.invoiceNumber LIKE :prefix', { prefix: prefix + '%' })
+            .orderBy('i.invoiceNumber', 'DESC')
+            .limit(1)
+            .getRawOne();
 
-        const invoice = this.repo.create({
-          ...dto,
-          clinicId,
-          invoiceNumber,
-          invoiceUuid,
-          vatNumber,
-          status:     resolvedStatus,
-          paidAmount: isPaidOnCreate ? total : 0,
-          dueAmount:  isPaidOnCreate ? 0     : total,
-          paidAt:     isPaidOnCreate ? new Date() : null,
-        } as Partial<Invoice>);
-        const saved = await this.repo.save(invoice);
+          let nextSeq = 1;
+          if (last?.invoiceNumber) {
+            const tail   = String(last.invoiceNumber).slice(prefix.length);
+            const parsed = parseInt(tail, 10);
+            if (!Number.isNaN(parsed)) nextSeq = parsed + 1;
+          }
+          const invoiceNumber = prefix + String(nextSeq).padStart(5, '0');
+          const invoiceUuid   = uuidv4();
+
+          const resolvedStatus: InvoiceStatus = dto.status
+            ? (dto.status as InvoiceStatus)
+            : InvoiceStatus.DRAFT;
+
+          const isPaidOnCreate    = resolvedStatus === InvoiceStatus.PAID;
+          const isPartialOnCreate = resolvedStatus === InvoiceStatus.PARTIALLY_PAID;
+          const total             = Number(dto.total ?? 0);
+
+          // Partial payments: trust the amount actually collected up front
+          // (e.g. patient pays NPR 200 of a 1000 bill, 800 stays due), clamped
+          // to a sane [0, total] range. Fully-paid invoices always mean paidAmount === total.
+          const partialPaidAmount = isPartialOnCreate
+            ? Math.min(Math.max(Number(dto.paidAmount ?? 0), 0), total)
+            : 0;
+
+          // Auto-populate vatNumber from clinic when vatPercent > 0
+          let vatNumber = dto.vatNumber;
+          if (!vatNumber && Number(dto.vatPercent ?? 0) > 0) {
+            const clinic = await manager.findOne(Clinic, { where: { id: clinicId } });
+            vatNumber = clinic?.vatNumber ?? undefined;
+          }
+
+          const invoice = manager.create(Invoice, {
+            ...dto,
+            clinicId,
+            invoiceNumber,
+            invoiceUuid,
+            vatNumber,
+            status:     resolvedStatus,
+            paidAmount: isPaidOnCreate ? total : partialPaidAmount,
+            dueAmount:  isPaidOnCreate ? 0     : Math.max(total - partialPaidAmount, 0),
+            paidAt:     isPaidOnCreate || partialPaidAmount > 0 ? new Date() : null,
+          } as Partial<Invoice>);
+
+          return manager.save(Invoice, invoice);
+        });
 
         const bloodTestIds = items.filter(i => i.bloodTestId).map(i => i.bloodTestId);
         const labWorkIds   = items.filter(i => i.labWorkId).map(i => i.labWorkId);
@@ -261,6 +323,7 @@ export class BillingService {
     clinicId: string,
     id: string,
     dto: { paymentMethod: PaymentMethod; amount: number; transactionId?: string },
+    userId: string,
   ): Promise<Invoice> {
     const inv = await this.findOne(clinicId, id);
 
@@ -279,7 +342,31 @@ export class BillingService {
       }
     }
 
-    const paid = Number(inv.paidAmount || 0) + Number(dto.amount);
+    const amount = Number(dto.amount);
+
+    // Paying "from the patient wallet" needs to actually move money out of
+    // it. This branch used to be entirely missing — markPaid() would record
+    // the invoice as paid/partially paid for ANY paymentMethod including
+    // 'wallet_debit' without ever calling into PatientWalletService, so the
+    // UI showed a success toast while the patient's wallet balance never
+    // moved. debit() throws BadRequestException('Insufficient wallet
+    // balance') when the wallet can't cover it, which now correctly blocks
+    // the invoice from being marked paid for money that was never collected.
+    if (dto.paymentMethod === PaymentMethod.WALLET_DEBIT) {
+      if (!inv.patientId) {
+        throw new BadRequestException('This invoice has no patient attached, so it cannot be paid from a patient wallet.');
+      }
+      await this.patientWalletService.debit(
+        clinicId,
+        inv.patientId,
+        amount,
+        `Payment for invoice ${inv.invoiceNumber}`,
+        userId,
+        inv.id,
+      );
+    }
+
+    const paid = Number(inv.paidAmount || 0) + amount;
     const due  = Number(inv.total) - paid;
 
     inv.paidAmount           = paid;

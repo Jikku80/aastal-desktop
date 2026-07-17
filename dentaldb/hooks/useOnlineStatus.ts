@@ -73,6 +73,19 @@ export function useOnlineStatus() {
       queryClient.invalidateQueries({ queryKey: ['sync-status'] });
     };
     window.addEventListener('online', handleOnline);
+
+    // Also nudge once on mount. The 'online' event above only fires on a
+    // transition — it never fires just because the app was opened while
+    // the network interface was already up, which is the normal case.
+    // ConnectivityService's own boot-time poll now covers this on the
+    // backend side too (see the isOnline tri-state fix), but this renderer
+    // side nudge is a cheap, harmless belt-and-braces: if the window
+    // reloaded (e.g. after an auto-update) while the backend process kept
+    // running and had already finished its own boot sync minutes earlier,
+    // this still gets a fresh pull without waiting up to
+    // PERIODIC_SYNC_INTERVAL_MS for the next automatic tick.
+    if (navigator.onLine) handleOnline();
+
     return () => window.removeEventListener('online', handleOnline);
   }, [queryClient]);
 

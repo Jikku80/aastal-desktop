@@ -7,9 +7,10 @@ import { motion } from 'framer-motion';
 import { X, Calendar } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { patientsApi } from '@/lib/api';
-import { utcToNepalLocalInputValue, nepalLocalInputToUTCISOString } from '@/lib/timezone';
+import { nepalLocalInputToUTCISOString } from '@/lib/timezone';
 import { useAuthStore } from '@/store/auth.store';
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
+import { RegistrationDateField, toDatetimeLocal } from '@/components/ui/RegistrationDateFIeld';
 
 const schema = z.object({
   opdNo:                 z.string().optional(),
@@ -41,13 +42,6 @@ function stripNepalPhonePrefix(val: string | undefined | null): string {
   const digits = val.replace(/\D/g, '');
   if (digits.startsWith('977') && digits.length > 10) return digits.slice(-10);
   return digits.slice(-10);
-}
-
-/** Convert a JS Date / ISO string to the value expected by <input type="datetime-local"> */
-function toDatetimeLocal(val: string | Date | undefined | null): string {
-  if (!val) return utcToNepalLocalInputValue(new Date());
-  const d = new Date(val as string);
-  return isNaN(d.getTime()) ? utcToNepalLocalInputValue(new Date()) : utcToNepalLocalInputValue(d);
 }
 
 export default function PatientModal({
@@ -124,10 +118,12 @@ export default function PatientModal({
                 Registration Date
                 <span className="text-[var(--text-muted)] normal-case font-normal">(you can backdate for old records)</span>
               </label>
-              <input
-                {...register('createdAt')}
-                type="datetime-local"
-                className="input w-full"
+              <Controller
+                name="createdAt"
+                control={control}
+                render={({ field }) => (
+                  <RegistrationDateField value={field.value || ''} onChange={field.onChange} />
+                )}
               />
             </div>
 

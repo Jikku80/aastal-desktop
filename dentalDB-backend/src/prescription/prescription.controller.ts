@@ -1,3 +1,4 @@
+// dentalDB-backend/src/prescription/prescription.controller.ts
 import {
   Controller, Get, Param, Res, Request,
   UseGuards, NotFoundException,
@@ -5,6 +6,8 @@ import {
 import { Response } from 'express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 import { PrescriptionPdfService } from './prescription-pdf.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -14,7 +17,8 @@ import { User } from '../users/entities/user.entity';
 
 @ApiTags('Prescriptions')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermissions('records.view')
 @Controller('prescriptions')
 export class PrescriptionController {
   constructor(

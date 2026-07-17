@@ -11,6 +11,7 @@ import { Invoice, InvoiceStatus } from '../billing/entities/invoice.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { Subscription } from '../subscriptions/entities/subscription.entity';
+import { UserRole as UserRoleAssignment } from '../rbac/entities/user-role.entity';
 import { addDays } from 'date-fns';
 import { pendingSyncFields } from '../sync/pending-sync.util';
 
@@ -66,6 +67,7 @@ export class BranchesService {
     @InjectRepository(Patient)            private patientRepo:     Repository<Patient>,
     @InjectRepository(Clinic)             private clinicRepo:      Repository<Clinic>,
     @InjectRepository(Subscription)       private subRepo:         Repository<Subscription>,
+    @InjectRepository(UserRoleAssignment) private userRoleRepo:    Repository<UserRoleAssignment>,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -550,7 +552,26 @@ export class BranchesService {
 
   async getBranchDoctors(clinicId: string, branchId: string): Promise<User[]> {
     const branch = await this.findOne(clinicId, branchId);
-    return (branch.staff || []).filter(u => /doctor|dentist/i.test(u.role) && u.isActive);
+    const activeStaff = (branch.staff || []).filter(u => u.isActive);
+    if (!activeStaff.length) return [];
+
+    // Doctor-ness is derived from two independent sources that can disagree:
+    //  1. The legacy `user.role` enum column (set at user-creation time).
+    //  2. A custom role assigned later through the RBAC "Roles" module
+    //     (user_roles → roles), which never writes back to that enum column.
+    // A staff member assigned a "Doctor"-style role purely via RBAC used to
+    // be silently dropped here because only #1 was checked. We now treat a
+    // user as a doctor if EITHER source says so.
+    const assignments = await this.userRoleRepo.find({
+      where: { userId: In(activeStaff.map(u => u.id)) },
+    });
+    const rbacDoctorIds = new Set(
+      assignments
+        .filter(a => /doctor|dentist/i.test(a.role?.name || ''))
+        .map(a => a.userId),
+    );
+
+    return activeStaff.filter(u => /doctor|dentist/i.test(u.role) || rbacDoctorIds.has(u.id));
   }
 
   async canAccessBranch(clinicId: string, userId: string, role: string, branchId: string): Promise<boolean> {

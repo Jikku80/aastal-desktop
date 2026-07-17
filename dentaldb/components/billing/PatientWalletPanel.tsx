@@ -10,9 +10,14 @@ interface Props {
   patientId: string;
   invoiceId?: string;
   invoiceAmount?: number;
+  /** Show the "Add Funds" credit form. Defaults to true — the Patients page
+   *  view-mode panel is the intended home for topping up a wallet; other
+   *  places (like an invoice's detail view) can turn this off and only
+   *  show balance + "Apply to Invoice". */
+  allowAddFunds?: boolean;
 }
 
-export default function PatientWalletPanel({ patientId, invoiceId, invoiceAmount }: Props) {
+export default function PatientWalletPanel({ patientId, invoiceId, invoiceAmount, allowAddFunds = true }: Props) {
   const [showCredit, setShowCredit]   = useState(false);
   const [creditAmount, setCreditAmount] = useState('');
   const [creditDesc, setCreditDesc]   = useState('');
@@ -54,6 +59,16 @@ export default function PatientWalletPanel({ patientId, invoiceId, invoiceAmount
   const balance = Number((walletData as any)?.balance ?? 0);
   const txs     = (txData as any)?.data ?? [];
 
+  // `invoiceAmount` is meant to cap the apply amount at what's actually due
+  // on the invoice. `?? balance` only guards against undefined/null — but 0
+  // is neither, so an invoice with nothing left to pay (dueAmount === 0)
+  // was falling through to Math.min(balance, 0) === 0, silently "applying"
+  // a zero-amount payment on click (success toast, no balance change). Only
+  // treat invoiceAmount as a real cap when it's actually a positive number;
+  // otherwise there's nothing to apply, so the button shouldn't be usable.
+  const hasDueAmount = invoiceAmount === undefined || invoiceAmount > 0;
+  const applyAmount  = Math.min(balance, invoiceAmount && invoiceAmount > 0 ? invoiceAmount : balance);
+
   if (isLoading) return null;
 
   return (
@@ -79,21 +94,23 @@ export default function PatientWalletPanel({ patientId, invoiceId, invoiceAmount
 
       {/* Action buttons */}
       <div className="flex gap-2">
-        <button
-          onClick={() => setShowCredit(!showCredit)}
-          className="flex-1 flex items-center justify-center gap-1.5 text-xs py-2 rounded-lg font-medium transition-all"
-          style={{
-            background: showCredit ? 'rgba(2,124,198,0.15)' : 'rgba(2,124,198,0.08)',
-            border: '1px solid rgba(2,124,198,0.2)',
-            color: 'var(--brand-lt)',
-          }}
-        >
-          <Plus size={13} /> Add Funds
-        </button>
-
-        {invoiceId && balance > 0 && (
+        {allowAddFunds && (
           <button
-            onClick={() => applyMutation.mutate({ invoiceId, amount: Math.min(balance, invoiceAmount ?? balance) })}
+            onClick={() => setShowCredit(!showCredit)}
+            className="flex-1 flex items-center justify-center gap-1.5 text-xs py-2 rounded-lg font-medium transition-all"
+            style={{
+              background: showCredit ? 'rgba(2,124,198,0.15)' : 'rgba(2,124,198,0.08)',
+              border: '1px solid rgba(2,124,198,0.2)',
+              color: 'var(--brand-lt)',
+            }}
+          >
+            <Plus size={13} /> Add Funds
+          </button>
+        )}
+
+        {invoiceId && balance > 0 && hasDueAmount && (
+          <button
+            onClick={() => applyMutation.mutate({ invoiceId, amount: applyAmount })}
             disabled={applyMutation.isPending}
             className="flex-1 flex items-center justify-center gap-1.5 text-xs py-2 rounded-lg font-medium transition-all disabled:opacity-60"
             style={{
@@ -111,7 +128,7 @@ export default function PatientWalletPanel({ patientId, invoiceId, invoiceAmount
       </div>
 
       {/* Add funds form */}
-      {showCredit && (
+      {allowAddFunds && showCredit && (
         <motion.div
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: 'auto' }}

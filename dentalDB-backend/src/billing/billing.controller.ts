@@ -60,7 +60,7 @@ export class BillingController {
   @Patch('invoices/:id/pay')
   @RequirePermissions('billing.manage')
   markPaid(@Request() req, @Param('id') id: string, @Body() dto: any) {
-    return this.service.markPaid(req.user.clinicId, id, dto);
+    return this.service.markPaid(req.user.clinicId, id, dto, req.user.id);
   }
 
   @Delete('invoices/:id')

@@ -28,6 +28,7 @@ export enum AuditEntityType {
   PURCHASE_ORDER = 'purchase_order',
   HOLIDAY        = 'holiday',
   NOTICE         = 'notice',
+  WALLET         = 'wallet',
 }
 
 @Entity('audit_logs')

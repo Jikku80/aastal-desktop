@@ -25,11 +25,19 @@ async function seed() {
 
   await ds.initialize();
 
+  // RbacService also takes a CACHE_MANAGER (used to bust the live auth
+  // cache when roles/permissions change — see rbac.service.ts). This script
+  // runs standalone, outside the running Nest app, so there's no real cache
+  // to invalidate here; a no-op stub satisfies the type without doing
+  // anything at runtime.
+  const noopCache = { get: async () => undefined, set: async () => undefined, del: async () => undefined } as any;
+
   const rbac = new RbacService(
     ds.getRepository(Role),
     ds.getRepository(Permission),
     ds.getRepository(UserRole),
     ds.getRepository(User),
+    noopCache,
   );
 
   console.log('→ Seeding system permissions…');

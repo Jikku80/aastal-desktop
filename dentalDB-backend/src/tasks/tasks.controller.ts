@@ -1,3 +1,4 @@
+// dentalDB-backend/src/tasks/tasks.controller.ts
 import {
   Controller, Get, Post, Patch, Delete,
   Body, Param, Query, Request, UseGuards,
@@ -6,46 +7,57 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto, UpdateTaskDto } from './dto/task.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 import { TaskStatus } from './entities/task.entity';
 
 @ApiTags('Tasks')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('tasks')
 export class TasksController {
   constructor(private service: TasksService) {}
 
   @Post()
+  @RequirePermissions('tasks.manage')
   create(@Request() req, @Body() dto: CreateTaskDto) {
     return this.service.create(req.user.clinicId, req.user.id, dto);
   }
 
   @Get()
+  @RequirePermissions('tasks.view')
   findAll(@Request() req, @Query() query: any) {
     return this.service.findAll(req.user.clinicId, query);
   }
 
   @Get('my')
+  @RequirePermissions('tasks.view')
   findMyTasks(@Request() req, @Query('branchId') branchId?: string) {
     return this.service.findMyTasks(req.user.clinicId, req.user.id, branchId);
   }
 
   @Get('stats')
+  @RequirePermissions('tasks.view')
   getStats(@Request() req) {
     return this.service.getStats(req.user.clinicId);
   }
 
   @Get(':id')
+  @RequirePermissions('tasks.view')
   findOne(@Request() req, @Param('id') id: string) {
     return this.service.findOne(req.user.clinicId, id);
   }
 
   @Patch(':id')
+  @RequirePermissions('tasks.manage')
   update(@Request() req, @Param('id') id: string, @Body() dto: UpdateTaskDto) {
     return this.service.update(req.user.clinicId, id, dto);
   }
 
+  // Marking status (e.g. done) on a task assigned to you only requires view access,
+  // not full manage rights — matches how staff use a shared task board day-to-day.
   @Patch(':id/status')
+  @RequirePermissions('tasks.view')
   updateStatus(
     @Request() req,
     @Param('id') id: string,
@@ -55,6 +67,7 @@ export class TasksController {
   }
 
   @Delete(':id')
+  @RequirePermissions('tasks.manage')
   remove(@Request() req, @Param('id') id: string) {
     return this.service.remove(req.user.clinicId, id);
   }

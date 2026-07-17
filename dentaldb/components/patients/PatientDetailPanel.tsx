@@ -11,17 +11,17 @@ import { formatNepalDateTime } from '@/lib/timezone';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { patientsApi, recallsApi, labApi, bloodTestApi } from '@/lib/api';
-import { useAuthStore } from '@/store/auth.store';
+import { usePermissions } from '@/store/permissions.store';
 import type { Patient } from '@/types';
 import PatientModal from './PatientModal';
 import PatientFilesPanel from '@/components/files/PatientFilesPanel';
 import { ActionIconButton, ActionIconGroup } from '@/components/ui/ActionIconButton';
 import VitalsTrendCharts from '../appointments/VitalsTrendCharts';
+import PatientWalletPanel from '@/components/billing/PatientWalletPanel';
 
 const TABS = ['Overview', 'History', 'Vitals', 'Lab Work', 'Blood Test', 'Files'] as const;
 type Tab = typeof TABS[number];
 
-const OWNER_ROLES = new Set(['owner', 'super_admin']);
 const HISTORY_PAGE_SIZE = 5;
 
 function computeAge(patient: Patient): number | null {
@@ -222,9 +222,9 @@ export default function PatientDetailPanel({
   const [historyPage,   setHistoryPage]   = useState(1);
   const [historyFilter, setHistoryFilter] = useState<'all' | 'appointments' | 'records'>('all');
   const [showAddRecall, setShowAddRecall] = useState(false);
-  const { user } = useAuthStore();
+  const { can } = usePermissions();
   const qc = useQueryClient();
-  const canDelete = OWNER_ROLES.has(user?.role ?? '');
+  const canDelete = can('patient.delete');
 
   const { data: history, isLoading: historyLoading } = useQuery({
     queryKey: ['patient-history', patient.id],
@@ -370,6 +370,9 @@ export default function PatientDetailPanel({
                 {patient.address && <p className="text-sm text-[var(--text-secondary)] pl-5">{patient.address}</p>}
               </div>
             </div>
+
+            {/* Patient Wallet — top up funds here; billing modal can deduct from this balance */}
+            <PatientWalletPanel patientId={patient.id} />
             {patient.branch && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
                 style={{ background: 'rgba(14,157,232,0.06)', border: '1px solid rgba(14,157,232,0.12)' }}>

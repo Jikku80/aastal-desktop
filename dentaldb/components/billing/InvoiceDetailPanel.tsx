@@ -7,9 +7,9 @@ import {
 import { format } from 'date-fns';
 import { useMutation } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { billingApi } from '@/lib/api';
-import { useAuthStore } from '@/store/auth.store';
-import { useQueryClient } from '@tanstack/react-query';
+import { billingApi, walletApi } from '@/lib/api';
+import { usePermissions } from '@/store/permissions.store';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Invoice, PaymentMethod } from '@/types';
 import PatientWalletPanel from './PatientWalletPanel';
 
@@ -20,6 +20,10 @@ const PAYMENT_GATEWAYS = [
   { id: 'bank_transfer', label: 'Bank Transfer',  emoji: '🏦', desc: 'Direct transfer' },
   { id: 'insurance',     label: 'Insurance',      emoji: '📋', desc: 'Insurance claim' },
   { id: 'paypal',        label: 'PayPal',         emoji: '💙', desc: 'Online payment' },
+  // Pays out of the patient's stored wallet balance rather than an external
+  // gateway — routed through markPaid()'s 'wallet_debit' branch, which is
+  // what actually calls PatientWalletService.debit() and moves the money.
+  { id: 'wallet_debit',  label: 'Wallet',         emoji: '👛', desc: "Patient's wallet balance" },
 ] as const;
 
 export default function InvoiceDetailPanel({
@@ -31,9 +35,17 @@ export default function InvoiceDetailPanel({
   const [txnId,    setTxnId]    = useState('');
   const [dlState,  setDlState]  = useState<'idle' | 'loading' | 'error'>('idle');
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const { user } = useAuthStore();
+  const { can } = usePermissions();
   const qc = useQueryClient();
-  const canDelete = ['owner', 'super_admin'].includes(user?.role ?? '');
+  const canDelete = can('invoice.delete');
+
+  const { data: walletData } = useQuery({
+    queryKey: ['wallet-balance-pay', invoice.patientId],
+    queryFn:  () => walletApi.getBalance(invoice.patientId).then(r => r.data),
+    enabled:  !!invoice.patientId,
+  });
+  const walletBalance     = Number((walletData as any)?.balance ?? 0);
+  const walletTooLow      = gateway === 'wallet_debit' && Number(amount) > walletBalance;
 
   const deleteMutation = useMutation({
     mutationFn: () => billingApi.deleteInvoice(invoice.id),
@@ -50,6 +62,10 @@ export default function InvoiceDetailPanel({
   // All gateways record payment locally — no redirects to payment pages.
   // The eSewa/Khalti fields are just used to record which gateway was used
   // and optionally store a manual transaction ID entered by the staff.
+  // 'wallet_debit' is the odd one out: markPaid() actually debits the
+  // patient's wallet for that method (see BillingService.markPaid), so its
+  // success also has to refresh the wallet balance/transactions, not just
+  // the invoice-related queries.
   const payMutation = useMutation({
     mutationFn: () =>
       billingApi.markPaid(invoice.id, {
@@ -58,7 +74,9 @@ export default function InvoiceDetailPanel({
         transactionId:   txnId || undefined,
       }),
     onSuccess: () => {
-      toast.success('Payment recorded successfully!');
+      toast.success(
+        gateway === 'wallet_debit' ? 'Paid from patient wallet!' : 'Payment recorded successfully!',
+      );
       setShowPay(false);
       // Invalidate commission + dentist performance so they reflect the new payment
       qc.invalidateQueries({ queryKey: ['commissions'] });
@@ -66,6 +84,9 @@ export default function InvoiceDetailPanel({
       qc.invalidateQueries({ queryKey: ['dentist-performance'] });
       qc.invalidateQueries({ queryKey: ['admin-dentist-performance'] });
       qc.invalidateQueries({ queryKey: ['appointments'] });
+      qc.invalidateQueries({ queryKey: ['wallet-balance-pay', invoice.patientId] });
+      qc.invalidateQueries({ queryKey: ['wallet', invoice.patientId] });
+      qc.invalidateQueries({ queryKey: ['wallet-tx', invoice.patientId] });
       onUpdate();
     },
     onError: (e: any) =>
@@ -179,7 +200,7 @@ export default function InvoiceDetailPanel({
       )}
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
         {/* Amount card */}
         <div className="p-5 rounded-2xl"
           style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
@@ -294,21 +315,22 @@ export default function InvoiceDetailPanel({
             {invoice.notes}
           </div>
         )}
-      </div>
 
-      {/* Patient Wallet Panel */}
-      {invoice.patientId && (
-        <div className="px-5 pb-3">
+        {/* Patient Wallet — balance + apply-to-invoice only; adding funds now lives on the Patient page.
+            Kept inside the same scroll container as the payment footer below (rather than as a
+            fixed/pinned section) so that on short viewports or when the payment form is expanded,
+            everything — including the Record Payment button — stays reachable by scrolling. */}
+        {invoice.patientId && (
           <PatientWalletPanel
             patientId={invoice.patientId}
             invoiceId={invoice.id}
             invoiceAmount={Number(invoice.dueAmount ?? 0)}
+            allowAddFunds={false}
           />
-        </div>
-      )}
+        )}
 
-      {/* Payment footer */}
-      <div className="p-5 shrink-0 space-y-3" style={{ borderTop: '1px solid var(--border)' }}>
+        {/* Payment footer */}
+        <div className="pt-3 space-y-3" style={{ borderTop: '1px solid var(--border)' }}>
         {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
           <>
             {!showPay ? (
@@ -358,6 +380,19 @@ export default function InvoiceDetailPanel({
                     className="input w-full"
                     min="1"
                   />
+                  {gateway === 'wallet_debit' && (
+                    <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                      Wallet balance: <span className="text-[var(--text-primary)] font-medium">NPR {walletBalance.toLocaleString()}</span>
+                    </p>
+                  )}
+                  {walletTooLow && (
+                    <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mt-2">
+                      <span>
+                        Wallet balance (NPR {walletBalance.toLocaleString()}) is less than NPR {Number(amount || 0).toLocaleString()}.
+                        Reduce the amount or add funds to this patient's wallet first.
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Optional transaction ID for digital payments */}
@@ -384,7 +419,7 @@ export default function InvoiceDetailPanel({
                   </button>
                   <button
                     onClick={() => payMutation.mutate()}
-                    disabled={payMutation.isPending || !amount || Number(amount) <= 0}
+                    disabled={payMutation.isPending || !amount || Number(amount) <= 0 || walletTooLow}
                     className="btn-primary flex-1 justify-center">
                     {payMutation.isPending
                       ? <Loader2 size={14} className="animate-spin" />
@@ -401,6 +436,7 @@ export default function InvoiceDetailPanel({
             <span className="text-sm font-medium">Paid in full</span>
           </div>
         )}
+        </div>
       </div>
     </motion.div>
   );

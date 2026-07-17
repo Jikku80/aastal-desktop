@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { clinicalRecordsApi, patientsApi, usersApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
+import { usePermissions } from '@/store/permissions.store';
 import Header from '@/components/layout/Header';
 import type { ClinicalRecord } from '@/types';
 import { BranchReadOnlyBanner, useBranchReadOnly } from '@/components/layout/BranchReadOnlyBanner';
@@ -204,7 +205,7 @@ function RecordDialog({ record, onClose }: { record?: ClinicalRecord | null; onC
   );
 }
 
-function RecordCard({ record, onEdit }: { record: ClinicalRecord; onEdit?: () => void }) {
+function RecordCard({ record, onEdit, onDelete, canDelete, deleting }: { record: ClinicalRecord; onEdit?: () => void; onDelete?: () => void; canDelete?: boolean; deleting?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const patientName = record.patient
     ? `${record.patient.firstName} ${record.patient.lastName}`
@@ -243,15 +244,32 @@ function RecordCard({ record, onEdit }: { record: ClinicalRecord; onEdit?: () =>
             <button onClick={e => { e.stopPropagation(); onEdit(); }}
               className="btn-ghost text-xs px-2 py-1.5 hidden sm:inline-flex">Edit</button>
           )}
+          {canDelete && onDelete && (
+            <button
+              onClick={e => { e.stopPropagation(); onDelete(); }}
+              disabled={deleting}
+              title="Delete record (Super Admin)"
+              className="btn-ghost w-7 h-7 p-0 justify-center text-red-400 hover:bg-red-500/10 disabled:opacity-50">
+              {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+            </button>
+          )}
           <ChevronDown size={16} className={`text-[var(--text-muted)] transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
         </div>
       </div>
 
       {expanded && (
         <div className="px-4 sm:px-5 pb-4 pt-1 space-y-4" style={{ background: 'var(--bg-base)', borderTop: '1px solid var(--border)' }}>
-          {onEdit && (
-            <div className="sm:hidden pt-3">
-              <button onClick={onEdit} className="btn-secondary text-xs w-full justify-center">Edit record</button>
+          {(onEdit || (canDelete && onDelete)) && (
+            <div className="sm:hidden pt-3 flex gap-2">
+              {onEdit && (
+                <button onClick={onEdit} className="btn-secondary text-xs flex-1 justify-center">Edit record</button>
+              )}
+              {canDelete && onDelete && (
+                <button onClick={onDelete} disabled={deleting}
+                  className="btn-secondary text-xs flex-1 justify-center text-red-400 disabled:opacity-50">
+                  {deleting ? 'Deleting…' : 'Delete record'}
+                </button>
+              )}
             </div>
           )}
           {record.diagnosisNotes && (
@@ -295,12 +313,25 @@ function RecordCard({ record, onEdit }: { record: ClinicalRecord; onEdit?: () =>
 
 export default function ClinicalRecordsPage() {
   const { isReadOnly: branchLocked } = useBranchReadOnly();
+  const { can } = usePermissions();
+  const canDelete = can('records.delete');
   const [showDialog, setShowDialog] = useState(false);
   const [editing,   setEditing]     = useState<ClinicalRecord | null>(null);
   const [search,    setSearch]      = useState('');
   const [dateFrom,  setDateFrom]    = useState('');
   const [dateTo,    setDateTo]      = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<ClinicalRecord | null>(null);
   const qc = useQueryClient();
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => clinicalRecordsApi.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['clinical-records'] });
+      toast.success('Record deleted');
+      setDeleteTarget(null);
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete record'),
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ['clinical-records', search, dateFrom, dateTo],
@@ -394,6 +425,9 @@ export default function ClinicalRecordsPage() {
                 key={record.id}
                 record={record}
                 onEdit={!branchLocked ? () => { setEditing(record); setShowDialog(true); } : undefined}
+                canDelete={canDelete}
+                onDelete={() => setDeleteTarget(record)}
+                deleting={deleteMutation.isPending && deleteMutation.variables === record.id}
               />
             ))}
           </div>
@@ -402,6 +436,39 @@ export default function ClinicalRecordsPage() {
 
       {showDialog && (
         <RecordDialog record={editing} onClose={() => { setShowDialog(false); setEditing(null); }} />
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+          onClick={() => !deleteMutation.isPending && setDeleteTarget(null)}>
+          <div className="w-full max-w-sm rounded-2xl p-5 shadow-2xl"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1.5">Delete clinical record?</h3>
+            <p className="text-xs text-[var(--text-muted)] mb-4 leading-relaxed">
+              This will permanently delete the diagnosis, treatment plan and prescriptions for{' '}
+              <span className="text-[var(--text-primary)] font-medium">
+                {deleteTarget.patient ? `${deleteTarget.patient.firstName} ${deleteTarget.patient.lastName}` : 'this patient'}
+              </span>. This action cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleteMutation.isPending}
+                className="btn-ghost flex-1 justify-center text-xs disabled:opacity-50">
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate(deleteTarget.id)}
+                disabled={deleteMutation.isPending}
+                className="flex-1 justify-center flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">
+                {deleteMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

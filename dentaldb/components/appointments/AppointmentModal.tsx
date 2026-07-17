@@ -7,15 +7,16 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Sparkles, Clock, Stethoscope, Building2, Loader2,
-  User, CalendarClock, CreditCard, ChevronDown,
+  User, CalendarClock, CreditCard, ChevronDown, UserPlus,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
-import { appointmentsApi, branchesApi, usersApi, servicesApi } from '@/lib/api';
+import { appointmentsApi, branchesApi, usersApi, servicesApi, patientsApi } from '@/lib/api';
 import { nepalLocalInputToUTCISOString, utcToNepalLocalInputValue } from '@/lib/timezone';
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 import { useAuthStore } from '@/store/auth.store';
 import PatientCombobox from '@/components/ui/PatientCombobox';
+import { RegistrationDateField, toDatetimeLocal } from '@/components/ui/RegistrationDateFIeld';
 import type { User as UserType } from '@/types';
 
 const PAYMENT_METHODS = [
@@ -27,7 +28,9 @@ const PAYMENT_METHODS = [
 ];
 
 const schema = z.object({
-  patientId:       z.string().min(1, 'Select a patient'),
+  // Optional here — enforced in the submit handler, since a patient can instead
+  // come from the inline "Add new patient" quick-form below.
+  patientId:       z.string().optional(),
   branchId:        z.string().optional(),
   dentistId:       z.string().min(1, 'Select a dentist'),
   serviceId:       z.string().optional(),
@@ -60,6 +63,20 @@ export default function AppointmentModal({
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [showPayment, setShowPayment]   = useState(false);
   const { activeBranch, branches, clinic } = useAuthStore();
+
+  // Inline "Add new patient" quick-form — lets staff create a patient right
+  // from the appointment modal instead of leaving to the Patients page first.
+  // If this form has a first + last name filled in when the appointment is
+  // saved, the patient is auto-created and used; otherwise the appointment
+  // is created against whatever was picked in the search combobox above.
+  const [showAddPatient, setShowAddPatient] = useState(false);
+  const [newPatient, setNewPatient] = useState({
+    firstName: '', lastName: '', phone: '', opdNo: '', gender: '',
+    // Registration date — defaults to now, editable/backdatable just like
+    // the "Registration Date" field on the full Patient form.
+    registrationDate: toDatetimeLocal(new Date()),
+  });
+  const hasNewPatientData = !!(newPatient.firstName.trim() && newPatient.lastName.trim());
   const vatPercent = (clinic as any)?.settings?.vatPercent ?? 0;
   useBodyScrollLock(true);
 
@@ -83,7 +100,7 @@ export default function AppointmentModal({
   const watchFee         = watch('fee');
   const watchPayMethod   = watch('paymentMethod');
 
-  const { data: branchDoctorsData } = useQuery({
+  const { data: branchDoctorsData, error: branchDoctorsError } = useQuery({
     queryKey: ['branch-doctors', selectedBranchId],
     queryFn: () =>
       selectedBranchId
@@ -112,6 +129,10 @@ export default function AppointmentModal({
     : (branchDoctorsData?.data || []);
 
   useEffect(() => { setValue('dentistId', ''); }, [selectedBranchId, setValue]);
+  // Patient search is scoped to the selected branch — clear any previously
+  // picked patient when the branch changes so we never submit a patient
+  // that doesn't belong to the newly selected branch.
+  useEffect(() => { setValue('patientId', ''); }, [selectedBranchId, setValue]);
 
   const feeNum    = Number(watchFee) || 0;
   const taxAmount = +(feeNum * vatPercent / 100).toFixed(2);
@@ -119,8 +140,33 @@ export default function AppointmentModal({
   const hasPayment = showPayment && feeNum > 0 && !!watchPayMethod;
 
   const mutation = useMutation({
-    mutationFn: (data: FormData) => {
-      const payload: any = { ...data, branchId: data.branchId || undefined };
+    mutationFn: async (data: FormData) => {
+      let patientId = data.patientId;
+
+      // If the inline quick-form has data, create that patient first and use
+      // its id — the appointment is only created once the patient exists.
+      if (hasNewPatientData) {
+        const patRes = await patientsApi.create({
+          firstName: newPatient.firstName.trim(),
+          lastName:  newPatient.lastName.trim(),
+          phone:     newPatient.phone ? `+977${newPatient.phone}` : undefined,
+          opdNo:     newPatient.opdNo.trim() || undefined,
+          gender:    newPatient.gender || undefined,
+          branchId:  data.branchId || activeBranch?.id || undefined,
+          // Same "Registration Date" the full Patient form sends — lets front-desk
+          // staff backdate a patient created on the fly from this appointment.
+          createdAt: newPatient.registrationDate
+            ? nepalLocalInputToUTCISOString(newPatient.registrationDate)
+            : undefined,
+        });
+        patientId = patRes.data?.id;
+      }
+
+      if (!patientId) {
+        throw new Error('Select a patient or fill in the "Add new patient" form');
+      }
+
+      const payload: any = { ...data, patientId, branchId: data.branchId || undefined };
       if (data.scheduledAt) {
         payload.scheduledAt = nepalLocalInputToUTCISOString(data.scheduledAt);
       }
@@ -137,7 +183,7 @@ export default function AppointmentModal({
       toast.success(hasPayment ? 'Appointment booked & invoice created!' : 'Appointment booked!');
       onSuccess();
     },
-    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to book'),
+    onError: (e: any) => toast.error(e.response?.data?.message || e.message || 'Failed to book'),
   });
 
   const fetchAiSlots = async () => {
@@ -214,10 +260,102 @@ export default function AppointmentModal({
 
             {/* Patient */}
             <div>
-              <FieldLabel icon={User}>Patient *</FieldLabel>
-              <Controller name="patientId" control={control}
-                render={({ field }) => <PatientCombobox value={field.value} onChange={field.onChange} />} />
-              {errors.patientId && <p className="mt-1 text-xs text-red-400">{errors.patientId.message}</p>}
+              <div className="flex items-center justify-between mb-1.5">
+                <FieldLabel icon={User}>Patient *</FieldLabel>
+                <button
+                  type="button"
+                  onClick={() => setShowAddPatient(s => !s)}
+                  className="flex items-center gap-1 text-[11px] font-medium text-brand-400 hover:text-brand-300 transition-colors">
+                  <UserPlus size={12} />
+                  {showAddPatient ? 'Search' : 'Add'}
+                </button>
+              </div>
+
+              {!showAddPatient && (
+                <>
+                  <Controller name="patientId" control={control}
+                    render={({ field }) => (
+                      <PatientCombobox
+                        value={field.value}
+                        onChange={field.onChange}
+                        branchId={selectedBranchId || activeBranch?.id || undefined}
+                        placeholder={
+                          (selectedBranchId || activeBranch?.id)
+                            ? 'Search patients in this branch…'
+                            : 'Select a branch first…'
+                        }
+                      />
+                    )} />
+                  {errors.patientId && <p className="mt-1 text-xs text-red-400">{errors.patientId.message}</p>}
+                </>
+              )}
+
+              {showAddPatient && (
+                <div className="rounded-xl p-3 space-y-2.5" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <FieldLabel>First name *</FieldLabel>
+                      <input
+                        value={newPatient.firstName}
+                        onChange={e => setNewPatient(p => ({ ...p, firstName: e.target.value }))}
+                        className="input w-full text-sm h-9" placeholder="John" />
+                    </div>
+                    <div>
+                      <FieldLabel>Last name *</FieldLabel>
+                      <input
+                        value={newPatient.lastName}
+                        onChange={e => setNewPatient(p => ({ ...p, lastName: e.target.value }))}
+                        className="input w-full text-sm h-9" placeholder="Doe" />
+                    </div>
+                  </div>
+                  <div>
+                    <FieldLabel icon={CalendarClock}>
+                      Registration Date
+                      <span className="ml-1 text-[var(--text-muted)] font-normal normal-case">(defaults to today, can backdate)</span>
+                    </FieldLabel>
+                    <RegistrationDateField
+                      value={newPatient.registrationDate}
+                      onChange={v => setNewPatient(p => ({ ...p, registrationDate: v }))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <FieldLabel>Phone</FieldLabel>
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-2 py-1.5 rounded-lg text-xs text-[var(--text-secondary)]"
+                          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>+977</span>
+                        <input
+                          value={newPatient.phone}
+                          onChange={e => setNewPatient(p => ({ ...p, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
+                          inputMode="numeric" maxLength={10}
+                          className="input w-full text-sm h-9" placeholder="98XXXXXXXX" />
+                      </div>
+                    </div>
+                    <div>
+                      <FieldLabel>OPD No.</FieldLabel>
+                      <input
+                        value={newPatient.opdNo}
+                        onChange={e => setNewPatient(p => ({ ...p, opdNo: e.target.value }))}
+                        className="input w-full text-sm h-9" placeholder="e.g. OPD-00123" />
+                    </div>
+                  </div>
+                  <div>
+                    <FieldLabel>Gender</FieldLabel>
+                    <select
+                      value={newPatient.gender}
+                      onChange={e => setNewPatient(p => ({ ...p, gender: e.target.value }))}
+                      className="input w-full text-sm h-9">
+                      <option value="">Select…</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <p className="text-[10px] text-[var(--text-muted)]">
+                    This patient will be created automatically when the appointment is saved.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Branch */}
@@ -245,8 +383,15 @@ export default function AppointmentModal({
                   <option key={d.id} value={d.id}>Dr. {d.firstName} {d.lastName}</option>
                 ))}
               </select>
-              {doctors.length === 0 && selectedBranchId && (
+              {doctors.length === 0 && selectedBranchId && !branchDoctorsError && (
                 <p className="mt-1 text-xs text-amber-400">No doctors assigned to this branch yet.</p>
+              )}
+              {branchDoctorsError && (
+                <p className="mt-1 text-xs text-red-400">
+                  {(branchDoctorsError as any)?.response?.status === 403
+                    ? "You don't have permission to view this branch's doctors. Ask an admin to grant it."
+                    : 'Failed to load doctors. Please try again.'}
+                </p>
               )}
               {errors.dentistId && <p className="mt-1 text-xs text-red-400">{errors.dentistId.message}</p>}
             </div>
@@ -336,7 +481,7 @@ export default function AppointmentModal({
             </div>
 
             {/* Payment / Fee */}
-            <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+            {/* <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
               <button
                 type="button"
                 onClick={() => setShowPayment(p => !p)}
@@ -367,7 +512,6 @@ export default function AppointmentModal({
                     className="overflow-hidden">
                     <div className="p-4 space-y-3" style={{ borderTop: '1px solid var(--border)' }}>
 
-                      {/* Fee + Payment method — stacked on mobile */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <FieldLabel>Fee Amount (NPR)</FieldLabel>
@@ -392,7 +536,6 @@ export default function AppointmentModal({
                         </div>
                       </div>
 
-                      {/* Invoice preview */}
                       {feeNum > 0 && (
                         <div className="rounded-lg p-3 space-y-1.5"
                           style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
@@ -435,14 +578,17 @@ export default function AppointmentModal({
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
+            </div> */}
 
             {/* Submit actions — inside scroll but at the bottom of the form */}
             <div className="flex gap-3 pt-1 pb-2">
               <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center h-11 text-sm">
                 Cancel
               </button>
-              <button type="submit" disabled={mutation.isPending} className="btn-primary flex-1 justify-center h-11 text-sm">
+              <button
+                type="submit"
+                disabled={mutation.isPending || (!watch('patientId') && !hasNewPatientData)}
+                className="btn-primary flex-1 justify-center h-11 text-sm">
                 {mutation.isPending
                   ? <Loader2 size={14} className="animate-spin" />
                   : hasPayment ? 'Book & Invoice' : 'Book Appointment'}

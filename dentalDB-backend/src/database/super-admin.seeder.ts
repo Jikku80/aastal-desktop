@@ -3,12 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Clinic, SubscriptionPlan } from '../clinics/entities/clinic.entity';
 import { Subscription, SubscriptionStatus } from '../subscriptions/entities/subscription.entity';
-
-const ADMIN_EMAIL    = 'admin@agnidental.com';
-const ADMIN_PASSWORD = 'Agni@dm1n';
 
 @Injectable()
 export class SuperAdminSeeder implements OnApplicationBootstrap {
@@ -35,7 +33,53 @@ export class SuperAdminSeeder implements OnApplicationBootstrap {
     await this.seed();
   }
 
+  /**
+   * No credential is ever hardcoded in source here — a literal secret baked
+   * into the codebase ships with every build artifact and is trivially
+   * recoverable (e.g. `strings dist/main.js`), regardless of whether it's
+   * ever printed to a console. Instead:
+   *  - production requires SUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD to be
+   *    set explicitly (fails startup otherwise, rather than falling back to
+   *    a guessable default)
+   *  - non-production environments get a strong password auto-generated
+   *    and logged exactly once, the same safe pattern already used for the
+   *    per-install offline owner account (see offline-admin.seeder.ts)
+   */
+  private resolveCredentials(): { email: string; password: string; generated: boolean } {
+    const email = this.config.get<string>('SUPER_ADMIN_EMAIL') ?? '';
+    const password = this.config.get<string>('SUPER_ADMIN_PASSWORD') ?? '';
+    const isProd = (this.config.get<string>('NODE_ENV') ?? 'development') === 'production';
+
+    if (email && password) return { email, password, generated: false };
+
+    if (isProd) {
+      throw new Error(
+        'SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD must both be set in production — refusing to start with no credentials configured.',
+      );
+    }
+
+    return {
+      email: email || 'admin@agnidental.com',
+      password: password || this.generateStrongPassword(),
+      generated: !password,
+    };
+  }
+
+  private generateStrongPassword(): string {
+    const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const lower = 'abcdefghijkmnpqrstuvwxyz';
+    const digits = '23456789';
+    const special = '!@#$%^&*';
+    const all = upper + lower + digits + special;
+    const pick = (chars: string) => chars[crypto.randomInt(chars.length)];
+    const required = [pick(upper), pick(lower), pick(digits), pick(special)];
+    const filler = Array.from({ length: 12 }, () => pick(all));
+    return [...required, ...filler].sort(() => crypto.randomInt(3) - 1).join('');
+  }
+
   async seed() {
+    const { email: ADMIN_EMAIL, password: ADMIN_PASSWORD, generated } = this.resolveCredentials();
+
     // ── 1. Upsert clinic ────────────────────────────────────────────────────
     let clinic: Clinic | null = await this.clinicRepo.findOne({
       where: { slug: 'agni-dental-admin' },
@@ -72,18 +116,17 @@ export class SuperAdminSeeder implements OnApplicationBootstrap {
       this.logger.log('Created enterprise subscription for admin clinic');
     }
 
-    // ── 3. Upsert super admin user ──────────────────────────────────────────
-    // MUST use addSelect to load password (column has select:false on entity)
-    const existing = await this.userRepo
-      .createQueryBuilder('u')
-      .addSelect('u.password')          // bypass select:false
-      .where('u.email = :email', { email: ADMIN_EMAIL })
-      .getOne();
-
-    const hashed = await bcrypt.hash(ADMIN_PASSWORD, 12);
+    // ── 3. Create super admin user, ONLY if one doesn't already exist ───────
+    // Deliberately does NOT reset the password of an existing account: doing
+    // that on every boot would silently undo any password change an admin
+    // makes, and would mean the seed value (even a randomly-generated one)
+    // stays a permanent backdoor for the account's whole lifetime. Rotating
+    // a lost/compromised password is a separate, explicit action, not
+    // something that happens automatically on startup.
+    const existing = await this.userRepo.findOne({ where: { email: ADMIN_EMAIL } });
 
     if (!existing) {
-      // Fresh create
+      const hashed = await bcrypt.hash(ADMIN_PASSWORD, 12);
       await this.userRepo.save(this.userRepo.create({
         firstName: 'Super',
         lastName:  'Admin',
@@ -93,25 +136,17 @@ export class SuperAdminSeeder implements OnApplicationBootstrap {
         clinicId:  clinic.id,
         isActive:  true,
       }));
-      this.logger.log(`✅ SuperAdmin created`);
-    } else {
-      // User exists — verify the stored hash matches the expected password.
-      // If not (e.g. from a botched previous seed), force-reset it.
-      const passwordOk = existing.password
-        ? await bcrypt.compare(ADMIN_PASSWORD, existing.password)
-        : false;
-
-      if (!passwordOk) {
-        await this.userRepo.update(existing.id, {
-          password:  hashed,
-          isActive:  true,
-          role:      UserRole.SUPER_ADMIN,
-          clinicId:  clinic.id,
-        });
-        this.logger.warn(`⚠️  SuperAdmin password was invalid — reset to default`);
-      } else {
-        this.logger.log(`SuperAdmin already exists and credentials are valid`);
+      this.logger.log('✅ SuperAdmin created');
+      if (generated) {
+        this.logger.warn('════════════════════════════════════════════════════════');
+        this.logger.warn('  No SUPER_ADMIN_PASSWORD was configured — generated one for this install.');
+        this.logger.warn(`  Email:    ${ADMIN_EMAIL}`);
+        this.logger.warn(`  Password: ${ADMIN_PASSWORD}`);
+        this.logger.warn('  Set SUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD in the environment to pin this.');
+        this.logger.warn('════════════════════════════════════════════════════════');
       }
+    } else {
+      this.logger.log('SuperAdmin already exists — leaving existing credentials untouched.');
     }
   }
 }

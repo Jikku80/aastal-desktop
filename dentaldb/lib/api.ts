@@ -425,6 +425,7 @@ export const queueApi = {
   markInProgress:      (id: string)                          => api.patch(`/queue/${id}/in-progress`),
   markDone:            (id: string)                          => api.patch(`/queue/${id}/done`),
   skipEntry:           (id: string)                          => api.patch(`/queue/${id}/skip`),
+  update:              (id: string, d: any)                  => api.patch(`/queue/${id}`, d),
   remove:              (id: string)                          => api.delete(`/queue/${id}`),
   /** Idempotent: creates an appointment for a walk-in queue entry. Safe to call multiple times. */
   createAppointmentForEntry: (id: string, d: any)           => api.post(`/queue/${id}/create-appointment`, d),

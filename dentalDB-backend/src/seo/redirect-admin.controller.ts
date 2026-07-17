@@ -5,21 +5,25 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 import { RedirectService } from './redirect.service';
 
 @ApiTags('SEO Redirects (Admin)')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('seo/redirects')
 export class RedirectAdminController {
   constructor(private readonly redirectService: RedirectService) {}
 
   @Get()
+  @RequirePermissions('website.view')
   list(@Request() req: any) {
     return this.redirectService.list(req.user.clinicId);
   }
 
   @Post()
+  @RequirePermissions('website.manage')
   create(
     @Request() req: any,
     @Body() body: { fromPath: string; toPath: string; statusCode?: 301 | 302 },
@@ -42,6 +46,7 @@ export class RedirectAdminController {
   }
 
   @Delete(':id')
+  @RequirePermissions('website.manage')
   remove(@Request() req: any, @Param('id') id: string) {
     return this.redirectService.remove(req.user.clinicId, id);
   }

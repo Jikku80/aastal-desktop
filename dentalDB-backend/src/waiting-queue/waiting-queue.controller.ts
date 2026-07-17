@@ -3,11 +3,19 @@ import {
   UseGuards, Req,
 } from '@nestjs/common';
 import { WaitingQueueService } from './waiting-queue.service';
-import { AddToQueueDto, WalkInDto } from './dto/waiting-queue.dto';
+import { AddToQueueDto, WalkInDto, UpdateQueueEntryDto } from './dto/waiting-queue.dto';
 import { JwtAuthGuard }            from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard }        from '../rbac/guards/permissions.guard';
+import { RequirePermissions }      from '../rbac/decorators/require-permissions.decorator';
 
+// PermissionsGuard is a no-op on any handler that doesn't carry
+// @RequirePermissions(...), so adding it here doesn't change access to the
+// existing day-to-day queue actions (walk-in, call, done, skip, ...) —
+// it only gates the new edit/delete endpoints below. Owners and
+// super-admins always pass because JwtStrategy grants them the '*'
+// wildcard permission.
 @Controller('queue')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class WaitingQueueController {
   constructor(private readonly service: WaitingQueueService) {}
 
@@ -97,8 +105,16 @@ export class WaitingQueueController {
     return this.service.skipEntry(id, req.user.clinicId);
   }
 
+  /** Edit a queue entry (notes, assigned doctor, linked patient's OPD no.) */
+  @Patch(':id')
+  @RequirePermissions('queue.manage')
+  update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateQueueEntryDto) {
+    return this.service.updateEntry(id, req.user.clinicId, dto);
+  }
+
   /** Remove entry */
   @Delete(':id')
+  @RequirePermissions('queue.manage')
   remove(@Req() req: any, @Param('id') id: string) {
     return this.service.removeFromQueue(id, req.user.clinicId);
   }

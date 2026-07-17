@@ -1,10 +1,10 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, Between, MoreThan, IsNull } from 'typeorm';
-import { addDays, startOfDay, endOfDay, addMonths } from 'date-fns';
-import { parseAsNepalTime, nepalStartOfTodayUTC } from '../common/utils/timezone.util';
+import { Repository, LessThan, Between, MoreThan, IsNull, Not } from 'typeorm';
+import { addDays, addWeeks, startOfDay, endOfDay, addMonths } from 'date-fns';
+import { parseAsNepalTime, nepalStartOfTodayUTC, nepalWallClockToUTC } from '../common/utils/timezone.util';
 import { Recall, RecallStatus, RecallType } from './entities/recall.entity';
-import { CreateRecallDto, UpdateRecallDto, BulkCreateRecallDto } from './dto/recall.dto';
+import { CreateRecallDto, UpdateRecallDto, BulkCreateRecallDto, RecallDueUnit } from './dto/recall.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { NotificationType } from '../notifications/entities/notification.entity';
@@ -21,7 +21,7 @@ export class RecallsService {
     private gateway: NotificationsGateway,
   ) {}
 
-  async create(clinicId: string, userId: string, dto: CreateRecallDto): Promise<Recall> {
+  async create(clinicId: string, userId: string, dto: CreateRecallDto): Promise<{ recall: Recall; appointment: Appointment | null }> {
     const recall = this.recallRepo.create({
       clinicId,
       createdByUserId: userId,
@@ -32,36 +32,127 @@ export class RecallsService {
       notes:     dto.notes,
       status:    RecallStatus.PENDING,
     });
-    return this.recallRepo.save(recall) as unknown as Recall;
+    let savedRecall = await this.recallRepo.save(recall) as unknown as Recall;
+
+    // Auto-book the follow-up appointment right away so the user doesn't
+    // have to come back to the Recalls page and book it manually later.
+    // Skippable via `createAppointment: false`; failures never block the
+    // recall itself from being saved — we just log and leave it PENDING.
+    let appointment: Appointment | null = null;
+    if (dto.createAppointment !== false) {
+      if (!dto.dentistId) {
+        // Appointment.dentistId is a required column — without it the insert
+        // below will fail. Warn explicitly rather than letting the caller
+        // only see a generic DB error in the logs.
+        this.logger.warn(`[RecallService] No dentistId supplied for recall ${savedRecall.id} — auto-booking will fail and the recall will stay PENDING.`);
+      }
+      try {
+        appointment = await this.autoBookAppointment(clinicId, savedRecall, dto.dueDate, {
+          dentistId: dto.dentistId,
+          branchId: dto.branchId,
+          durationMinutes: dto.durationMinutes,
+        });
+        savedRecall = { ...savedRecall, status: RecallStatus.BOOKED, appointmentId: appointment.id };
+      } catch (e: any) {
+        this.logger.error(`[RecallService] Auto-booking appointment failed for recall ${savedRecall.id}: ${e?.message}`);
+      }
+    }
+
+    return { recall: savedRecall, appointment };
   }
 
-  async bulkCreate(clinicId: string, userId: string, dto: BulkCreateRecallDto): Promise<Recall> {
-    const dueDate = addMonths(new Date(), dto.monthsFromNow);
+  async bulkCreate(clinicId: string, userId: string, dto: BulkCreateRecallDto): Promise<{ recall: Recall; appointment: Appointment | null }> {
+    const unit = dto.unit ?? RecallDueUnit.MONTHS;
+    const dueDay =
+      unit === RecallDueUnit.DAYS  ? addDays(new Date(), dto.amount) :
+      unit === RecallDueUnit.WEEKS ? addWeeks(new Date(), dto.amount) :
+      addMonths(new Date(), dto.amount);
+
+    // Combine the computed due day with the requested Nepal-local
+    // time-of-day so the auto-booked follow-up appointment lands at a
+    // sensible clinic hour instead of "right now".
+    const [hh, mm] = (dto.dueTime || '10:00').split(':').map(Number);
+    const dueDateTime = nepalWallClockToUTC(
+      dueDay.getFullYear(), dueDay.getMonth() + 1, dueDay.getDate(), hh || 10, mm || 0,
+    );
+
     return this.create(clinicId, userId, {
       patientId:  dto.patientId,
-      dueDate:    dueDate.toISOString(),
+      dueDate:    dueDateTime.toISOString(),
       reason:     dto.reason,
       recallType: dto.recallType,
       notes:      dto.notes,
+      dentistId:  dto.dentistId,
+      branchId:   dto.branchId,
+      durationMinutes: dto.durationMinutes,
+      createAppointment: dto.createAppointment,
+    } as CreateRecallDto);
+  }
+
+  /** Shared appointment-creation logic used by both auto-booking on recall
+   *  creation (create/bulkCreate) and the manual "Book Appointment" action
+   *  on the Recalls page (createAppointmentForRecall below). */
+  private async autoBookAppointment(
+    clinicId: string,
+    recall: Recall,
+    dueDateRaw: string,
+    opts: { dentistId?: string; branchId?: string; durationMinutes?: number },
+  ): Promise<Appointment> {
+    const scheduledAt = parseAsNepalTime(dueDateRaw);
+    const durationMinutes = opts.durationMinutes || 30;
+    const endsAt = new Date(scheduledAt.getTime() + durationMinutes * 60 * 1000);
+
+    const apt = this.aptRepo.create({
+      clinicId,
+      branchId:        opts.branchId,
+      patientId:       recall.patientId,
+      dentistId:       opts.dentistId,
+      scheduledAt,
+      endsAt,
+      status:          AppointmentStatus.SCHEDULED,
+      type:            recall.recallType,
+      notes:           recall.reason || 'Recall follow-up',
+      durationMinutes,
+    } as unknown as Appointment);
+
+    const savedApt = await this.aptRepo.save(apt) as unknown as Appointment;
+
+    await this.recallRepo.update(recall.id, {
+      status: RecallStatus.BOOKED,
+      appointmentId: savedApt.id,
     });
+
+    return savedApt;
   }
 
   async findAll(clinicId: string) {
     const today = nepalStartOfTodayUTC();
     const weekEnd = endOfDay(addDays(new Date(), 7));
 
+    // Show every active recall (pending, contacted, or already booked) in its
+    // due-date bucket — only cancelled recalls drop off the board. Recalls
+    // used to be filtered to status=PENDING only, which meant a recall
+    // vanished from every column the moment it got auto-booked with an
+    // appointment, making the page look empty. The UI already knows how to
+    // render booked recalls (see the "Appointment Linked" card + status
+    // badge in RecallCard), so we just need to keep sending them.
+    const activeStatuses = Not(RecallStatus.CANCELLED);
+
     const [overdue, thisWeek, upcoming] = await Promise.all([
       this.recallRepo.find({
-        where: { clinicId, status: RecallStatus.PENDING, dueDate: LessThan(today) },
+        where: { clinicId, status: activeStatuses, dueDate: LessThan(today) },
         order: { dueDate: 'ASC' },
+        relations: ['appointment'],
       }),
       this.recallRepo.find({
-        where: { clinicId, status: RecallStatus.PENDING, dueDate: Between(today, weekEnd) },
+        where: { clinicId, status: activeStatuses, dueDate: Between(today, weekEnd) },
         order: { dueDate: 'ASC' },
+        relations: ['appointment'],
       }),
       this.recallRepo.find({
-        where: { clinicId, status: RecallStatus.PENDING, dueDate: MoreThan(weekEnd) },
+        where: { clinicId, status: activeStatuses, dueDate: MoreThan(weekEnd) },
         order: { dueDate: 'ASC' },
+        relations: ['appointment'],
       }),
     ]);
 
@@ -131,29 +222,14 @@ export class RecallsService {
       throw new Error('This recall is already marked as booked. Reopen it before creating a new appointment.');
     }
 
-    const scheduledAt = parseAsNepalTime(dto.scheduledAt);
-    const durationMinutes = dto.durationMinutes || 30;
-    const endsAt = new Date(scheduledAt.getTime() + durationMinutes * 60 * 1000);
+    if (dto.notes) recall.reason = recall.reason || dto.notes;
+    const savedApt = await this.autoBookAppointment(clinicId, recall, dto.scheduledAt, {
+      dentistId: dto.dentistId,
+      branchId: dto.branchId,
+      durationMinutes: dto.durationMinutes,
+    });
 
-    const apt = this.aptRepo.create({
-      clinicId,
-      branchId:        dto.branchId,
-      patientId:       recall.patientId,
-      dentistId:       dto.dentistId,
-      scheduledAt,
-      endsAt,
-      status:          AppointmentStatus.SCHEDULED,
-      type:            recall.recallType,
-      notes:           dto.notes || recall.reason || '',
-      durationMinutes,
-    } as unknown as Appointment);
-
-    const savedApt = await this.aptRepo.save(apt) as unknown as Appointment;
-
-    recall.status        = RecallStatus.BOOKED;
-    recall.appointmentId = savedApt.id;
-    const savedRecall = await this.recallRepo.save(recall) as unknown as Recall;
-
+    const savedRecall = { ...recall, status: RecallStatus.BOOKED, appointmentId: savedApt.id } as Recall;
     return { recall: savedRecall, appointment: savedApt };
   }
 

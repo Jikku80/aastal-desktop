@@ -170,9 +170,50 @@ export class PatientsService {
     return this.findOne(clinicId, id);
   }
 
+  // Table name → plain-English label, used only to build the error message
+  // below. Not exhaustive of every table that references patients (new
+  // clinical modules can add their own FK later) — this just makes the
+  // common cases read clearly; anything not listed still gets a sensible
+  // fallback rather than a raw table name.
+  private static readonly PATIENT_FK_TABLE_LABELS: Record<string, string> = {
+    appointments:            'appointments',
+    invoices:                'invoices',
+    clinical_records:        'clinical records',
+    blood_tests:             'blood test records',
+    lab_work:                'lab work records',
+    dental_charts:           'a dental chart',
+    recalls:                 'recall schedules',
+    vitals:                  'vitals records',
+    waiting_queue:           'a waiting-queue entry',
+    patient_files:           'uploaded files',
+    patient_account_links:   'a linked patient-portal account',
+    reviews:                 'a review',
+  };
+
   async remove(clinicId: string, id: string): Promise<void> {
     await this.findOne(clinicId, id);
-    await this.repo.delete({ id, clinicId });
+    try {
+      await this.repo.delete({ id, clinicId });
+    } catch (e: any) {
+      // Postgres foreign_key_violation. A patient with any clinical or
+      // billing history (appointments, invoices, clinical records, etc.)
+      // is intentionally NOT hard-deletable — cascading that away would
+      // silently destroy medical/financial records. Previously this just
+      // bubbled up as an unhandled QueryFailedError (a raw 500), which is
+      // what showed up in the logs. Turn it into a clear, actionable error
+      // instead, and point at the existing archive/deactivate path.
+      if (e?.code === '23503') {
+        const table = e?.table as string | undefined;
+        const label = (table && PatientsService.PATIENT_FK_TABLE_LABELS[table]) || 'other records';
+        throw new BadRequestException(
+          `This patient can't be deleted because they still have ${label} on file. ` +
+          `To remove them from active lists while keeping their history intact, mark them inactive instead ` +
+          `(PATCH this patient with { "isActive": false }). If you specifically need to erase this patient's ` +
+          `data, delete or reassign their ${label} first.`
+        );
+      }
+      throw e;
+    }
   }
 
   // ── Duplicate Patient Merge ─────────────────────────────────────────────────

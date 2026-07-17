@@ -3,11 +3,13 @@ import {
   UseGuards, Request, NotFoundException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WebsiteOrder, WebsiteOrderStatus } from './entities/website-order.entity';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('website-orders')
 export class WebsiteOrdersController {
   constructor(
@@ -16,6 +18,7 @@ export class WebsiteOrdersController {
   ) {}
 
   @Get()
+  @RequirePermissions('website.view')
   async findAll(@Request() req: any, @Query() query: any) {
     const { page = 1, limit = 20, status } = query;
     const clinicId = req.user.clinicId;
@@ -44,6 +47,7 @@ export class WebsiteOrdersController {
   }
 
   @Patch(':id/status')
+  @RequirePermissions('website.manage')
   async updateStatus(
     @Request() req: any,
     @Param('id') id: string,

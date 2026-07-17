@@ -11,8 +11,10 @@ import { InventoryService } from './inventory.service';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto } from './dto/purchase-order.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('inventory')
 export class InventoryController {
   constructor(private readonly svc: InventoryService) {}
@@ -21,37 +23,44 @@ export class InventoryController {
   // IMPORTANT: static routes (/low-stock) must come BEFORE /:id
 
   @Post()
+  @RequirePermissions('inventory.manage')
   create(@Request() req: any, @Body() dto: CreateProductDto) {
     return this.svc.create(req.user.clinicId, dto);
   }
 
   @Get('low-stock')
+  @RequirePermissions('inventory.view')
   findLowStock(@Request() req: any) {
     return this.svc.findLowStock(req.user.clinicId);
   }
 
   @Get()
+  @RequirePermissions('inventory.view')
   findAll(@Request() req: any, @Query() query: any) {
     return this.svc.findAll(req.user.clinicId, query);
   }
 
   @Get(':id')
+  @RequirePermissions('inventory.view')
   findOne(@Request() req: any, @Param('id') id: string) {
     return this.svc.findOne(req.user.clinicId, id);
   }
 
   @Patch(':id')
+  @RequirePermissions('inventory.manage')
   update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.svc.update(req.user.clinicId, id, dto);
   }
 
   @Delete(':id')
+  @RequirePermissions('inventory.manage')
   remove(@Request() req: any, @Param('id') id: string) {
     return this.svc.remove(req.user.clinicId, id);
   }
 
   /** Upload product image — returns { imageUrl } */
   @Post(':id/image')
+  @RequirePermissions('inventory.manage')
   @UseInterceptors(FileInterceptor('image', {
     storage: diskStorage({
       destination: join(UPLOADS_DIR, 'products'),
@@ -76,27 +85,31 @@ export class InventoryController {
 
 // ── Purchase Orders — separate controller to avoid /:id route collision ──────
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('purchase-orders')
 export class PurchaseOrdersController {
   constructor(private readonly svc: InventoryService) {}
 
   @Post()
+  @RequirePermissions('inventory.manage')
   create(@Request() req: any, @Body() dto: CreatePurchaseOrderDto) {
     return this.svc.createPO(req.user.clinicId, dto);
   }
 
   @Get()
+  @RequirePermissions('inventory.view')
   findAll(@Request() req: any) {
     return this.svc.findAllPOs(req.user.clinicId);
   }
 
   @Patch(':id')
+  @RequirePermissions('inventory.manage')
   update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdatePurchaseOrderDto) {
     return this.svc.updatePOStatus(req.user.clinicId, id, dto, req.user.id);
   }
 
   @Delete(':id')
+  @RequirePermissions('inventory.manage')
   remove(@Request() req: any, @Param('id') id: string) {
     return this.svc.deletePO(req.user.clinicId, id);
   }

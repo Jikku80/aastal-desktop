@@ -1,3 +1,4 @@
+// dentalDB-backend/src/prescription/prescriptions.controller.ts
 import {
   Controller, Get, Post, Patch, Param, Body, Res, UseGuards, Request,
   UseInterceptors, UploadedFiles, BadRequestException,
@@ -9,10 +10,12 @@ import { UPLOADS_DIR } from '../common/utils/uploads-dir.util';
 import { v4 as uuid } from 'uuid';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 import { BranchLockGuard } from '../common/guards/branch-lock.guard';
 import { PrescriptionPdfService } from './prescription-pdf.service';
 
-@UseGuards(JwtAuthGuard, BranchLockGuard)
+@UseGuards(JwtAuthGuard, BranchLockGuard, PermissionsGuard)
 @Controller('prescriptions')
 export class PrescriptionsController {
   constructor(private readonly pdfSvc: PrescriptionPdfService) {}
@@ -20,6 +23,7 @@ export class PrescriptionsController {
   // ── GET /prescriptions/template/preview-html ────────────────────────────────
   /** Renders a sample prescription using the clinic's current template — used by the settings live preview */
   @Get('template/preview-html')
+  @RequirePermissions('settings.view')
   async getTemplatePreview(@Request() req: any, @Res() res: Response) {
     const clinicId = req.user.clinicId;
     const template = await this.pdfSvc.getTemplate(clinicId);
@@ -45,12 +49,14 @@ export class PrescriptionsController {
 
   // ── GET /prescriptions/template ─────────────────────────────────────────────
   @Get('template')
+  @RequirePermissions('settings.view')
   getTemplate(@Request() req: any) {
     return this.pdfSvc.getTemplate(req.user.clinicId);
   }
 
   // ── PATCH /prescriptions/template ───────────────────────────────────────────
   @Patch('template')
+  @RequirePermissions('settings.manage')
   updateTemplate(@Request() req: any, @Body() body: any) {
     const allowed = [
       'headerHtml', 'footerHtml', 'showLogo',
@@ -65,6 +71,7 @@ export class PrescriptionsController {
 
   // ── POST /prescriptions/template/logo  (upload logo) ────────────────────────
   @Post('template/logo')
+  @RequirePermissions('settings.manage')
   @UseInterceptors(
     FilesInterceptor('file', 1, {
       storage: diskStorage({
@@ -87,6 +94,7 @@ export class PrescriptionsController {
 
   // ── POST /prescriptions/template/signature  (upload signature) ──────────────
   @Post('template/signature')
+  @RequirePermissions('settings.manage')
   @UseInterceptors(
     FilesInterceptor('file', 1, {
       storage: diskStorage({
@@ -109,6 +117,7 @@ export class PrescriptionsController {
 
   // ── GET /prescriptions/appointment/:appointmentId/pdf ───────────────────────
   @Get('appointment/:appointmentId/pdf')
+  @RequirePermissions('records.view')
   async getPdfByAppointment(
     @Request() req: any,
     @Param('appointmentId') appointmentId: string,
@@ -126,6 +135,7 @@ export class PrescriptionsController {
 
   // ── GET /prescriptions/record/:recordId/pdf ──────────────────────────────────
   @Get('record/:recordId/pdf')
+  @RequirePermissions('records.view')
   async getPdfByRecord(
     @Request() req: any,
     @Param('recordId') recordId: string,
@@ -144,6 +154,7 @@ export class PrescriptionsController {
   // ── GET /prescriptions/record/:recordId/preview-html ────────────────────────
   /** Returns raw HTML for the in-browser print preview modal */
   @Get('record/:recordId/preview-html')
+  @RequirePermissions('records.view')
   async getPreviewHtml(
     @Request() req: any,
     @Param('recordId') recordId: string,

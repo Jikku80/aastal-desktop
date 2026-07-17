@@ -10,6 +10,7 @@ import { Invoice } from '../billing/entities/invoice.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { Subscription } from '../subscriptions/entities/subscription.entity';
+import { UserRole as UserRoleAssignment } from '../rbac/entities/user-role.entity';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { Subscription } from '../subscriptions/entities/subscription.entity';
       Patient,
       Clinic,
       Subscription,
+      UserRoleAssignment,
     ]),
   ],
   controllers: [BranchesController],

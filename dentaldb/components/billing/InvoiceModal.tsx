@@ -1,26 +1,44 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { X, Plus, Trash2, Loader2, Search, ChevronDown, Stethoscope, Package, Receipt } from 'lucide-react';
+import { X, Plus, Trash2, Loader2, Search, ChevronDown, Stethoscope, Package, Receipt, Wallet, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { billingApi, patientsApi, appointmentsApi, servicesApi, inventoryApi, usersApi, bloodTestApi, labApi } from '@/lib/api';
+import { billingApi, patientsApi, appointmentsApi, servicesApi, inventoryApi, usersApi, bloodTestApi, labApi, walletApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 import { format } from 'date-fns';
 import { formatNepalDateTime } from '@/lib/timezone';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-interface ServiceLine { serviceId: string; serviceName: string; qty: number; unitPrice: number; doctorId: string; }
-interface ProductLine { productId: string; productName: string; qty: number; unitPrice: number; }
+// `_uid` is a stable client-only identity for each line, independent of its
+// position in the array. It's what row components key/reference off of — using
+// the array index for that (as this used to) breaks the moment a new line is
+// inserted anywhere but the very end, because React then reuses/remaps each
+// row's DOM (and uncommitted input state) by position instead of by row, so
+// existing rows can appear to swap values around. Generated once, on add.
+interface ServiceLine { _uid: string; serviceId: string; serviceName: string; qty: number; unitPrice: number; doctorId: string; }
+interface ProductLine { _uid: string; productId: string; productName: string; qty: number; unitPrice: number; }
 interface TestLine { id: string; type: 'blood' | 'lab'; name: string; cost: number; }
 
+const newUid = () =>
+  (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 // ── Patient Combobox ──────────────────────────────────────────────────────────
-function PatientCombobox({ value, onChange }: { value: string; onChange: (id: string, name: string) => void }) {
+function PatientCombobox({ value, initialLabel, onChange }: { value: string; initialLabel?: string; onChange: (id: string, name: string) => void }) {
   const { activeBranch } = useAuthStore();
   const [query, setQuery] = useState('');
   const [open,  setOpen]  = useState(false);
-  const [label, setLabel] = useState('');
+  const [label, setLabel] = useState(initialLabel || '');
   const ref = useRef<HTMLDivElement>(null);
+
+  // Keep the displayed label in sync when a patient is pre-selected (e.g. auto-selected
+  // from the Queue "Mark Done" flow) — value/initialLabel can arrive after first render.
+  useEffect(() => {
+    if (value && initialLabel) setLabel(initialLabel);
+    if (!value) setLabel('');
+  }, [value, initialLabel]);
 
   const { data } = useQuery({
     queryKey: ['pts-search', query],
@@ -101,19 +119,19 @@ function EmptyRow({ label, onAdd }: { label: string; onAdd: () => void }) {
 
 // ── Service Line ──────────────────────────────────────────────────────────────
 function ServiceLineRow({
-  line, index, services, doctors, onChange, onRemove,
+  line, services, doctors, onChange, onRemove,
 }: {
-  line: ServiceLine; index: number;
+  line: ServiceLine;
   services: any[]; doctors: any[];
-  onChange: (i: number, field: keyof ServiceLine, val: any) => void;
-  onRemove: (i: number) => void;
+  onChange: (uid: string, field: keyof ServiceLine, val: any) => void;
+  onRemove: (uid: string) => void;
 }) {
   const handleServiceSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const svc = services.find(s => s.id === e.target.value);
     if (svc) {
-      onChange(index, 'serviceId', svc.id);
-      onChange(index, 'serviceName', svc.name);
-      onChange(index, 'unitPrice', Number(svc.price) || 0);
+      onChange(line._uid, 'serviceId', svc.id);
+      onChange(line._uid, 'serviceName', svc.name);
+      onChange(line._uid, 'unitPrice', Number(svc.price) || 0);
     }
   };
   const subtotal = line.qty * line.unitPrice;
@@ -128,7 +146,7 @@ function ServiceLineRow({
             {services.map(s => <option key={s.id} value={s.id}>{s.name} — NPR {Number(s.price).toLocaleString()}</option>)}
           </select>
         </div>
-        <button type="button" onClick={() => onRemove(index)} className="text-[var(--text-muted)] hover:text-red-400 mt-1.5 shrink-0">
+        <button type="button" onClick={() => onRemove(line._uid)} className="text-[var(--text-muted)] hover:text-red-400 mt-1.5 shrink-0">
           <Trash2 size={14} />
         </button>
       </div>
@@ -136,12 +154,12 @@ function ServiceLineRow({
       <div className="grid grid-cols-3 gap-2">
         <div>
           <label className="text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wide mb-0.5 block">Qty</label>
-          <input type="number" min={1} value={line.qty} onChange={e => onChange(index, 'qty', Number(e.target.value))}
+          <input type="number" min={1} value={line.qty} onChange={e => onChange(line._uid, 'qty', Number(e.target.value))}
             className="input w-full py-1.5 text-sm text-center" />
         </div>
         <div>
           <label className="text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wide mb-0.5 block">Unit Price</label>
-          <input type="number" min={0} value={line.unitPrice} onChange={e => onChange(index, 'unitPrice', Number(e.target.value))}
+          <input type="number" min={0} value={line.unitPrice} onChange={e => onChange(line._uid, 'unitPrice', Number(e.target.value))}
             className="input w-full py-1.5 text-sm text-right" />
         </div>
         <div>
@@ -156,7 +174,7 @@ function ServiceLineRow({
         <label className="text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wide mb-0.5 block flex items-center gap-1">
           <Stethoscope size={9} /> Doctor (commission applies to this service)
         </label>
-        <select value={line.doctorId} onChange={e => onChange(index, 'doctorId', e.target.value)} className="input w-full py-1.5 text-sm">
+        <select value={line.doctorId} onChange={e => onChange(line._uid, 'doctorId', e.target.value)} className="input w-full py-1.5 text-sm">
           <option value="">— No doctor / no commission —</option>
           {doctors.map(d => (
             <option key={d.id} value={d.id}>
@@ -176,19 +194,19 @@ function ServiceLineRow({
 
 // ── Product Line ──────────────────────────────────────────────────────────────
 function ProductLineRow({
-  line, index, products, onChange, onRemove,
+  line, products, onChange, onRemove,
 }: {
-  line: ProductLine; index: number;
+  line: ProductLine;
   products: any[];
-  onChange: (i: number, field: keyof ProductLine, val: any) => void;
-  onRemove: (i: number) => void;
+  onChange: (uid: string, field: keyof ProductLine, val: any) => void;
+  onRemove: (uid: string) => void;
 }) {
   const handleProductSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const prod = products.find(p => p.id === e.target.value);
     if (prod) {
-      onChange(index, 'productId', prod.id);
-      onChange(index, 'productName', prod.name);
-      onChange(index, 'unitPrice', Number(prod.price) || 0);
+      onChange(line._uid, 'productId', prod.id);
+      onChange(line._uid, 'productName', prod.name);
+      onChange(line._uid, 'unitPrice', Number(prod.price) || 0);
     }
   };
   const subtotal = line.qty * line.unitPrice;
@@ -202,7 +220,7 @@ function ProductLineRow({
             {products.map(p => <option key={p.id} value={p.id}>{p.name} — NPR {Number(p.price).toLocaleString()}</option>)}
           </select>
         </div>
-        <button type="button" onClick={() => onRemove(index)} className="text-[var(--text-muted)] hover:text-red-400 mt-1.5 shrink-0">
+        <button type="button" onClick={() => onRemove(line._uid)} className="text-[var(--text-muted)] hover:text-red-400 mt-1.5 shrink-0">
           <Trash2 size={14} />
         </button>
       </div>
@@ -210,12 +228,12 @@ function ProductLineRow({
       <div className="grid grid-cols-3 gap-2">
         <div>
           <label className="text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wide mb-0.5 block">Qty</label>
-          <input type="number" min={1} value={line.qty} onChange={e => onChange(index, 'qty', Number(e.target.value))}
+          <input type="number" min={1} value={line.qty} onChange={e => onChange(line._uid, 'qty', Number(e.target.value))}
             className="input w-full py-1.5 text-sm text-center" />
         </div>
         <div>
           <label className="text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wide mb-0.5 block">Unit Price</label>
-          <input type="number" min={0} value={line.unitPrice} onChange={e => onChange(index, 'unitPrice', Number(e.target.value))}
+          <input type="number" min={0} value={line.unitPrice} onChange={e => onChange(line._uid, 'unitPrice', Number(e.target.value))}
             className="input w-full py-1.5 text-sm text-right" />
         </div>
         <div>
@@ -238,6 +256,7 @@ export default function InvoiceModal({
 }) {
   const { activeBranch, clinic } = useAuthStore();
   useBodyScrollLock(true);
+  const qc = useQueryClient();
   const globalVat = (clinic as any)?.settings?.vatPercent ?? 0;
 
   // Patient & appointment
@@ -261,6 +280,20 @@ export default function InvoiceModal({
   const [notes,          setNotes]          = useState('');
   const [status,         setStatus]         = useState('not_yet_paid');
   const [dueDate,        setDueDate]        = useState('');
+
+  // Amount actually collected up front (cash/card/etc). Lets a clinic record a
+  // partial payment — e.g. bill is NPR 1000, patient pays NPR 200, NPR 800
+  // stays due — instead of the old all-or-nothing Paid/Not-Paid toggle.
+  const [amountPaidInput, setAmountPaidInput] = useState('');
+
+  // Patient wallet — optionally deduct the bill (or part of it) from the patient's wallet balance
+  const [useWallet, setUseWallet] = useState(false);
+  const { data: walletData } = useQuery({
+    queryKey: ['wallet-balance-inv', patientId],
+    queryFn:  () => walletApi.getBalance(patientId).then(r => r.data),
+    enabled:  !!patientId,
+  });
+  const walletBalance = Number((walletData as any)?.balance ?? 0);
 
   // Data fetching
   const { data: servicesData, isLoading: servLoading } = useQuery({
@@ -311,17 +344,19 @@ export default function InvoiceModal({
     setTestLines(p => [...p, { id: t.id, type, name: t.testName, cost: Number(t.cost || 0) }]);
   const removeTestLine = (id: string) => setTestLines(p => p.filter(l => l.id !== id));
 
-  // Service line helpers
-  const addServiceLine  = () => setServiceLines(p => [...p, { serviceId: '', serviceName: '', qty: 1, unitPrice: 0, doctorId: '' }]);
-  const removeServiceLine = (i: number) => setServiceLines(p => p.filter((_, idx) => idx !== i));
-  const updateServiceLine = (i: number, field: keyof ServiceLine, val: any) =>
-    setServiceLines(p => p.map((l, idx) => idx === i ? { ...l, [field]: val } : l));
+  // Service line helpers — new lines go to the TOP of the list, so staff
+  // adding a second/third service don't have to keep scrolling down past
+  // the ones they already filled in to find the blank one they just added.
+  const addServiceLine  = () => setServiceLines(p => [{ _uid: newUid(), serviceId: '', serviceName: '', qty: 1, unitPrice: 0, doctorId: '' }, ...p]);
+  const removeServiceLine = (uid: string) => setServiceLines(p => p.filter(l => l._uid !== uid));
+  const updateServiceLine = (uid: string, field: keyof ServiceLine, val: any) =>
+    setServiceLines(p => p.map(l => l._uid === uid ? { ...l, [field]: val } : l));
 
-  // Product line helpers
-  const addProductLine  = () => setProductLines(p => [...p, { productId: '', productName: '', qty: 1, unitPrice: 0 }]);
-  const removeProductLine = (i: number) => setProductLines(p => p.filter((_, idx) => idx !== i));
-  const updateProductLine = (i: number, field: keyof ProductLine, val: any) =>
-    setProductLines(p => p.map((l, idx) => idx === i ? { ...l, [field]: val } : l));
+  // Product line helpers — same top-of-list placement as services above.
+  const addProductLine  = () => setProductLines(p => [{ _uid: newUid(), productId: '', productName: '', qty: 1, unitPrice: 0 }, ...p]);
+  const removeProductLine = (uid: string) => setProductLines(p => p.filter(l => l._uid !== uid));
+  const updateProductLine = (uid: string, field: keyof ProductLine, val: any) =>
+    setProductLines(p => p.map(l => l._uid === uid ? { ...l, [field]: val } : l));
 
   // Auto-populate from appointment
   const handleApptChange = (apptId: string) => {
@@ -331,6 +366,7 @@ export default function InvoiceModal({
     if (apt && serviceLines.length === 0) {
       const svc = services.find((s: any) => s.id === apt.serviceId);
       setServiceLines([{
+        _uid:        newUid(),
         serviceId:   apt.serviceId || svc?.id || '',
         serviceName: svc?.name || (apt.type || 'consultation').replace(/_/g, ' '),
         qty:         1,
@@ -348,8 +384,58 @@ export default function InvoiceModal({
     }
   }, [initialAppointmentId, apts.length]);
 
+  // Amount paid up front (cash/card/etc.), clamped to [0, total]
+  const paidAmountNum   = Math.min(Math.max(Number(amountPaidInput) || 0, 0), total);
+  const dueAfterManual  = Math.max(total - paidAmountNum, 0);
+
+  // How much of the *remaining* balance (after the manual amount above) will
+  // be paid from the patient's wallet, if enabled
+  const walletApplyAmount  = useWallet ? Math.min(walletBalance, dueAfterManual) : 0;
+  const walletInsufficient = useWallet && walletBalance < dueAfterManual;
+  const finalDueAmount     = Math.max(dueAfterManual - walletApplyAmount, 0);
+
+  // Guard against a stale wallet selection: if "Pay from Patient Wallet" was
+  // checked (setting paymentMethod to 'wallet_debit' and computing a
+  // non-zero walletApplyAmount), but the person THEN types/clicks their way
+  // to covering the whole bill manually via "Amount Paid Now" (e.g. "Pay
+  // full amount"), dueAfterManual drops to 0 and walletApplyAmount drops to
+  // 0 right along with it — the wallet checkbox becomes disabled in the UI,
+  // but its state (and the paymentMethod label it set) doesn't reset itself.
+  // Left alone, the invoice submits as status 'paid' / paymentMethod
+  // 'wallet_debit' while walletApplyAmount is 0, so the mutationFn below
+  // never calls walletApi.applyToInvoice() at all — an invoice that claims
+  // to be wallet-paid with no wallet transaction behind it. Whenever the
+  // wallet stops actually contributing, force its state back to "unused"
+  // rather than let a stale label ride along to submission.
+  useEffect(() => {
+    if (useWallet && walletApplyAmount <= 0) {
+      setUseWallet(false);
+      if (paymentMethod === 'wallet_debit') setPaymentMethod('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walletApplyAmount, useWallet]);
+
+  // Keep the Status dropdown in sync with what's actually been collected up
+  // front (cash/card/etc.), unless the user has deliberately parked it as
+  // Draft. This intentionally does NOT factor in walletApplyAmount: the
+  // wallet portion is applied in a second step (see mutationFn below) via
+  // applyToInvoice, which does its own paidAmount/dueAmount/status update
+  // against whatever the invoice was actually created with. If this effect
+  // pre-marked the invoice 'paid' (and thus paidAmount = total) just because
+  // the wallet *would* cover the rest, applyToInvoice would then add the
+  // wallet amount on top of that already-full paidAmount — silently
+  // doubling the recorded payment for every invoice paid fully by wallet.
+  useEffect(() => {
+    if (status === 'draft') return;
+    if (total <= 0) return;
+    if (dueAfterManual <= 0) { if (status !== 'paid') setStatus('paid'); }
+    else if (paidAmountNum > 0) { if (status !== 'partially_paid') setStatus('partially_paid'); }
+    else { if (status !== 'not_yet_paid') setStatus('not_yet_paid'); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dueAfterManual, paidAmountNum, total]);
+
   const mutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const allItems = [
         ...serviceLines.map(l => ({
           description: l.serviceName || 'Service',
@@ -377,21 +463,54 @@ export default function InvoiceModal({
       ];
       if (allItems.length === 0) throw new Error('Add at least one service or product');
 
-      return billingApi.createInvoice({
+      const res = await billingApi.createInvoice({
         patientId,
         appointmentId: appointmentId || undefined,
         branchId:      activeBranch?.id,
         items:         allItems,
         subtotal, taxPercent, taxAmount, discountAmount,
-        total, dueAmount: total, paidAmount: 0,
+        total, dueAmount: dueAfterManual, paidAmount: paidAmountNum,
         paymentMethod: paymentMethod || undefined,
         notes:         notes || undefined,
         status, dueDate: dueDate || undefined,
       });
+
+      // From here on the invoice DEFINITELY exists — any failure below is a
+      // wallet-specific failure, not an invoice-creation failure, and must
+      // be reported (and recovered from) as such. Previously a thrown error
+      // here rejected the whole mutation with the generic "Failed to create
+      // invoice" message and skipped onSuccess() entirely — so the invoice
+      // silently existed (unpaid, wallet untouched) while the UI acted as
+      // though the whole operation had failed: modal stayed open, list
+      // never refreshed, nothing about the wallet failure was surfaced.
+      let walletError: string | null = null;
+      if (walletApplyAmount > 0 && res.data?.id) {
+        try {
+          await walletApi.applyToInvoice(patientId, { invoiceId: res.data.id, amount: walletApplyAmount });
+        } catch (e: any) {
+          walletError = e?.response?.data?.message || e?.message || 'Wallet deduction failed';
+        }
+      }
+      return { res, walletError, walletApplied: walletApplyAmount > 0 && !walletError };
     },
-    onSuccess,
+    onSuccess: ({ walletError, walletApplied }) => {
+      qc.invalidateQueries({ queryKey: ['wallet-balance-inv', patientId] });
+      qc.invalidateQueries({ queryKey: ['wallet', patientId] });
+      qc.invalidateQueries({ queryKey: ['wallet-tx', patientId] });
+      if (walletError) {
+        // The invoice exists — don't hide that. Say so explicitly, with the
+        // real reason, instead of a generic failure toast.
+        toast.error(`Invoice created, but wallet deduction failed: ${walletError}. The invoice is still awaiting payment.`, { duration: 7000 });
+      } else if (walletApplied) {
+        toast.success(`Invoice created — NPR ${walletApplyAmount.toLocaleString()} paid from wallet.`);
+      }
+      onSuccess();
+    },
     onError: (e: any) => toast.error(e?.message || e?.response?.data?.message || 'Failed to create invoice'),
   });
+
+  // Reset the wallet-deduction choice and amount-paid input whenever the selected patient changes
+  useEffect(() => { setUseWallet(false); setAmountPaidInput(''); }, [patientId]);
 
   const showServices = billingType === 'service' || billingType === 'both';
   const showProducts = billingType === 'product' || billingType === 'both';
@@ -417,7 +536,7 @@ export default function InvoiceModal({
           {/* ① Patient */}
           <div>
             <label className="label">Patient *</label>
-            <PatientCombobox value={patientId} onChange={(id, name) => { setPatientId(id); setPatientName(name); setAppointmentId(''); }} />
+            <PatientCombobox value={patientId} initialLabel={patientName} onChange={(id, name) => { setPatientId(id); setPatientName(name); setAppointmentId(''); }} />
           </div>
 
           {/* ② Billing type selector */}
@@ -480,8 +599,8 @@ export default function InvoiceModal({
               )}
               {serviceLines.length === 0
                 ? <EmptyRow label="services" onAdd={addServiceLine} />
-                : serviceLines.map((l, i) => (
-                  <ServiceLineRow key={i} line={l} index={i} services={services} doctors={doctors}
+                : serviceLines.map((l) => (
+                  <ServiceLineRow key={l._uid} line={l} services={services} doctors={doctors}
                     onChange={updateServiceLine} onRemove={removeServiceLine} />
                 ))
               }
@@ -505,8 +624,8 @@ export default function InvoiceModal({
               </div>
               {productLines.length === 0
                 ? <EmptyRow label="products" onAdd={addProductLine} />
-                : productLines.map((l, i) => (
-                  <ProductLineRow key={i} line={l} index={i} products={products}
+                : productLines.map((l) => (
+                  <ProductLineRow key={l._uid} line={l} products={products}
                     onChange={updateProductLine} onRemove={removeProductLine} />
                 ))
               }
@@ -564,6 +683,44 @@ export default function InvoiceModal({
             </div>
           )}
 
+          {/* Patient Wallet — optionally pay this bill (or part of it) from wallet balance */}
+          {patientId && (
+            <div className="rounded-xl p-4 space-y-2.5" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+              <label className="flex items-center justify-between gap-2 cursor-pointer select-none">
+                <span className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
+                  <Wallet size={15} className="text-brand-400" />
+                  Pay from Patient Wallet
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Balance: <span className="text-[var(--text-primary)] font-semibold">NPR {walletBalance.toLocaleString()}</span>
+                  </span>
+                  <input type="checkbox" checked={useWallet} disabled={walletBalance <= 0 || dueAfterManual <= 0}
+                    onChange={e => {
+                      setUseWallet(e.target.checked);
+                      if (e.target.checked && !paymentMethod) setPaymentMethod('wallet_debit');
+                      if (!e.target.checked && paymentMethod === 'wallet_debit') setPaymentMethod('');
+                    }} className="rounded" />
+                </span>
+              </label>
+              {useWallet && dueAfterManual > 0 && (
+                <div className="flex justify-between text-xs text-[var(--text-secondary)] pt-1" style={{ borderTop: '1px solid var(--border)' }}>
+                  <span>Applied from wallet</span>
+                  <span className="font-semibold text-emerald-400">− NPR {walletApplyAmount.toLocaleString()}</span>
+                </div>
+              )}
+              {walletInsufficient && (
+                <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                  <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                  <span>
+                    Wallet balance (NPR {walletBalance.toLocaleString()}) is less than the remaining due (NPR {dueAfterManual.toLocaleString()}).
+                    NPR {finalDueAmount.toLocaleString()} will still remain due — add more funds to this patient's wallet from the Patients page.
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ⑥ Totals */}
           <div className="rounded-xl p-4 space-y-2.5" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
             <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Summary</p>
@@ -591,6 +748,37 @@ export default function InvoiceModal({
             <div className="pt-2 flex justify-between font-bold text-[var(--text-primary)] text-base" style={{ borderTop: '1px solid var(--border)' }}>
               <span>Total</span><span>NPR {total.toLocaleString()}</span>
             </div>
+
+            {/* Amount Paid — supports partial payment (e.g. pay 200 of a 1000 bill, 800 stays due) */}
+            <div className="pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-sm text-[var(--text-secondary)]">Amount Paid Now</label>
+                <input
+                  type="number" min={0} max={total} step={0.01}
+                  value={amountPaidInput}
+                  onChange={e => setAmountPaidInput(e.target.value)}
+                  placeholder="0"
+                  className="w-28 px-2 py-1 text-sm text-right rounded-lg"
+                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+                />
+              </div>
+              <div className="flex gap-2 mt-1.5">
+                <button type="button" onClick={() => setAmountPaidInput(String(total))}
+                  className="text-[10px] px-2 py-1 rounded-full border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-brand-500/40 transition-colors">
+                  Pay full amount
+                </button>
+                <button type="button" onClick={() => setAmountPaidInput('')}
+                  className="text-[10px] px-2 py-1 rounded-full border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-brand-500/40 transition-colors">
+                  Not paid yet
+                </button>
+              </div>
+              <div className="flex justify-between text-sm pt-2">
+                <span className="text-[var(--text-secondary)]">Remaining Due</span>
+                <span className={`font-semibold ${finalDueAmount > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                  NPR {finalDueAmount.toLocaleString()}
+                </span>
+              </div>
+            </div>
           </div>
 
           {/* ⑦ Payment & Meta */}
@@ -606,14 +794,36 @@ export default function InvoiceModal({
             </div>
             <div>
               <label className="label">Payment Method</label>
-              <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="input w-full text-sm">
+              {/* "Patient Wallet" is intentionally NOT a freely selectable option here.
+                  It used to be — a user could pick it from this dropdown purely as a
+                  label, type the full amount into "Amount Paid Now", and the invoice
+                  would save as Paid / wallet_debit WITHOUT ever calling
+                  walletApi.applyToInvoice(), because that call only fires from
+                  walletApplyAmount, which only becomes non-zero when the "Pay from
+                  Patient Wallet" checkbox below is ticked. Result: an invoice that
+                  claims to be wallet-paid while the wallet balance and transaction
+                  history never change. Wallet payment must always go through the
+                  checkbox — so it's the only thing allowed to set this value. */}
+              <select
+                value={paymentMethod}
+                onChange={e => setPaymentMethod(e.target.value)}
+                className="input w-full text-sm"
+              >
                 <option value="">— None yet —</option>
                 <option value="cash">Cash</option>
                 <option value="esewa">eSewa</option>
                 <option value="khalti">Khalti</option>
                 <option value="bank_transfer">Bank Transfer</option>
                 <option value="insurance">Insurance</option>
+                {paymentMethod === 'wallet_debit' && (
+                  <option value="wallet_debit">Patient Wallet (via checkbox above)</option>
+                )}
               </select>
+              {paymentMethod === 'wallet_debit' && (
+                <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                  Set automatically by the "Pay from Patient Wallet" toggle above — uncheck it there to change this.
+                </p>
+              )}
             </div>
             <div>
               <label className="label">Due Date</label>

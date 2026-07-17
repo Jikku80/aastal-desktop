@@ -15,18 +15,15 @@ import { Clinic } from '../clinics/entities/clinic.entity';
 import { Branch } from '../branch/entities/branch.entity';
 import { BranchLockGuard } from '../common/guards/branch-lock.guard';
 import { JwtModule } from '@nestjs/jwt';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { AppointmentsGateway } from './appointments.gateway';
 
-/**
- * Socket.IO Redis adapter — wired in when REDIS_URL is present so that
- * appointment events are broadcast across all horizontal instances.
- * Without this, a client on instance A would miss events emitted on instance B.
- *
- * The adapter is initialised in AppointmentsGateway.afterInit() via the
- * factory below, keeping the module declaration clean.
- */
-export const SOCKET_IO_ADAPTER_FACTORY = 'SOCKET_IO_ADAPTER_FACTORY';
+// NOTE: the Socket.IO Redis adapter used to be wired up from inside this
+// gateway's own afterInit() hook (SOCKET_IO_ADAPTER_FACTORY). That only
+// reliably covered the '/appointments' namespace — '/notifications' and
+// '/queue' silently kept the in-memory adapter and would drop cross-instance
+// events once horizontally scaled. It's now set up once, globally, in
+// main.ts via RedisIoAdapter — see src/common/redis-io.adapter.ts.
 
 @Module({
   imports: [
@@ -44,23 +41,6 @@ export const SOCKET_IO_ADAPTER_FACTORY = 'SOCKET_IO_ADAPTER_FACTORY';
     VitalsService,
     BranchLockGuard,
     AppointmentsGateway,
-    {
-      provide: SOCKET_IO_ADAPTER_FACTORY,
-      useFactory: (config: ConfigService) => {
-        const redisUrl = config.get<string>('REDIS_URL');
-        if (!redisUrl) return null; // dev: no adapter needed
-        // Returns a factory that AppointmentsGateway.afterInit() calls with the io server.
-        return async (io: any) => {
-          const { createAdapter } = await import('@socket.io/redis-adapter');
-          const { createClient }  = await import('redis');
-          const pub = createClient({ url: redisUrl });
-          const sub = pub.duplicate();
-          await Promise.all([pub.connect(), sub.connect()]);
-          io.adapter(createAdapter(pub, sub));
-        };
-      },
-      inject: [ConfigService],
-    },
   ],
   exports: [AppointmentsService, VitalsService],
 })

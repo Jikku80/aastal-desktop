@@ -52,8 +52,12 @@ export class BranchesController {
     return this.service.getBranchStats(req.user.clinicId, id);
   }
 
+  // Anyone who can create/view appointments needs this to populate the doctor
+  // dropdown — it shouldn't require branch-management access. A role with
+  // only appointment.create (e.g. a receptionist) was getting a silent 403
+  // here, which the frontend was misreading as "no doctors assigned".
   @Get(':id/doctors')
-  @RequirePermissions('branch.view')
+  @RequirePermissions('branch.view', 'appointment.create', 'appointment.view')
   getBranchDoctors(@Request() req, @Param('id') id: string) {
     return this.service.getBranchDoctors(req.user.clinicId, id);
   }

@@ -132,7 +132,7 @@ export class AppointmentsService {
   async findAll(clinicId: string, query: any) {
     const {
       page = 1, limit = 300,
-      date, month, dentistId, patientId, status, isPaid,
+      date, month, from, to, dentistId, patientId, status, isPaid,
       branchId,                  // optional branch filter
       branchIds,                 // optional comma-separated branch filter (access control)
       order = 'ASC',             // 'ASC' | 'DESC'
@@ -164,6 +164,11 @@ export class AppointmentsService {
       qb = qb.andWhere('a.scheduledAt BETWEEN :start AND :end', {
         start: startOfDay(d),
         end:   endOfDay(d),
+      });
+    } else if (from && to) {
+      qb = qb.andWhere('a.scheduledAt BETWEEN :start AND :end', {
+        start: startOfDay(parseISO(from)),
+        end:   endOfDay(parseISO(to)),
       });
     } else if (month) {
       const d = parseISO(`${month}-01`);

@@ -7,7 +7,7 @@ import { startOfDay, endOfDay } from 'date-fns';
 import { parseAsNepalTime, nepalStartOfTodayUTC, nepalEndOfTodayUTC } from '../common/utils/timezone.util';
 
 import { WaitingQueue, QueueStatus } from './entities/waiting-queue.entity';
-import { AddToQueueDto, WalkInDto }  from './dto/waiting-queue.dto';
+import { AddToQueueDto, WalkInDto, UpdateQueueEntryDto } from './dto/waiting-queue.dto';
 import { Patient }                   from '../patients/entities/patient.entity';
 import { Appointment, AppointmentStatus } from '../appointments/entities/appointment.entity';
 import { WaitingQueueGateway }       from './waiting-queue.gateway';
@@ -188,19 +188,48 @@ export class WaitingQueueService {
 
     entry.status      = QueueStatus.DONE;
     entry.completedAt = new Date();
-    const saved = await this.queueRepo.save(entry) as unknown as WaitingQueue;
+    let saved = await this.queueRepo.save(entry) as unknown as WaitingQueue;
 
-    // If there's a linked appointment, mark it COMPLETED
     if (entry.appointmentId) {
+      // Already linked (e.g. checked-in from a scheduled appointment) — mark it COMPLETED
       await this.appointmentRepo.update(
         { id: entry.appointmentId, clinicId },
         { status: AppointmentStatus.COMPLETED },
       );
+    } else if (entry.patientId) {
+      // Walk-in without a linked appointment: auto-create the appointment record
+      // using the queue entry's own timing/doctor/patient details — staff should
+      // not have to search/select and fill this in again manually. Idempotency is
+      // preserved because we immediately persist appointmentId on the queue entry,
+      // so a retried/duplicate markDone call will hit the branch above instead.
+      const scheduledAt = entry.createdAt;
+      let endsAt = entry.completedAt ?? new Date();
+      if (endsAt.getTime() <= scheduledAt.getTime()) {
+        endsAt = new Date(scheduledAt.getTime() + 30 * 60000);
+      }
+      const durationMinutes = Math.max(
+        Math.round((endsAt.getTime() - scheduledAt.getTime()) / 60000),
+        5,
+      );
+
+      const apt = this.appointmentRepo.create({
+        clinicId,
+        branchId:  entry.branchId,
+        patientId: entry.patientId,
+        dentistId: entry.doctorId ?? undefined,
+        scheduledAt,
+        endsAt,
+        status:    AppointmentStatus.COMPLETED,
+        type:      'walk_in',
+        notes:     entry.notes ?? '',
+        durationMinutes,
+      } as unknown as Appointment);
+
+      const createdApt = await this.appointmentRepo.save(apt) as unknown as Appointment;
+      await this.queueRepo.update({ id }, { appointmentId: createdApt.id });
+      entry.appointmentId = createdApt.id;
+      saved = { ...saved, appointmentId: createdApt.id } as WaitingQueue;
     }
-    // Note: For walk-ins without an appointment, we do NOT auto-create one here.
-    // The frontend "Create Appointment" button is available to let staff manually
-    // create a proper appointment with correct type/notes. Auto-creating here caused
-    // duplicates when staff clicked "Create Appointment" after marking done.
 
     await this.broadcast(clinicId, saved.branchId);
     return saved;
@@ -267,6 +296,23 @@ export class WaitingQueueService {
     const saved = await this.queueRepo.save(entry) as unknown as WaitingQueue;
     await this.broadcast(clinicId, saved.branchId);
     return saved;
+  }
+
+  // ── Edit an entry (notes / assigned doctor / linked patient's OPD no.) ────
+  async updateEntry(id: string, clinicId: string, dto: UpdateQueueEntryDto) {
+    const entry = await this.queueRepo.findOne({ where: { id, clinicId }, relations: ['patient'] });
+    if (!entry) throw new NotFoundException('Queue entry not found');
+
+    if (dto.notes !== undefined)    entry.notes    = dto.notes;
+    if (dto.doctorId !== undefined) entry.doctorId = (dto.doctorId || null) as unknown as string;
+    const saved = await this.queueRepo.save(entry) as unknown as WaitingQueue;
+
+    if (dto.opdNo !== undefined && entry.patientId) {
+      await this.patientRepo.update({ id: entry.patientId, clinicId }, { opdNo: dto.opdNo || undefined });
+    }
+
+    await this.broadcast(clinicId, saved.branchId);
+    return this.queueRepo.findOne({ where: { id, clinicId }, relations: ['patient', 'doctor', 'appointment'] });
   }
 
   // ── Remove from queue ─────────────────────────────────────────────────────

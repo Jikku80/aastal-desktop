@@ -8,7 +8,7 @@ import { WalletTransaction, WalletTxType, WalletTxRefType } from './entities/wal
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditEntityType } from '../audit/entities/audit-log.entity';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
-import { Invoice, InvoiceStatus } from '../billing/entities/invoice.entity';
+import { Invoice, InvoiceStatus, PaymentMethod } from '../billing/entities/invoice.entity';
 
 @Injectable()
 export class PatientWalletService {
@@ -37,6 +37,9 @@ export class PatientWalletService {
     clinicId: string, patientId: string, amount: number,
     description: string, createdBy: string, referenceId?: string,
   ): Promise<WalletTransaction> {
+    if (!(Number(amount) > 0)) {
+      throw new BadRequestException('Credit amount must be greater than zero');
+    }
     const wallet = await this.getOrCreate(clinicId, patientId);
     const before = Number(wallet.balance);
     wallet.balance = Number((before + Number(amount)).toFixed(2));
@@ -50,7 +53,7 @@ export class PatientWalletService {
     }));
     await this.auditService.log({
       clinicId, userId: createdBy, action: AuditAction.CREATED,
-      entityType: 'wallet' as AuditEntityType, entityId: wallet.id,
+      entityType: AuditEntityType.WALLET, entityId: wallet.id,
       changes: { after: { type: 'credit', amount } },
     });
     this.notificationsGateway.server?.to(clinicId).emit('wallet:credit', { patientId, amount });
@@ -61,6 +64,14 @@ export class PatientWalletService {
     clinicId: string, patientId: string, amount: number,
     description: string, createdBy: string, referenceId?: string,
   ): Promise<WalletTransaction> {
+    // Guards against callers (like the invoice quick-apply button) computing
+    // an amount of 0 or less and getting back a silent "success" — a 0-amount
+    // debit used to write a real transaction row and report success without
+    // ever moving money, which is exactly what looked like "nothing got
+    // deducted" from the patient wallet.
+    if (!(Number(amount) > 0)) {
+      throw new BadRequestException('Debit amount must be greater than zero');
+    }
     const wallet = await this.getOrCreate(clinicId, patientId);
     const before = Number(wallet.balance);
     if (before < Number(amount)) throw new BadRequestException('Insufficient wallet balance');
@@ -75,7 +86,7 @@ export class PatientWalletService {
     }));
     await this.auditService.log({
       clinicId, userId: createdBy, action: AuditAction.UPDATED,
-      entityType: 'wallet' as AuditEntityType, entityId: wallet.id,
+      entityType: AuditEntityType.WALLET, entityId: wallet.id,
       changes: { after: { type: 'debit', amount } },
     });
     return tx;
@@ -105,7 +116,7 @@ export class PatientWalletService {
         paidAmount: newPaid,
         dueAmount:  newDue,
         status:     newStatus,
-        paymentMethod: 'wallet' as any,
+        paymentMethod: PaymentMethod.WALLET_DEBIT,
         paidAt: newDue <= 0 ? new Date() : invoice.paidAt,
       });
     }

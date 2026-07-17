@@ -6,15 +6,20 @@ import {
   CheckCircle, XCircle, RotateCcw, AlertCircle, Trash2, Loader2, Printer, Activity,
   FlaskConical, Phone, Mail, MapPin, Cake, Droplet, ChevronRight, Users, ClipboardList,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, addMonths } from 'date-fns';
 import { formatNepalDate, formatNepalClockTime, formatNepalTime, formatNepalDateTime } from '@/lib/timezone';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { appointmentsApi, clinicalRecordsApi, recallsApi, labApi, patientsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
+import { usePermissions } from '@/store/permissions.store';
 import { useSelectedPatientStore } from '@/store/SelectedPatient.store';
+import { useCalendarType } from '@/hooks/useCalendarType';
+import { toBSFull } from '@/lib/calendar';
+import { RegistrationDateField, toDatetimeLocalString, parseDatetimeLocal } from '@/components/ui/RegistrationDateFIeld';
 import type { Appointment } from '@/types';
 import PrescriptionPrintButton from '@/components/prescriptions/PrescriptionPrintButton';
+import InvoiceModal from '@/components/billing/InvoiceModal';
 import VitalsForm from './VitalsForms';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
@@ -26,7 +31,6 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }>
   no_show:     { label: 'No Show',     color: 'text-gray-400 bg-gray-400/10',       icon: AlertCircle },
 };
 
-const OWNER_ROLES = new Set(['owner', 'super_admin']);
 const TABS = ['Details', 'Vitals', 'Labs', 'Files'] as const;
 type Tab = typeof TABS[number];
 
@@ -36,15 +40,24 @@ export default function AppointmentDetailPanel({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('Details');
   const [showRecallPrompt, setShowRecallPrompt] = useState(false);
-  const [recallMonths, setRecallMonths] = useState(6);
+  const [showBilling, setShowBilling] = useState(false);
+  const [recallMode, setRecallMode] = useState<'relative' | 'date'>('relative');
+  const [recallAmount, setRecallAmount] = useState(6);
+  const [recallUnit, setRecallUnit] = useState<'days' | 'weeks' | 'months'>('months');
+  // Exact-date mode value, in the same "YYYY-MM-DDTHH:mm" shape RegistrationDateField
+  // works with — it renders BS year/month/day pickers instead of a plain input
+  // when the clinic's calendar setting (Settings → Clinic Profile) is BS.
+  const [recallDateValue, setRecallDateValue] = useState(() => toDatetimeLocalString(addMonths(new Date(), 6)));
+  const calendarType = useCalendarType();
   const [showLabOrder, setShowLabOrder] = useState(false);
   const [labTestName,  setLabTestName]  = useState('');
   const [labLabName,   setLabLabName]   = useState('');
   const [labPriority,  setLabPriority]  = useState('routine');
   const [labNotes,     setLabNotes]     = useState('');
   const { user } = useAuthStore();
+  const { can } = usePermissions();
   const qc = useQueryClient();
-  const canDelete = OWNER_ROLES.has(user?.role ?? '');
+  const canDelete = can('appointment.delete');
   const isTerminal = ['completed', 'cancelled', 'no_show'].includes(apt.status);
   const patient = apt.patient;
   const setGlobalPatient = useSelectedPatientStore(s => s.setPatient);
@@ -115,7 +128,12 @@ export default function AppointmentDetailPanel({
 
   const completeMutation = useMutation({
     mutationFn: () => appointmentsApi.complete(apt.id, { status: 'completed' }),
-    onSuccess: () => { toast.success('Marked as completed'); onUpdate(); setShowRecallPrompt(true); },
+    // Marking complete auto-opens the billing modal, pre-linked to this
+    // appointment/patient (and its service, if the invoice modal finds a
+    // matching completed+unpaid appointment). The recall prompt follows
+    // once billing is closed/finished — same sequence as the queue's
+    // "Mark Done" flow.
+    onSuccess: () => { toast.success('Marked as completed'); onUpdate(); setShowBilling(true); },
     onError: (e: any) => toast.error(e.response?.data?.message || 'Failed'),
   });
   const cancelMutation = useMutation({
@@ -624,6 +642,22 @@ export default function AppointmentDetailPanel({
         </div>
       </motion.div>
 
+      {/* ── Billing modal — auto-triggered right after Mark Complete ── */}
+      {showBilling && (
+        <InvoiceModal
+          initialPatientId={apt.patientId}
+          initialPatientName={patient ? `${patient.firstName} ${patient.lastName}` : undefined}
+          initialAppointmentId={apt.id}
+          onClose={() => { setShowBilling(false); setShowRecallPrompt(true); }}
+          onSuccess={() => {
+            setShowBilling(false);
+            toast.success('Invoice created');
+            qc.invalidateQueries({ queryKey: ['appointments'] });
+            setShowRecallPrompt(true);
+          }}
+        />
+      )}
+
       {/* ── Recall prompt after completing an appointment ── */}
       {showRecallPrompt && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/40">
@@ -632,31 +666,118 @@ export default function AppointmentDetailPanel({
             <p className="text-sm text-[var(--text-secondary)]">
               Would you like to schedule a recall for <strong>{patient?.firstName} {patient?.lastName}</strong>?
             </p>
-            <div>
-              <label className="text-xs font-medium text-[var(--text-secondary)] block mb-1">Months from today</label>
-              <select
-                value={recallMonths}
-                onChange={e => setRecallMonths(Number(e.target.value))}
-                className="input-field w-full"
+            {/* Relative ("in N days/weeks/months") vs an exact date, picked in
+                whichever calendar the clinic uses (BS or AD). */}
+            <div className="flex gap-1 p-1 rounded-full bg-[var(--bg-elevated)]">
+              <button
+                type="button"
+                onClick={() => setRecallMode('relative')}
+                className={`flex-1 h-8 text-xs font-medium rounded-full transition-colors ${
+                  recallMode === 'relative'
+                    ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
+                    : 'text-[var(--text-secondary)]'
+                }`}
               >
-                {[1, 2, 3, 6, 9, 12, 18, 24].map(m => (
-                  <option key={m} value={m}>{m} month{m > 1 ? 's' : ''}</option>
-                ))}
-              </select>
+                In...
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecallMode('date')}
+                className={`flex-1 h-8 text-xs font-medium rounded-full transition-colors ${
+                  recallMode === 'date'
+                    ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
+                    : 'text-[var(--text-secondary)]'
+                }`}
+              >
+                Pick a date
+              </button>
             </div>
+
+            {recallMode === 'relative' ? (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-medium text-[var(--text-secondary)] block mb-1">Due in</label>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={recallAmount}
+                    onChange={e => {
+                      const n = Math.floor(Number(e.target.value));
+                      setRecallAmount(Number.isFinite(n) && n > 0 ? n : 1);
+                    }}
+                    className="input w-full"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-[var(--text-secondary)] block mb-1">Unit</label>
+                  <select
+                    value={recallUnit}
+                    onChange={e => setRecallUnit(e.target.value as 'days' | 'weeks' | 'months')}
+                    className="input w-full"
+                  >
+                    <option value="days">Day{recallAmount > 1 ? 's' : ''}</option>
+                    <option value="weeks">Week{recallAmount > 1 ? 's' : ''}</option>
+                    <option value="months">Month{recallAmount > 1 ? 's' : ''}</option>
+                  </select>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="text-xs font-medium text-[var(--text-secondary)] block mb-1">
+                  Recall date{calendarType === 'BS' ? ' (BS)' : ''}
+                </label>
+                <RegistrationDateField value={recallDateValue} onChange={setRecallDateValue} />
+              </div>
+            )}
+
             <div className="flex gap-2 pt-1">
               <button
                 onClick={() => {
+                  let amount = recallAmount;
+                  let unit = recallUnit;
+                  let dueLabel = `${recallAmount} ${recallUnit} from now`;
+
+                  if (recallMode === 'date') {
+                    const chosen = parseDatetimeLocal(recallDateValue);
+                    const diffDays = Math.ceil((chosen.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                    if (diffDays < 1) {
+                      toast.error('Pick a recall date in the future');
+                      return;
+                    }
+                    // The recalls API takes amount+unit (not a raw date), so an exact
+                    // pick is expressed as "N days from now" under the hood — the
+                    // toast/label below still shows the real calendar date chosen.
+                    amount = diffDays;
+                    unit = 'days';
+                    dueLabel = calendarType === 'BS' ? toBSFull(chosen) : format(chosen, 'MMM d, yyyy');
+                  }
+
                   recallsApi.bulkCreate({
                     patientId: apt.patientId,
-                    monthsFromNow: recallMonths,
+                    amount,
+                    unit,
                     reason: apt.type ? `Follow-up: ${apt.type.replace(/_/g, ' ')}` : 'Follow-up',
                     recallType: 'followup',
-                  }).then(() => {
-                    toast.success(`Recall scheduled for ${recallMonths} month${recallMonths > 1 ? 's' : ''} from now`);
+                    // The appointment entity requires a dentist, so without these
+                    // the backend silently fails to auto-book the follow-up
+                    // appointment (it still saves the recall as PENDING).
+                    // Defaulting to the same dentist/branch as this appointment
+                    // means the follow-up actually gets booked and shows up on
+                    // the calendar/appointment list right away.
+                    dentistId: apt.dentistId,
+                    branchId: apt.branchId,
+                  }).then((res: any) => {
+                    const appointmentCreated = !!res?.data?.appointment;
+                    if (appointmentCreated) {
+                      toast.success(`Recall scheduled and follow-up appointment booked for ${dueLabel}`);
+                    } else {
+                      toast.success(`Recall scheduled for ${dueLabel}, but no follow-up appointment was auto-booked — book it manually from the Recalls page.`);
+                    }
                     setShowRecallPrompt(false);
+                    qc.invalidateQueries({ queryKey: ['appointments'] });
                     onClose();
-                  }).catch(() => toast.error('Failed to create recall'));
+                  }).catch((e: any) => toast.error(e?.response?.data?.message || 'Failed to create recall'));
                 }}
                 className="btn-primary flex-1 justify-center h-10 text-sm rounded-full"
               >

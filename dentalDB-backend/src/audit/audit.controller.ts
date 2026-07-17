@@ -1,17 +1,20 @@
 import { Controller, Get, Query, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 import { AuditService } from './audit.service';
 import { UserRole } from '../users/entities/user.entity';
 
 @ApiTags('Audit')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('audit-logs')
 export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 
   @Get()
+  @RequirePermissions('audit.view')
   async findAll(
     @Request() req: any,
     @Query() query: {

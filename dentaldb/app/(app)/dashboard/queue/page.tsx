@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '@/store/auth.store';
+import { usePermissions } from '@/store/permissions.store';
 import { patientsApi, queueApi, usersApi, appointmentsApi } from '@/lib/api';
 import InvoiceModal from '@/components/billing/InvoiceModal';
 import { formatNepalClockTime, nepalLocalInputToUTCISOString, utcToNepalLocalInputValue } from '@/lib/timezone';
@@ -13,7 +14,7 @@ import {
   Users, PhoneCall, CheckCircle, Clock, SkipForward,
   UserPlus, Search, Tv, RefreshCw, Phone, ListOrdered,
   CalendarPlus, X, GitBranch,
-  Loader2, Receipt,
+  Loader2, Receipt, Pencil, Trash2,
 } from 'lucide-react';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -60,9 +61,11 @@ function CreateAppointmentModal({ entry, onClose }: { entry: any; onClose: () =>
   });
   const [saving, setSaving] = useState(false);
 
+  const branchId = activeBranch?.id ?? '';
   const { data: staffData } = useQuery({
-    queryKey: ['staff'],
-    queryFn: () => usersApi.listStaff({ roles: 'doctor,dentist' }).then(r => r.data?.data ?? r.data ?? []),
+    queryKey: ['staff', branchId],
+    queryFn: () => usersApi.listStaff({ roles: 'doctor,dentist', branchId }).then(r => r.data?.data ?? r.data ?? []),
+    enabled: !!branchId,
   });
   const doctors = staffData?.data ?? staffData ?? [];
 
@@ -162,7 +165,7 @@ function CreateAppointmentModal({ entry, onClose }: { entry: any; onClose: () =>
 }
 
 // ── Queue row ──────────────────────────────────────────────────────────────
-function QueueRow({ entry, onCall, onDone, onSkip, onInProgress, onCreateAppointment, onBill }: any) {
+function QueueRow({ entry, onCall, onDone, onSkip, onInProgress, onCreateAppointment, onBill, onEdit, onDelete, canManage }: any) {
   const cfg  = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.waiting;
   const wait = waitMinutes(entry.createdAt);
 
@@ -190,6 +193,7 @@ function QueueRow({ entry, onCall, onDone, onSkip, onInProgress, onCreateAppoint
         {/* Meta row */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--text-secondary)] mt-0.5">
           {entry.doctor && <span>Dr. {entry.doctor.firstName} {entry.doctor.lastName}</span>}
+          {entry.patient?.opdNo && <span>OPD: {entry.patient.opdNo}</span>}
           {entry.patient?.phone && (
             <span className="flex items-center gap-1">
               <Phone size={11} />{entry.patient.phone}
@@ -273,6 +277,108 @@ function QueueRow({ entry, onCall, onDone, onSkip, onInProgress, onCreateAppoint
               </button>
             )
           )}
+          {canManage && onEdit && (
+            <button
+              onClick={() => onEdit(entry)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-[var(--border)] text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-elevated)] active:scale-95 transition-all"
+              title="Edit entry"
+            >
+              <Pencil size={12} />
+            </button>
+          )}
+          {canManage && onDelete && (
+            <button
+              onClick={() => onDelete(entry)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-red-200 text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 active:scale-95 transition-all"
+              title="Delete entry"
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Edit queue entry modal ──────────────────────────────────────────────────
+function EditQueueEntryModal({ entry, doctors, onClose, onSave, saving }: any) {
+  const [notes, setNotes]       = useState(entry.notes ?? '');
+  const [doctorId, setDoctorId] = useState(entry.doctorId ?? entry.doctor?.id ?? '');
+  const [opdNo, setOpdNo]       = useState(entry.patient?.opdNo ?? '');
+  const inp = 'w-full px-3 py-2 text-sm border border-[var(--border)] rounded-lg bg-[var(--bg-surface)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]';
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave(entry.id, { notes, doctorId: doctorId || undefined, opdNo });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-[var(--bg-surface)] rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">Edit Queue Entry</h2>
+            <p className="text-xs text-[var(--text-secondary)]">
+              {entry.patient?.firstName} {entry.patient?.lastName} · Token #{entry.tokenNumber}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-[var(--bg-muted)] rounded-lg text-[var(--text-secondary)]">
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">OPD No.</label>
+            <input className={inp} value={opdNo} onChange={e => setOpdNo(e.target.value)} placeholder="e.g. OPD-00123" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Doctor</label>
+            <select value={doctorId} onChange={e => setDoctorId(e.target.value)} className={inp}>
+              <option value="">Unassigned</option>
+              {doctors?.map((d: any) => (
+                <option key={d.id} value={d.id}>Dr. {d.firstName} {d.lastName}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Notes</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className={inp} />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving} className="px-4 py-2 text-sm rounded-lg bg-[var(--brand)] text-white font-medium disabled:opacity-50">
+              {saving ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Delete confirmation modal ───────────────────────────────────────────────
+function DeleteQueueEntryModal({ entry, onClose, onConfirm, deleting }: any) {
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-[var(--bg-surface)] rounded-2xl shadow-2xl w-full max-w-sm p-5">
+        <h2 className="text-base font-semibold text-[var(--text-primary)] mb-1">Delete queue entry?</h2>
+        <p className="text-sm text-[var(--text-secondary)] mb-4">
+          This permanently removes {entry.patient?.firstName} {entry.patient?.lastName}'s token #{entry.tokenNumber} from today's queue. This can't be undone.
+        </p>
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]">
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(entry.id)}
+            disabled={deleting}
+            className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50"
+          >
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
         </div>
       </div>
     </div>
@@ -313,6 +419,7 @@ function WalkInForm({ branchId, doctors, onSuccess }: any) {
       firstName: p.firstName || '',
       lastName:  p.lastName  || '',
       phone:     p.phone     || p.mobile || '',
+      opdNo:     p.opdNo     || '',
     }));
     setPatientSearch(`${p.firstName} ${p.lastName}`.trim());
     setShowDropdown(false);
@@ -321,7 +428,7 @@ function WalkInForm({ branchId, doctors, onSuccess }: any) {
   const clearLink = () => {
     setLinkedPatientId(null);
     setPatientSearch('');
-    setForm(prev => ({ ...prev, firstName: '', lastName: '', phone: '' }));
+    setForm(prev => ({ ...prev, firstName: '', lastName: '', phone: '', opdNo: '' }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -525,6 +632,8 @@ type Tab = 'queue' | 'walkin' | 'checkin';
 
 export default function QueuePage() {
   const { clinic, activeBranch } = useAuthStore();
+  const { can } = usePermissions();
+  const canManage = can('queue.manage');
   const qc       = useQueryClient();
   const router   = useRouter();
   const socketRef = useRef<Socket | null>(null);
@@ -545,8 +654,9 @@ export default function QueuePage() {
     refetchInterval: 30000,
   });
   const { data: doctorsData } = useQuery({
-    queryKey: ['staff'],
-    queryFn:  () => usersApi.listStaff({ roles: 'doctor,dentist', onShiftOnly: 'true' }).then(r => r.data?.data ?? r.data ?? []),
+    queryKey: ['staff', branchId, 'onShift'],
+    queryFn:  () => usersApi.listStaff({ roles: 'doctor,dentist', branchId, onShiftOnly: 'true' }).then(r => r.data?.data ?? r.data ?? []),
+    enabled:  !!branchId,
   });
 
   // ── Socket ────────────────────────────────────────────────────────────────
@@ -554,13 +664,28 @@ export default function QueuePage() {
     if (!clinic?.id || !branchId) return;
     const socket = io(`${SOCKET_URL}/queue`, {
       auth: { token: localStorage.getItem('accessToken') },
-      transports: ['websocket'],
+      // 'websocket' only fails hard behind proxies/CDNs that don't forward
+      // the Upgrade header — falling back to polling keeps realtime working
+      // there instead of silently degrading to the 30s refetchInterval.
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: Infinity,
     });
     socketRef.current = socket;
     socket.on('connect', () => socket.emit('join-queue-room', { clinicId: clinic.id, branchId }));
-    socket.on('queue:update', () => {
+    // Reconnects (e.g. after the tab was backgrounded) can miss events that
+    // happened while disconnected — refetch immediately on every (re)join
+    // so the queue never sits stale until the next 30s poll.
+    socket.on('connect', () => {
       qc.invalidateQueries({ queryKey: ['queue', branchId] });
       qc.invalidateQueries({ queryKey: ['queue-stats', branchId] });
+    });
+    socket.on('queue:update', (payload: any) => {
+      if (payload?.queue)  qc.setQueryData(['queue', branchId], payload.queue);
+      if (payload?.stats)  qc.setQueryData(['queue-stats', branchId], payload.stats);
+      if (!payload?.queue) qc.invalidateQueries({ queryKey: ['queue', branchId] });
+      if (!payload?.stats) qc.invalidateQueries({ queryKey: ['queue-stats', branchId] });
     });
     return () => { socket.emit('leave-queue-room', { clinicId: clinic.id, branchId }); socket.disconnect(); };
   }, [clinic?.id, branchId, qc]);
@@ -579,6 +704,16 @@ export default function QueuePage() {
     onSuccess:  inv,
     onError:    (e: any) => toast.error(e?.response?.data?.message ?? 'No patients waiting'),
   });
+  const updateMut = useMutation({
+    mutationFn: ({ id, d }: { id: string; d: any }) => queueApi.update(id, d),
+    onSuccess:  () => { inv(); setEditEntry(null); toast.success('Queue entry updated'); },
+    onError:    (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update entry'),
+  });
+  const removeMut = useMutation({
+    mutationFn: (id: string) => queueApi.remove(id),
+    onSuccess:  () => { inv(); setDeleteEntry(null); toast.success('Queue entry deleted'); },
+    onError:    (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to delete entry'),
+  });
 
   const activeQueue  = queue.filter((e: any) => ['waiting', 'called', 'in_progress'].includes(e.status));
   const doneQueue    = queue.filter((e: any) => e.status === 'done');
@@ -587,6 +722,8 @@ export default function QueuePage() {
   const waitingCount = queue.filter((e: any) => e.status === 'waiting').length;
   const [apptEntry, setApptEntry] = useState<any>(null);
   const [billingEntry, setBillingEntry] = useState<any>(null);
+  const [editEntry, setEditEntry] = useState<any>(null);
+  const [deleteEntry, setDeleteEntry] = useState<any>(null);
   const isBranchInactive = activeBranch && !activeBranch.isActive;
 
   // ── No branch ─────────────────────────────────────────────────────────────
@@ -707,15 +844,25 @@ export default function QueuePage() {
                       key={entry.id} entry={entry}
                       onCall={      (id: string) => callMut.mutate(id)}
                       onDone={      (id: string) => {
-                        const entry = activeQueue.find((e: any) => e.id === id);
+                        const preEntry = activeQueue.find((e: any) => e.id === id);
                         doneMut.mutate(id, {
-                          onSuccess: () => { if (entry?.patientId) setBillingEntry(entry); },
+                          // Use the server response, not the pre-mutation entry — markDone
+                          // now auto-creates the appointment, so the fresh appointmentId
+                          // (and any updated fields) only exist on the returned data.
+                          onSuccess: (res: any) => {
+                            const updated = res?.data ?? res;
+                            const merged = { ...preEntry, ...updated, patient: updated?.patient ?? preEntry?.patient };
+                            if (merged?.patientId) setBillingEntry(merged);
+                          },
                         });
                       }}
                       onSkip={      (id: string) => skipMut.mutate(id)}
                       onInProgress= {(id: string) => progressMut.mutate(id)}
                       onCreateAppointment={setApptEntry}
                       onBill={setBillingEntry}
+                      onEdit={setEditEntry}
+                      onDelete={setDeleteEntry}
+                      canManage={canManage}
                     />
                   ))
                 )}
@@ -727,7 +874,12 @@ export default function QueuePage() {
                     </summary>
                     <div className="mt-2 space-y-2 opacity-80">
                       {doneQueue.map((entry: any) => (
-                        <QueueRow key={entry.id} entry={entry} onCall={() => {}} onDone={() => {}} onSkip={() => {}} onInProgress={() => {}} onCreateAppointment={setApptEntry} onBill={setBillingEntry} />
+                        <QueueRow
+                          key={entry.id} entry={entry}
+                          onCall={() => {}} onDone={() => {}} onSkip={() => {}} onInProgress={() => {}}
+                          onCreateAppointment={setApptEntry} onBill={setBillingEntry}
+                          onEdit={setEditEntry} onDelete={setDeleteEntry} canManage={canManage}
+                        />
                       ))}
                     </div>
                   </details>
@@ -739,7 +891,11 @@ export default function QueuePage() {
                     </summary>
                     <div className="mt-2 space-y-2 opacity-60">
                       {skippedQueue.map((entry: any) => (
-                        <QueueRow key={entry.id} entry={entry} onCall={() => {}} onDone={() => {}} onSkip={() => {}} onInProgress={() => {}} />
+                        <QueueRow
+                          key={entry.id} entry={entry}
+                          onCall={() => {}} onDone={() => {}} onSkip={() => {}} onInProgress={() => {}}
+                          onEdit={setEditEntry} onDelete={setDeleteEntry} canManage={canManage}
+                        />
                       ))}
                     </div>
                   </details>
@@ -791,6 +947,27 @@ export default function QueuePage() {
           initialAppointmentId={billingEntry.appointmentId || undefined}
           onClose={() => setBillingEntry(null)}
           onSuccess={() => { setBillingEntry(null); inv(); toast.success('Invoice created'); }}
+        />
+      )}
+
+      {/* ── Edit Queue Entry Modal — admin/owner always allowed, others via 'queue.manage' ── */}
+      {editEntry && (
+        <EditQueueEntryModal
+          entry={editEntry}
+          doctors={doctors}
+          saving={updateMut.isPending}
+          onClose={() => setEditEntry(null)}
+          onSave={(id: string, d: any) => updateMut.mutate({ id, d })}
+        />
+      )}
+
+      {/* ── Delete Queue Entry Confirmation ── */}
+      {deleteEntry && (
+        <DeleteQueueEntryModal
+          entry={deleteEntry}
+          deleting={removeMut.isPending}
+          onClose={() => setDeleteEntry(null)}
+          onConfirm={(id: string) => removeMut.mutate(id)}
         />
       )}
     </div>

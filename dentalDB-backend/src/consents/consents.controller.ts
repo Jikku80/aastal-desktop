@@ -1,7 +1,10 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query, Req, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { ConsentsService } from './consents.service';
 import { PatientAuthService } from '../patient-auth/patient-auth.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 
 @Controller('consents')
 export class ConsentsController {
@@ -22,9 +25,23 @@ export class ConsentsController {
     }
   }
 
-  @Post('templates') create(@Body() body: any) { return this.svc.createTemplate(body); }
-  @Patch('templates/:id') update(@Param('id') id: string, @Body() body: any) { return this.svc.updateTemplate(id, body); }
-  @Delete('templates/:id') remove(@Param('id') id: string) { return this.svc.deleteTemplate(id); }
+  // ── Clinic-admin template management (web/admin app only) ─────────────────
+  @Post('templates')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions('consent.manage')
+  create(@Body() body: any) { return this.svc.createTemplate(body); }
+
+  @Patch('templates/:id')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions('consent.manage')
+  update(@Param('id') id: string, @Body() body: any) { return this.svc.updateTemplate(id, body); }
+
+  @Delete('templates/:id')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions('consent.manage')
+  remove(@Param('id') id: string) { return this.svc.deleteTemplate(id); }
+
+  // ── Read + patient-facing endpoints stay open — shared by the patient/user app ──
   @Get('templates') list(@Query() q: any) { return this.svc.getTemplates(q); }
   @Get('templates/:id') get(@Param('id') id: string) { return this.svc.getTemplate(id); }
 

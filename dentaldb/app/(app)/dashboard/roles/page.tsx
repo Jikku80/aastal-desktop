@@ -24,7 +24,8 @@ const GROUP_ICONS: Record<string, string> = {
   Dashboard: '⊞', Appointments: '📅', Patients: '👤', Billing: '💳',
   Analytics: '📊', Staff: '👥', Branches: '🏢', HR: '🗂️',
   Website: '🌐', Settings: '⚙️', 'Access Control': '🔐', Records: '📁', Inventory: '📦',
-  Services: '🩺',
+  Services: '🩺', Finance: '💰', Queue: '🪑', Lab: '🧪',
+  'Holidays & Notices': '📢', Audit: '🛡️', Marketplace: '🛍️', Doctor: '🩻', Tasks: '📋',
 };
 
 const GROUP_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -42,6 +43,14 @@ const GROUP_COLORS: Record<string, { bg: string; text: string; border: string }>
   Records:          { bg: 'bg-cyan-500/8',    text: 'text-cyan-400',    border: 'border-cyan-500/20'   },
   Inventory:        { bg: 'bg-lime-500/8',    text: 'text-lime-400',    border: 'border-lime-500/20'   },
   Services:         { bg: 'bg-sky-500/8',     text: 'text-sky-400',     border: 'border-sky-500/20'    },
+  Finance:          { bg: 'bg-yellow-500/8',  text: 'text-yellow-400',  border: 'border-yellow-500/20' },
+  Queue:            { bg: 'bg-fuchsia-500/8', text: 'text-fuchsia-400', border: 'border-fuchsia-500/20'},
+  Lab:              { bg: 'bg-purple-500/8',  text: 'text-purple-400',  border: 'border-purple-500/20' },
+  'Holidays & Notices': { bg: 'bg-rose-500/8', text: 'text-rose-400',   border: 'border-rose-500/20'   },
+  Audit:            { bg: 'bg-red-500/8',     text: 'text-red-400',     border: 'border-red-500/20'    },
+  Marketplace:      { bg: 'bg-emerald-500/8', text: 'text-emerald-400', border: 'border-emerald-500/20'},
+  Doctor:           { bg: 'bg-blue-500/8',    text: 'text-blue-400',    border: 'border-blue-500/20'   },
+  Tasks:            { bg: 'bg-sky-500/8',      text: 'text-sky-400',     border: 'border-sky-500/20'    },
 };
 
 function getGroupStyle(group: string) {

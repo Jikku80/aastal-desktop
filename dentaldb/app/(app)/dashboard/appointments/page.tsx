@@ -111,6 +111,33 @@ function toBSMonthYear(date: Date): string {
   } catch { return ''; }
 }
 
+// Returns the AD date range actually shown on screen for the current view.
+// A BS month frequently spans two different Gregorian months, so relying on
+// a single `format(date, 'yyyy-MM')` to fetch data can silently miss
+// appointments that fall in the second AD month of a BS month — this is
+// most visible right after navigating (which resets the anchor day to 1)
+// and then navigating back.
+function getVisibleRange(date: Date, calView: CalView, calendarType: 'BS' | 'AD'): { from: Date; to: Date } {
+  if (calView === 'month') {
+    if (calendarType === 'BS') {
+      const { year, month } = adToBS(date);
+      const totalDays = getDaysInBSMonth(year, month);
+      return { from: bsToAD(year, month, 1), to: bsToAD(year, month, totalDays) };
+    }
+    return {
+      from: new Date(date.getFullYear(), date.getMonth(), 1),
+      to:   new Date(date.getFullYear(), date.getMonth() + 1, 0),
+    };
+  }
+  if (calView === 'week') {
+    const from = startOfWeek(date);
+    const to = new Date(from);
+    to.setDate(to.getDate() + 6);
+    return { from, to };
+  }
+  return { from: date, to: date };
+}
+
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales: { 'en-US': enUS } });
 const DnDCalendar = withDragAndDrop(BigCalendar as any);
 
@@ -585,14 +612,24 @@ export default function AppointmentsPage() {
     if (window.innerWidth >= 640) setCalView('month');
   }, []);
 
+  const { from: visibleFrom, to: visibleTo } = useMemo(
+    () => getVisibleRange(date, calView, calendarType),
+    [date, calView, calendarType],
+  );
+
   const { data: aptData } = useQuery({
-    queryKey: ['appointments', format(date, 'yyyy-MM'), activeBranch?.id, pageView],
+    queryKey: ['appointments', format(visibleFrom, 'yyyy-MM-dd'), format(visibleTo, 'yyyy-MM-dd'), activeBranch?.id, pageView],
     queryFn: () => {
       if (pageView === 'list') {
         return appointmentsApi.list({ limit: 500, branchId: activeBranch?.id, order: 'ASC' }).then(r => r.data);
       }
       return appointmentsApi
-        .list({ month: format(date, 'yyyy-MM'), limit: 300, branchId: activeBranch?.id })
+        .list({
+          from: format(visibleFrom, 'yyyy-MM-dd'),
+          to:   format(visibleTo, 'yyyy-MM-dd'),
+          limit: 300,
+          branchId: activeBranch?.id,
+        })
         .then(r => r.data);
     },
   });
@@ -916,7 +953,7 @@ export default function AppointmentsPage() {
           <AppointmentDetailPanel
             apt={selectedApt}
             onClose={() => setSelected(null)}
-            onUpdate={() => { qc.invalidateQueries({ queryKey: ['appointments'] }); setSelected(null); }}
+            onUpdate={() => { qc.invalidateQueries({ queryKey: ['appointments'] }); }}
           />
         )}
       </AnimatePresence>

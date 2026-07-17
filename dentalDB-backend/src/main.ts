@@ -18,6 +18,7 @@ import { join }            from 'path';
 import { setupOnlineOnlyGate } from './database/online-only-gate.middleware';
 import { installPendingSyncRepositoryPatch } from './sync/pending-sync-repository.patch';
 import { UPLOADS_DIR } from './common/utils/uploads-dir.util';
+import { RedisIoAdapter } from './common/redis-io.adapter';
 
 // Must run before any Repository.update() call anywhere in the app — see
 // pending-sync-repository.patch.ts. No-ops entirely when DB_DRIVER isn't
@@ -75,6 +76,15 @@ async function bootstrap() {
                  // after the app is initialised, so we can check custom
                  // domains against the database (clinic_websites table).
   });
+
+  // Socket.IO Redis adapter — must be set up before app.listen() starts
+  // accepting connections and before any @WebSocketGateway namespace is
+  // created, so it applies uniformly to '/appointments', '/notifications',
+  // and '/queue' alike. See redis-io.adapter.ts for why this replaced the
+  // old per-gateway wiring (which only ever reliably covered one namespace).
+  const redisIoAdapter = new RedisIoAdapter(app, process.env.REDIS_URL);
+  await redisIoAdapter.connectToRedis();
+  app.useWebSocketAdapter(redisIoAdapter);
 
   // ── Dynamic CORS ────────────────────────────────────────────────────────────
   // Custom domains (e.g. agnidental.com.np) cannot be known ahead of time, so

@@ -163,7 +163,8 @@ export interface Appointment {
 
 // ─── Invoice ──────────────────────────────────────────────────────────────────
 export type InvoiceStatus  = 'draft' | 'sent' | 'paid' | 'partially_paid' | 'not_yet_paid' | 'overdue' | 'cancelled' | 'refunded';
-export type PaymentMethod  = 'cash'  | 'esewa' | 'khalti' | 'paypal' | 'bank_transfer' | 'insurance';
+// dentaldb/types/index.ts
+export type PaymentMethod  = 'cash'  | 'esewa' | 'khalti' | 'paypal' | 'bank_transfer' | 'insurance' | 'wallet_credit' | 'wallet_debit';
 
 export interface InvoiceItem {
   description: string;

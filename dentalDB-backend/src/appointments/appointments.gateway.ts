@@ -6,42 +6,28 @@ import {
   ConnectedSocket,
   OnGatewayConnection,
   OnGatewayDisconnect,
-  OnGatewayInit,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Inject, Logger, Optional } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { SOCKET_IO_ADAPTER_FACTORY } from './appointments.module';
 
 @WebSocketGateway({
   cors: { origin: process.env.FRONTEND_URL || 'http://localhost:3000', credentials: true },
   namespace: '/appointments',
 })
-export class AppointmentsGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+export class AppointmentsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
   private readonly logger = new Logger(AppointmentsGateway.name);
 
   constructor(
     private jwtService: JwtService,
     private config: ConfigService,
-    @Optional() @Inject(SOCKET_IO_ADAPTER_FACTORY)
-    private readonly adapterFactory: ((io: Server) => Promise<void>) | null,
   ) {}
 
-  /**
-   * Wire up the Redis adapter as soon as the Socket.IO server is ready.
-   * When REDIS_URL is not set the factory is null and we skip — in-process
-   * rooms work fine for a single instance.
-   */
-  async afterInit(io: Server) {
-    if (this.adapterFactory) {
-      await this.adapterFactory(io);
-      this.logger.log('Socket.IO Redis adapter attached — events will be shared across all instances');
-    } else {
-      this.logger.warn('REDIS_URL not set — Socket.IO using in-memory adapter (single-instance only)');
-    }
-  }
+  // Cross-instance broadcasting (Redis adapter) is now wired once, globally,
+  // in main.ts via RedisIoAdapter — applies to this namespace automatically,
+  // no per-gateway setup needed here anymore. See src/common/redis-io.adapter.ts.
 
   handleConnection(client: Socket) {
     try {

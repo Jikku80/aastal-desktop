@@ -12,9 +12,10 @@ interface Props {
   placeholder?: string;
   error?: string;
   disabled?: boolean;
+  branchId?: string;     // when set, only patients belonging to this branch are searchable/listed
 }
 
-export default function PatientCombobox({ value, onChange, placeholder = 'Search patients…', error, disabled }: Props) {
+export default function PatientCombobox({ value, onChange, placeholder = 'Search patients…', error, disabled, branchId }: Props) {
   const [open, setOpen]     = useState(false);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -27,9 +28,12 @@ export default function PatientCombobox({ value, onChange, placeholder = 'Search
     return () => clearTimeout(t);
   }, [search]);
 
+  // Shows only a handful of patients from the selected branch by default
+  // (limit: 12) — typing narrows it down via `search`, still scoped to the
+  // same branch, instead of searching across the whole clinic.
   const { data, isLoading } = useQuery({
-    queryKey: ['patients-search', debouncedSearch],
-    queryFn: () => patientsApi.list({ search: debouncedSearch, limit: 12 }).then(r => r.data),
+    queryKey: ['patients-search', debouncedSearch, branchId],
+    queryFn: () => patientsApi.list({ search: debouncedSearch, limit: 12, branchId: branchId || undefined }).then(r => r.data),
     enabled: open,
     staleTime: 10_000,
   });

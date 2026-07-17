@@ -3,9 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Subscription, SubscriptionStatus } from './entities/subscription.entity';
 import { Clinic, SubscriptionPlan } from '../clinics/entities/clinic.entity';
+import { SyncMeta } from '../sync/entities/sync-meta.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { BranchesService } from '../branch/branch.service';
 import { addMonths, addDays } from 'date-fns';
+import { resolveOfflineLicense } from './offline-license.util';
 
 // ── Per-spec plan features ─────────────────────────────────────────────────────
 const PLAN_FEATURES: Record<string, string[]> = {
@@ -63,13 +65,28 @@ const FREE_TRIAL_DAYS = 14;
 @Injectable()
 export class SubscriptionsService {
   constructor(
-    @InjectRepository(Subscription) private subRepo:    Repository<Subscription>,
-    @InjectRepository(Clinic)       private clinicRepo: Repository<Clinic>,
+    @InjectRepository(Subscription) private subRepo:     Repository<Subscription>,
+    @InjectRepository(Clinic)       private clinicRepo:  Repository<Clinic>,
+    @InjectRepository(SyncMeta)     private syncMetaRepo: Repository<SyncMeta>,
     private notifications: NotificationsService,
     private branches: BranchesService,
   ) {}
 
+  /**
+   * True for the offline/desktop (SQLite) build, where the Subscription
+   * entity isn't registered at all (see offline-entities.ts) — every method
+   * below that touches subRepo must be skipped in that case, in favor of
+   * the Clinic-only offline path (see offline-license.util.ts).
+   */
+  private isOffline(): boolean {
+    return (process.env.DB_DRIVER ?? 'postgres') === 'sqlite';
+  }
+
   async getCurrent(clinicId: string) {
+    if (this.isOffline()) {
+      return this.getCurrentOffline(clinicId);
+    }
+
     const sub    = await this.subRepo.findOne({ where: { clinicId } });
     const clinic = await this.clinicRepo.findOne({ where: { id: clinicId } });
     const now    = new Date();
@@ -141,6 +158,53 @@ export class SubscriptionsService {
     };
   }
 
+  /**
+   * Offline (SQLite/desktop) build variant of getCurrent(). There is no
+   * local Subscription row at all — plan/trialEndsAt/subscriptionEndsAt
+   * live on the Clinic row and are kept current by the ordinary Clinic
+   * sync (sync-registry.ts) whenever there's connectivity. This is what
+   * SubscriptionGate.tsx renders its lock screen from; it's also checked
+   * independently (and enforced, not just displayed) on every
+   * JWT-authenticated request in jwt.strategy.ts, so this stays accurate
+   * even if a request never reaches this endpoint.
+   */
+  private async getCurrentOffline(clinicId: string) {
+    const result       = await resolveOfflineLicense(clinicId, this.clinicRepo, this.syncMetaRepo);
+    const plan         = result.plan || 'free';
+    const quotaStatus  = await this.branches.getQuotaStatus(clinicId).catch(() => null);
+
+    return {
+      subscription:       null,
+      plan,
+      features:           PLAN_FEATURES[plan] ?? PLAN_FEATURES.free,
+      prices:             PLAN_PRICES_NPR,
+      proPricing: {
+        baseMonthly:      PRO_BASE_MONTHLY,
+        perBranchMonthly: PRO_PER_BRANCH_MONTHLY,
+        numBranches:      1,
+        monthlyTotal:     calcProMonthly(1),
+        yearlyTotal:      calcProYearly(1),
+      },
+      enterprisePricing: {
+        baseMonthly:      ENTERPRISE_BASE_MONTHLY,
+        perBranchMonthly: ENTERPRISE_PER_BRANCH_MONTHLY,
+        numBranches:      1,
+        monthlyTotal:     calcEnterpriseMonthly(1),
+        yearlyTotal:      calcEnterpriseYearly(1),
+      },
+      trialEndsAt:        result.trialEndsAt ?? undefined,
+      isTrialActive:      plan === 'free' && result.lockReason !== 'trial_expired',
+      isLocked:           result.isLocked,
+      lockReason:         result.lockReason || undefined,
+      currentPeriodEnd:   result.currentPeriodEnd ?? undefined,
+      billingCycle:       undefined,
+      maxBranches:        this.getMaxBranches(plan, 1),
+      requiresDowngradeSelection: quotaStatus?.requiresDowngradeSelection ?? false,
+      pendingBranchSelection:     quotaStatus?.pendingSelection ?? null,
+      offline: true,
+    };
+  }
+
   getMaxBranches(plan: string, numBranches = 1): number {
     if (plan === 'free')       return 999;
     if (plan === 'pro')        return numBranches;
@@ -161,6 +225,11 @@ export class SubscriptionsService {
       immediateDowngrade?: boolean;
     },
   ): Promise<any> {
+    if (this.isOffline()) {
+      throw new BadRequestException(
+        'Plan changes must be made from the online portal while this device is connected — the change syncs down automatically afterwards.',
+      );
+    }
     const clinic = await this.clinicRepo.findOne({ where: { id: clinicId } });
     if (!clinic) throw new NotFoundException('Clinic not found');
 
@@ -303,6 +372,9 @@ export class SubscriptionsService {
   }
 
   async cancelSubscription(clinicId: string): Promise<Subscription> {
+    if (this.isOffline()) {
+      throw new BadRequestException('Subscription cancellation must be done from the online portal.');
+    }
     const sub = await this.subRepo.findOne({ where: { clinicId } });
     if (!sub) throw new NotFoundException('No active subscription found');
     sub.status   = SubscriptionStatus.CANCELLED;
@@ -320,6 +392,9 @@ export class SubscriptionsService {
    * - Otherwise apply quota normally (handles upgrade path too)
    */
   async renewSubscription(clinicId: string): Promise<any> {
+    if (this.isOffline()) {
+      throw new BadRequestException('Subscription renewal must be done from the online portal while connected — it syncs down automatically afterwards.');
+    }
     const sub    = await this.subRepo.findOne({ where: { clinicId } });
     if (!sub) throw new NotFoundException('No subscription found');
     const clinic = await this.clinicRepo.findOne({ where: { id: clinicId } });

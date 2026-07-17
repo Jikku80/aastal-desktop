@@ -1,3 +1,4 @@
+// dentalDB-backend/src/website-builder/website-builder.controller.ts
 import {
   Controller, Get, Post, Patch, Delete, Body, Param, Query,
   Request, UseGuards, UseInterceptors, UploadedFile,
@@ -12,6 +13,8 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 import { WebsiteBuilderService } from './website-builder.service';
 import { ContactMessage } from './entities/contact-message.entity';
 import { Branch } from '../branch/entities/branch.entity';
@@ -24,7 +27,7 @@ mkdir(join(UPLOADS_DIR, 'website-images'), { recursive: true }).catch(() => {});
 
 @ApiTags('Website Builder')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('website-builder')
 export class WebsiteBuilderController {
   constructor(
@@ -37,12 +40,14 @@ export class WebsiteBuilderController {
 
   /** GET current clinic website config */
   @Get()
+  @RequirePermissions('website.view')
   find(@Request() req: any) {
     return this.service.find(req.user.clinicId);
   }
 
   /** GET authenticated preview data */
   @Get('preview')
+  @RequirePermissions('website.view')
   async preview(@Request() req: any) {
     const site = await this.service.getForPreview(req.user.clinicId);
     const branches = await this.branchRepo.find({
@@ -77,6 +82,7 @@ export class WebsiteBuilderController {
 
   /** GET products for preview (authenticated, no isPublished requirement) */
   @Get('preview/products')
+  @RequirePermissions('website.view')
   async previewProducts(
     @Request() req: any,
     @Query('branchIds') branchIdsParam?: string,
@@ -112,6 +118,7 @@ export class WebsiteBuilderController {
 
   /** GET all contact form messages for this clinic (paginated) */
   @Get('messages')
+  @RequirePermissions('website.view')
   async getMessages(
     @Request() req: any,
     @Query('page')  page  = '1',
@@ -138,6 +145,7 @@ export class WebsiteBuilderController {
 
   /** PATCH mark message as read */
   @Patch('messages/:id/read')
+  @RequirePermissions('website.manage')
   async markRead(@Request() req: any, @Param('id') id: string) {
     await this.contactRepo.update(
       { id, clinicId: req.user.clinicId },
@@ -148,6 +156,7 @@ export class WebsiteBuilderController {
 
   /** DELETE a message */
   @Delete('messages/:id')
+  @RequirePermissions('website.manage')
   async deleteMessage(@Request() req: any, @Param('id') id: string) {
     await this.contactRepo.delete({ id, clinicId: req.user.clinicId });
     return { success: true };
@@ -156,31 +165,37 @@ export class WebsiteBuilderController {
   // ── Site CRUD ────────────────────────────────────────────────────────────────
 
   @Patch()
+  @RequirePermissions('website.manage')
   update(@Request() req: any, @Body() dto: any) {
     return this.service.update(req.user.clinicId, dto);
   }
 
   @Post('pages')
+  @RequirePermissions('website.manage')
   addPage(@Request() req: any, @Body() dto: any) {
     return this.service.addPage(req.user.clinicId, dto);
   }
 
   @Delete('pages/:pageId')
+  @RequirePermissions('website.manage')
   deletePage(@Request() req: any, @Param('pageId') pageId: string) {
     return this.service.deletePage(req.user.clinicId, pageId);
   }
 
   @Patch('pages/reorder')
+  @RequirePermissions('website.manage')
   reorderPages(@Request() req: any, @Body() dto: { pageIds: string[] }) {
     return this.service.reorderPages(req.user.clinicId, dto.pageIds);
   }
 
   @Post('pages/:pageId/sections')
+  @RequirePermissions('website.manage')
   addSection(@Request() req: any, @Param('pageId') pageId: string, @Body() dto: any) {
     return this.service.addSection(req.user.clinicId, pageId, dto.section, dto.position);
   }
 
   @Patch('pages/:pageId/sections/:sectionId')
+  @RequirePermissions('website.manage')
   updateSection(
     @Request() req: any,
     @Param('pageId') pageId: string,
@@ -191,6 +206,7 @@ export class WebsiteBuilderController {
   }
 
   @Delete('pages/:pageId/sections/:sectionId')
+  @RequirePermissions('website.manage')
   deleteSection(
     @Request() req: any,
     @Param('pageId') pageId: string,
@@ -200,6 +216,7 @@ export class WebsiteBuilderController {
   }
 
   @Patch('pages/:pageId/sections/reorder')
+  @RequirePermissions('website.manage')
   reorderSections(
     @Request() req: any,
     @Param('pageId') pageId: string,
@@ -209,6 +226,7 @@ export class WebsiteBuilderController {
   }
 
   @Post('pages/:pageId/sections/:sectionId/duplicate')
+  @RequirePermissions('website.manage')
   duplicateSection(
     @Request() req: any,
     @Param('pageId') pageId: string,
@@ -218,26 +236,31 @@ export class WebsiteBuilderController {
   }
 
   @Post('publish')
+  @RequirePermissions('website.manage')
   publish(@Request() req: any) {
     return this.service.publish(req.user.clinicId);
   }
 
   @Post('unpublish')
+  @RequirePermissions('website.manage')
   unpublish(@Request() req: any) {
     return this.service.unpublish(req.user.clinicId);
   }
 
   @Post('verify-domain')
+  @RequirePermissions('website.manage')
   verifyDomain(@Request() req: any) {
     return this.service.verifyDomain(req.user.clinicId);
   }
 
   @Post('generate-ai')
+  @RequirePermissions('website.manage')
   generateWithAI(@Request() req: any, @Body() dto: any) {
     return this.service.generateWithAI(req.user.clinicId, dto);
   }
 
   @Post('generate-section')
+  @RequirePermissions('website.manage')
   generateSection(@Request() req: any, @Body() dto: any) {
     return this.service.generateSectionWithAI(
       req.user.clinicId,
@@ -250,6 +273,7 @@ export class WebsiteBuilderController {
 
   /** POST upload image (for section backgrounds, about images, etc.) */
   @Post('upload-image')
+  @RequirePermissions('website.manage')
   @UseInterceptors(FileInterceptor('file', {
     storage: diskStorage({
       destination: async (_req, _file, cb) => {
@@ -275,6 +299,7 @@ export class WebsiteBuilderController {
 
   /** POST upload favicon */
   @Post('favicon')
+  @RequirePermissions('website.manage')
   @UseInterceptors(FileInterceptor('favicon', {
     storage: diskStorage({
       destination: join(UPLOADS_DIR, 'favicons'),

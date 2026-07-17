@@ -2,6 +2,7 @@
 // migration discovery (breaks under the bundled Electron build; see
 // all-entities.ts for the full explanation). Regenerate, do not hand-edit.
 // Used by: data-source.postgres.ts (online/server DB, Postgres driver).
+// Regenerate with: npm run migration:sync-list
 import { SeoInfrastructure1700000000001 } from '../migrations/1700000000001-SeoInfrastructure';
 import { Migration1778951127866 } from '../migrations/1778951127866-Migration';
 import { Migration1779036761412 } from '../migrations/1779036761412-Migration';
@@ -17,6 +18,8 @@ import { SyncDevices1782900000000 } from '../migrations/1782900000000-SyncDevice
 import { Migration1782924499469 } from '../migrations/1782924499469-Migration';
 import { Migration1783496503624 } from '../migrations/1783496503624-Migration';
 import { Migration1783754843181 } from '../migrations/1783754843181-Migration';
+import { AuditLogWalletEnumValue1783933938709 } from '../migrations/1783933938709-AuditLogWalletEnumValue';
+
 export const POSTGRES_MIGRATIONS = [
   SeoInfrastructure1700000000001,
   Migration1778951127866,
@@ -33,4 +36,5 @@ export const POSTGRES_MIGRATIONS = [
   Migration1782924499469,
   Migration1783496503624,
   Migration1783754843181,
+  AuditLogWalletEnumValue1783933938709,
 ];

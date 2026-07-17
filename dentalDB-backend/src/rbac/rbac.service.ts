@@ -1,9 +1,12 @@
+// dentalDB-backend/src/rbac/rbac.service.ts
 import {
   Injectable, NotFoundException, ConflictException,
-  ForbiddenException, BadRequestException,
+  ForbiddenException, BadRequestException, Inject,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { Role } from './entities/role.entity';
 import { Permission } from './entities/permission.entity';
 import { UserRole } from './entities/user-role.entity';
@@ -12,6 +15,7 @@ import {
   CreateRoleDto, UpdateRoleDto, SetRolePermissionsDto,
   AssignRolesToUserDto, TogglePermissionDto,
 } from './dto/rbac.dto';
+import { invalidateLiveAuthCache } from '../auth/live-auth-cache.util';
 
 export const SYSTEM_PERMISSIONS = [
   // Finance — Expenses
@@ -27,6 +31,8 @@ export const SYSTEM_PERMISSIONS = [
   { key: 'wallet.manage',    label: 'Manage Wallets',    group: 'Finance' },
 
   { key: 'dashboard.view',     label: 'View Dashboard',           group: 'Dashboard' },
+  { key: 'queue.view',         label: 'View Waiting Room Queue',  group: 'Queue' },
+  { key: 'queue.manage',       label: 'Edit / Delete Queue Entries', group: 'Queue' },
   { key: 'appointment.view',   label: 'View Appointments',        group: 'Appointments' },
   { key: 'appointment.create', label: 'Create Appointment',       group: 'Appointments' },
   { key: 'appointment.update', label: 'Update Appointment',       group: 'Appointments' },
@@ -76,6 +82,8 @@ export const SYSTEM_PERMISSIONS = [
   { key: 'holiday.manage',    label: 'Manage Holidays',       group: 'Holidays & Notices' },
   { key: 'notice.view',       label: 'View Notices',          group: 'Holidays & Notices' },
   { key: 'notice.manage',     label: 'Manage Notices',        group: 'Holidays & Notices' },
+  { key: 'tasks.view',        label: 'View Tasks',            group: 'Tasks' },
+  { key: 'tasks.manage',      label: 'Create / Edit / Delete Tasks', group: 'Tasks' },
 
   // ── Part 7 — Marketplace / Clinic-side permissions ───────────────────────
   { key: 'listing.manage',       label: 'Manage Public Listing',          group: 'Marketplace' },
@@ -100,7 +108,14 @@ export class RbacService {
     @InjectRepository(Permission) private permRepo:     Repository<Permission>,
     @InjectRepository(UserRole)   private userRoleRepo: Repository<UserRole>,
     @InjectRepository(User)       private userRepo:     Repository<User>,
+    @Inject(CACHE_MANAGER)        private liveCache:    Cache,
   ) {}
+
+  /** Every userId currently holding this role — used to bust the fast-path auth cache for all of them at once. */
+  private async userIdsWithRole(roleId: string): Promise<string[]> {
+    const rows = await this.userRoleRepo.find({ where: { roleId } });
+    return rows.map((r) => r.userId);
+  }
 
   // ─── Permissions ─────────────────────────────────────────────────────────────
 
@@ -144,8 +159,10 @@ export class RbacService {
   async deleteRole(id: string, clinicId: string): Promise<void> {
     const role = await this.findRole(id, clinicId);
     if (role.isSystem) throw new ForbiddenException('System roles cannot be deleted');
+    const affectedUserIds = await this.userIdsWithRole(id);
     await this.userRoleRepo.delete({ roleId: id });
     await this.roleRepo.remove(role);
+    await invalidateLiveAuthCache(this.liveCache, affectedUserIds);
   }
 
   async setRolePermissions(roleId: string, dto: SetRolePermissionsDto, clinicId: string): Promise<Role> {
@@ -156,7 +173,13 @@ export class RbacService {
     if (perms.length !== dto.permissionIds.length)
       throw new BadRequestException('One or more permission IDs are invalid');
     role.permissions = perms;
-    return this.roleRepo.save(role);
+    const affectedUserIds = await this.userIdsWithRole(roleId);
+    const saved = await this.roleRepo.save(role);
+    // Every user holding this role just had their effective permissions
+    // change — without this, they'd keep their old permission set for up
+    // to CACHE_TTL_MS after an admin just revoked/granted access.
+    await invalidateLiveAuthCache(this.liveCache, affectedUserIds);
+    return saved;
   }
 
   async toggleRolePermission(roleId: string, dto: TogglePermissionDto, clinicId: string): Promise<Role> {
@@ -168,7 +191,10 @@ export class RbacService {
     } else {
       role.permissions = role.permissions.filter((p) => p.id !== perm.id);
     }
-    return this.roleRepo.save(role);
+    const affectedUserIds = await this.userIdsWithRole(roleId);
+    const saved = await this.roleRepo.save(role);
+    await invalidateLiveAuthCache(this.liveCache, affectedUserIds);
+    return saved;
   }
 
   // ─── User ↔ Roles ─────────────────────────────────────────────────────────
@@ -196,7 +222,9 @@ export class RbacService {
     const assignments = roles.map((r) =>
       this.userRoleRepo.create({ userId: targetUserId, roleId: r.id }),
     );
-    return this.userRoleRepo.save(assignments);
+    const saved = await this.userRoleRepo.save(assignments);
+    await invalidateLiveAuthCache(this.liveCache, targetUserId);
+    return saved;
   }
 
   // ─── Permission resolution ────────────────────────────────────────────────
@@ -251,8 +279,18 @@ export class RbacService {
       where: { name: 'Owner', clinicId },
       relations: ['permissions'],
     });
-    if (owner) return owner;
     const allPerms = await this.permRepo.find();
+    if (owner) {
+      // Self-heal: if new system permissions were added after this Owner
+      // role was first created, make sure they get attached too — otherwise
+      // an already-provisioned clinic's Owner role would silently drift out
+      // of sync with the master permission list forever.
+      if (owner.permissions.length !== allPerms.length) {
+        owner.permissions = allPerms;
+        owner = await this.roleRepo.save(owner);
+      }
+      return owner;
+    }
     owner = this.roleRepo.create({
       name: 'Owner',
       description: 'Full access to all clinic features',

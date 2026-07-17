@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Inject } from '@nestjs/common';
 import { ilike } from '../database/sql-helpers';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { User, UserRole, isDoctorRole } from './entities/user.entity';
 import { Appointment, AppointmentStatus } from '../appointments/entities/appointment.entity';
 import { Invoice } from '../billing/entities/invoice.entity';
@@ -14,6 +16,7 @@ import { UserRole as UserRoleAssignment } from '../rbac/entities/user-role.entit
 import { DoctorClinicAffiliation, AffiliationStatus } from '../doctor-affiliation/entities/doctor-clinic-affiliation.entity';
 import { ShiftResolver } from '../shifts/shift-resolver.service';
 import { AuthCacheService } from '../auth/auth-cache.service';
+import { invalidateLiveAuthCache } from '../auth/live-auth-cache.util';
 
 @Injectable()
 export class UsersService {
@@ -28,6 +31,7 @@ export class UsersService {
     @InjectRepository(DoctorClinicAffiliation) private affiliationRepo: Repository<DoctorClinicAffiliation>,
     private shiftResolver: ShiftResolver,
     private authCache: AuthCacheService,
+    @Inject(CACHE_MANAGER) private liveCache: Cache,
   ) {}
  
   async findStaff(clinicId: string, query: any) {
@@ -46,7 +50,36 @@ export class UsersService {
       const conditions = tokens.map((_: string, i: number) => `CAST(u.role AS text) ${ilike()} :role${i}`).join(' OR ');
       const params: Record<string, string> = {};
       tokens.forEach((t: string, i: number) => { params[`role${i}`] = `%${t}%`; });
-      qb = qb.andWhere(`(${conditions})`, params);
+
+      // A user assigned a role through the RBAC "Roles" module (user_roles →
+      // roles) never gets their legacy `role` enum column updated — that
+      // column only changes when a user is created with a matching built-in
+      // role. Without this, staff who were made doctors purely via a custom
+      // RBAC role assignment are invisible to every "roles=doctor,dentist"
+      // lookup (appointment forms, walk-in queue, etc). Resolve matching RBAC
+      // roles for this clinic and OR their assigned users into the filter.
+      const rbacRoleConditions = tokens.map((_: string, i: number) => `r.name ${ilike()} :rname${i}`).join(' OR ');
+      const rbacParams: Record<string, string> = {};
+      tokens.forEach((t: string, i: number) => { rbacParams[`rname${i}`] = `%${t}%`; });
+      const matchingRbacRoles = await this.roleRepo
+        .createQueryBuilder('r')
+        .where('r.clinicId = :clinicId', { clinicId })
+        .andWhere(`(${rbacRoleConditions})`, rbacParams)
+        .getMany();
+
+      let rbacUserIds: string[] = [];
+      if (matchingRbacRoles.length) {
+        const assignments = await this.userRoleRepo.find({
+          where: { roleId: In(matchingRbacRoles.map((r) => r.id)) },
+        });
+        rbacUserIds = assignments.map((a) => a.userId);
+      }
+
+      if (rbacUserIds.length) {
+        qb = qb.andWhere(`((${conditions}) OR u.id IN (:...rbacUserIds))`, { ...params, rbacUserIds });
+      } else {
+        qb = qb.andWhere(`(${conditions})`, params);
+      }
     } else {
       // No filter → exclude super_admin only
       qb = qb.andWhere('u.role != :superAdmin', { superAdmin: UserRole.SUPER_ADMIN });
@@ -188,6 +221,12 @@ export class UsersService {
     if (dto.password) dto.password = await bcrypt.hash(dto.password, 12);
     if (dto.role) dto.role = this.normalizeRole(dto.role) as any;
     await this.repo.update({ id, clinicId }, dto);
+    // A role/permission-affecting field changed — bust the fast-path
+    // cache so it takes effect on this user's very next request instead
+    // of waiting out CACHE_TTL_MS.
+    if (dto.role !== undefined || dto.isActive !== undefined || dto.clinicId !== undefined) {
+      await invalidateLiveAuthCache(this.liveCache, id);
+    }
     return this.findOne(clinicId, id);
   }
 
@@ -196,13 +235,16 @@ export class UsersService {
     user.isActive = false;
     const saved = await this.repo.save(user);
     await this.authCache.invalidate(id);
+    await invalidateLiveAuthCache(this.liveCache, id);
     return saved;
   }
 
   async reactivate(clinicId: string, id: string): Promise<User> {
     const user = await this.findOne(clinicId, id);
     user.isActive = true;
-    return this.repo.save(user);
+    const saved = await this.repo.save(user);
+    await invalidateLiveAuthCache(this.liveCache, id);
+    return saved;
   }
 
   async deleteStaff(clinicId: string, id: string): Promise<void> {

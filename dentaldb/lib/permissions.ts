@@ -1,5 +1,7 @@
+// dentaldb/lib/permissions.ts
 export type Permission =
   | 'dashboard.view'
+  | 'queue.view'         | 'queue.manage'
   | 'appointment.view'   | 'appointment.create' | 'appointment.update' | 'appointment.delete'
   | 'patient.view'       | 'patient.create'     | 'patient.update'     | 'patient.delete' | 'patient.record'
   | 'billing.view'       | 'billing.manage'
@@ -22,6 +24,7 @@ export type Permission =
   | 'reports.view'    | 'wallet.manage'
   | 'holiday.view'   | 'holiday.manage'
   | 'notice.view'    | 'notice.manage'
+  | 'tasks.view'     | 'tasks.manage'
   | 'lab.view'       | 'lab.manage'
   | 'blood_test.view' | 'blood_test.manage'
   | (string & {});
@@ -54,7 +57,7 @@ export function hasAllPermissions(
 export const NAV_ITEMS = [
   { label: 'Dashboard',    href: '/dashboard',                 icon: 'LayoutDashboard', permission: 'dashboard.view'    as Permission },
   { label: 'Queue',        href: '/dashboard/queue',           icon: 'ListOrdered',     permission: 'appointment.view'  as Permission },
-  { label: 'Tasks',        href: '/dashboard/tasks',           icon: 'ClipboardList',   permission: 'appointment.view'  as Permission },
+  { label: 'Tasks',        href: '/dashboard/tasks',           icon: 'ClipboardList',   permission: 'tasks.view'        as Permission },
   { label: 'Appointments', href: '/dashboard/appointments',    icon: 'Calendar',        permission: 'appointment.view'  as Permission },
   { label: 'Patients',     href: '/dashboard/patients',        icon: 'Users',           permission: 'patient.view'      as Permission },
   { label: 'Billing',      href: '/dashboard/billing',         icon: 'CreditCard',      permission: 'billing.view'      as Permission },
@@ -68,7 +71,7 @@ export const NAV_ITEMS = [
   { label: 'Branches',     href: '/dashboard/branches',        icon: 'GitBranch',       permission: 'branch.view'       as Permission },
   { label: 'Shifts',       href: '/dashboard/shifts',          icon: 'Layers',          permission: 'shift.view'        as Permission },
   { label: 'Attendance',   href: '/dashboard/attendance',      icon: 'ClipboardCheck',  permission: 'attendance.view'   as Permission },
-  { label: 'Leave',        href: '/dashboard/leave',           icon: 'CalendarOff',     permission: null },
+  { label: 'Leave',        href: '/dashboard/leave',           icon: 'CalendarOff',     permission: 'leave.view'     as Permission },
   { label: 'Website',      href: '/website-builder', icon: 'Globe',           permission: 'website.view'      as Permission },
   { label: 'Public Listing', href: '/dashboard/public-listing', icon: 'MapPin',         permission: 'settings.view'     as Permission },
   { label: 'Messages',     href: '/dashboard/messages',        icon: 'MessageSquare',   permission: 'website.view'      as Permission },

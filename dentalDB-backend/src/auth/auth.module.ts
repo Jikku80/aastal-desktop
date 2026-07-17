@@ -12,6 +12,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { User } from '../users/entities/user.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
+import { SyncMeta } from '../sync/entities/sync-meta.entity';
 import { DoctorProfile } from '../doctor-profile/entities/doctor-profile.entity';
 import { NotificationsModule } from 'src/notifications/notifications.module';
 import { RbacModule } from '../rbac/rbac.module';
@@ -20,7 +21,7 @@ import { SyncModule } from '../sync/sync.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Clinic, DoctorProfile, AuthCache]),
+    TypeOrmModule.forFeature([User, Clinic, DoctorProfile, AuthCache, SyncMeta]),
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

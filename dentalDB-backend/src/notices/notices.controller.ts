@@ -4,6 +4,8 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 import { NoticesService } from './notices.service';
 import { NoticeType, NoticeScope } from './entities/notice.entity';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -12,7 +14,7 @@ import { Branch } from '../branch/entities/branch.entity';
 
 @ApiTags('Notices')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('notices')
 export class NoticesController {
   constructor(
@@ -24,6 +26,8 @@ export class NoticesController {
    * GET /notices
    * Returns notices filtered for the currently logged-in user.
    * Automatically applies branch filtering based on the user's branch assignments.
+   * No specific permission required — every staff member should see notices
+   * addressed to them.
    */
   @Get()
   async findMine(
@@ -49,6 +53,7 @@ export class NoticesController {
    * GET /notices/all  (admin view — all notices unfiltered)
    */
   @Get('all')
+  @RequirePermissions('notice.view')
   findAll(@Request() req: any, @Query('type') type?: NoticeType) {
     return this.service.findAll(req.user.clinicId, type);
   }
@@ -58,6 +63,7 @@ export class NoticesController {
    * Create a notice or holiday with scope targeting
    */
   @Post()
+  @RequirePermissions('notice.manage')
   create(@Request() req: any, @Body() dto: {
     type:             NoticeType;
     title:            string;
@@ -76,6 +82,7 @@ export class NoticesController {
    * PATCH /notices/:id
    */
   @Patch(':id')
+  @RequirePermissions('notice.manage')
   update(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
     return this.service.update(req.user.clinicId, id, dto);
   }
@@ -84,6 +91,7 @@ export class NoticesController {
    * DELETE /notices/:id
    */
   @Delete(':id')
+  @RequirePermissions('notice.manage')
   remove(@Request() req: any, @Param('id') id: string) {
     return this.service.remove(req.user.clinicId, id);
   }

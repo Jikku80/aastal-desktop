@@ -14,6 +14,8 @@ import { User } from '../users/entities/user.entity';
 import * as bcrypt from 'bcryptjs';
 
 const LAST_SYNC_KEY = 'lastSyncAt';
+const NEVER_MATCH_UUID = '00000000-0000-0000-0000-000000000000';
+
 
 export interface ChangesResponse {
   serverTime: string;
@@ -93,7 +95,7 @@ export class SyncService {
         // An empty IN() is invalid/ambiguous across drivers — substitute a
         // value that can never match rather than omitting the filter
         // (omitting it would leak every clinic's rows for this entity).
-        return { [scope.localField]: In(ids.length ? ids : ['__no_match__']) };
+        return { [scope.localField]: In(ids.length ? ids : [NEVER_MATCH_UUID]) };
       }
     }
   }
@@ -278,6 +280,21 @@ export class SyncService {
       );
       this.syncConfigStore.writeDeviceToken(data.token);
       this.logger.log('Sync device auto-registered against remote backend');
+
+      // Pull the clinic's existing data down immediately rather than
+      // waiting for the next periodic/reconnect trigger. Without this, a
+      // fresh desktop install registers successfully but the very first
+      // ConnectivityService poll (which ran before this token existed)
+      // already failed its sync attempt with 401 and won't retry until
+      // its next cycle — up to PERIODIC_SYNC_INTERVAL_MS later — so staff
+      // would see an empty patients/appointments list for several minutes
+      // after their first login on a new machine. Never let a failure
+      // here block login; caller already treats this whole method as
+      // fire-and-forget.
+      this.fullSync().catch((err: any) => {
+        this.logger.warn(`Post-registration initial sync failed (will retry on next cycle): ${err?.message ?? err}`);
+      });
+
       return true;
     } catch (err: any) {
       this.logger.warn(
@@ -422,6 +439,16 @@ export class SyncService {
       }
     }
 
+    // This path mirrors only the logging-in User + their Clinic row — none
+    // of that user's patients, appointments, invoices, etc. This is the
+    // very first login on a brand-new machine, so there's nothing else
+    // locally yet; pull the rest of the clinic's data down now instead of
+    // leaving the app looking empty until the next periodic/reconnect
+    // trigger fires.
+    this.fullSync().catch((err: any) => {
+      this.logger.warn(`Post-mirror initial sync failed (will retry on next cycle): ${err?.message ?? err}`);
+    });
+
     this.logger.log(`Mirrored hosted account ${email} into the local offline DB after remote login fallback`);
     return remoteUser.id;
   }
@@ -453,6 +480,30 @@ export class SyncService {
   }
 
   /** Push all locally-pending records to remote. */
+  // Fields on Clinic that must only ever flow server → device (pulled),
+  // never device → server (pushed). These are exactly the fields the
+  // offline license check enforces against (offline-license.util.ts) — if
+  // a locally hand-edited SQLite copy of one of these could be pushed up
+  // and win the remote's last-write-wins comparison, someone could extend
+  // their own trial/subscription by editing the local DB file directly.
+  // Everything else about the clinic (name, address, hours, logo, ...)
+  // still syncs normally in both directions.
+  private static readonly CLINIC_SERVER_AUTHORITATIVE_FIELDS = [
+    'plan',
+    'trialEndsAt',
+    'subscriptionEndsAt',
+    'isActive',
+  ] as const;
+
+  private sanitizeOutgoingRow(entityName: string, row: Record<string, any>): Record<string, any> {
+    if (entityName !== 'Clinic') return row;
+    const sanitized = { ...row };
+    for (const field of SyncService.CLINIC_SERVER_AUTHORITATIVE_FIELDS) {
+      delete sanitized[field];
+    }
+    return sanitized;
+  }
+
   async pushPending(): Promise<{ pushed: number; conflicts: number }> {
     const remote = this.getRemoteBaseUrl();
     if (!remote) throw new Error('SYNC_REMOTE_BASE_URL not configured — cannot push');
@@ -463,10 +514,11 @@ export class SyncService {
       const repo = this.getRepo(entry);
       const rows = await repo.find({ where: { syncStatus: 'pending' } as any });
       if (!rows.length) continue;
+      const outgoing = rows.map((row) => this.sanitizeOutgoingRow(entry.name, row as any));
       const { data } = await firstValueFrom(
         this.http.post<PushResult>(
           `${remote}/api/v1/sync/push`,
-          { entityName: entry.name, records: rows },
+          { entityName: entry.name, records: outgoing },
           { headers: this.syncDeviceHeaders() },
         ),
       );
@@ -497,12 +549,38 @@ export class SyncService {
    * (done remotely, in applyIncoming) has the freshest local updatedAt to
    * compare against. Order doesn't change correctness here — LWW is commutative
    * on timestamps — but it does avoid one extra round of conflict-flagging.
+   *
+   * Guarded against overlap: this can be reached from three independent
+   * triggers on the offline instance — ConnectivityService's
+   * reconnect/periodic timers and the "sync now" button (POST
+   * /sync/trigger) — and nothing previously stopped two of them landing at
+   * once. Two concurrent runs racing on the same SQLite file could
+   * double-push the same 'pending' rows (both read the same pending set
+   * before either flips it to 'synced') and interleave writes to
+   * sync_meta's lastSyncAt. If a call arrives while one is already
+   * in-flight, it just awaits and shares that same run's result rather
+   * than starting a second one.
    */
+  private fullSyncInFlight: Promise<{ pull: { pulled: number; conflicts: number }; push: { pushed: number; conflicts: number } }> | null = null;
+
   async fullSync() {
-    this.logger.log('Starting full sync (pull then push)');
-    const pull = await this.pullChanges();
-    const push = await this.pushPending();
-    this.logger.log(`Sync complete: pulled ${pull.pulled} (${pull.conflicts} conflicts), pushed ${push.pushed} (${push.conflicts} conflicts)`);
-    return { pull, push };
+    if (this.fullSyncInFlight) {
+      this.logger.debug('fullSync already in progress — joining the existing run instead of starting a new one');
+      return this.fullSyncInFlight;
+    }
+
+    this.fullSyncInFlight = (async () => {
+      this.logger.log('Starting full sync (pull then push)');
+      const pull = await this.pullChanges();
+      const push = await this.pushPending();
+      this.logger.log(`Sync complete: pulled ${pull.pulled} (${pull.conflicts} conflicts), pushed ${push.pushed} (${push.conflicts} conflicts)`);
+      return { pull, push };
+    })();
+
+    try {
+      return await this.fullSyncInFlight;
+    } finally {
+      this.fullSyncInFlight = null;
+    }
   }
 }

@@ -10,6 +10,7 @@ import {
   FileText, Beaker, User, ExternalLink, FlaskConical, TrendingUp, TrendingDown, AlertOctagon, ClipboardList,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
+import PermissionGate from '@/components/rbac/PermissionGate';
 import PatientCombobox from '@/components/ui/PatientCombobox';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -747,10 +748,12 @@ function BloodTestDetailPanel({
       {/* Footer actions */}
       <div className="px-5 py-4 flex items-center justify-between"
         style={{ borderTop: '1px solid var(--border)' }}>
-        <button onClick={onDelete}
-          className="btn-ghost text-red-400 hover:bg-red-500/10 gap-1.5 text-xs">
-          <Trash2 size={13} /> Delete
-        </button>
+        <PermissionGate permission="blood_test.manage">
+          <button onClick={onDelete}
+            className="btn-ghost text-red-400 hover:bg-red-500/10 gap-1.5 text-xs">
+            <Trash2 size={13} /> Delete
+          </button>
+        </PermissionGate>
         <div className="flex gap-2">
           {bloodTest.status !== 'completed' && bloodTest.status !== 'cancelled' && (
             <button onClick={onEnterResults} className="btn-secondary text-xs gap-1.5">

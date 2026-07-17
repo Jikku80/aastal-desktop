@@ -20,7 +20,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const startRefreshTimer = () => {
     if (refreshTimer.current) clearInterval(refreshTimer.current);
     refreshTimer.current = setInterval(async () => {
-      try { await authApi.refresh(); }
+      try {
+        await authApi.refresh();
+        // Re-pull permissions on every refresh cycle too — not just the
+        // token. Without this, a role's permission checkboxes changed by
+        // an admin (or a role re-assigned to this user) would never take
+        // effect for an already-logged-in session until they logged out
+        // and back in again.
+        await loadPermissions();
+      }
       catch (err: any) {
         const status = err?.response?.status;
         if (status === 401 || status === 403) {
@@ -141,6 +149,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearInterval(refreshTimer.current);
       refreshTimer.current = null;
     }
+  }, [isAuthenticated]);
+
+  // Re-pull permissions when the tab regains focus — makes permission /
+  // role changes (e.g. an admin just edited this user's role on the Roles
+  // page, or reassigned their roles on the Staff page) visible right away
+  // instead of waiting for the next 12-minute refresh cycle.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const onFocus = () => { loadPermissions(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') loadPermissions();
+    });
+    return () => {
+      window.removeEventListener('focus', onFocus);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
   return (
