@@ -154,7 +154,19 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   { name: 'Permission', entity: Permission, timestampField: 'updatedAt', clinicScope: { type: 'global' }, uniqueFields: ['key'] },
   // No clinicId column — scope indirectly via the user the role assignment belongs to.
   { name: 'UserRole', entity: UserRole, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: User, localField: 'userId' } },
-  { name: 'User', entity: User, timestampField: 'updatedAt', clinicScope: direct },
+  // uniqueFields: ['email'] — users.email has a DB-level UNIQUE index
+  // (see User entity). Without this, a pulled User row whose id doesn't
+  // exist locally but whose email already belongs to a different local
+  // row (e.g. the same staff member created independently on two
+  // instances before they ever synced) hits "UNIQUE constraint failed:
+  // users.email" on insert and gets silently skipped via the safety-net
+  // catch in applyIncoming instead of being reconciled onto the existing
+  // row. A skipped User then leaves a dangling reference for any row
+  // applied later in the same transaction that points at its userId
+  // (e.g. UserRole), which throws "FOREIGN KEY constraint failed" and
+  // rolls back the entire pull. Declaring the unique field lets it
+  // reconcile the same way Clinic.slug and Permission.key do.
+  { name: 'User', entity: User, timestampField: 'updatedAt', clinicScope: direct, uniqueFields: ['email'] },
   { name: 'AuditLog', entity: AuditLog, timestampField: 'createdAt', clinicScope: direct },
   { name: 'ApiKey', entity: ApiKey, timestampField: 'updatedAt', clinicScope: direct },
   // Doctors can be independently affiliated with multiple clinics or none
