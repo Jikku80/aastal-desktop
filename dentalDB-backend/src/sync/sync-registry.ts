@@ -60,6 +60,17 @@ export interface SyncRegistryEntry {
   timestampField: 'updatedAt' | 'createdAt';
   /** How to scope this entity's rows to one clinicId — see ClinicScope below. */
   clinicScope: ClinicScope;
+  /**
+   * Column(s) with a DB-level UNIQUE constraint that aren't the primary
+   * key. Declaring these lets SyncService.applyIncoming recognize "this
+   * incoming row's id doesn't exist locally, but its unique field already
+   * belongs to a different local row" (e.g. a locally-seeded placeholder
+   * Clinic and its later hosted-backend counterpart ending up with two
+   * different ids for the same logical clinic) and reconcile it as an
+   * update instead of attempting an INSERT that would throw a UNIQUE
+   * constraint violation and abort the whole sync transaction.
+   */
+  uniqueFields?: string[];
 }
 
 /**
@@ -124,7 +135,7 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   { name: 'ClinicService', entity: ClinicService, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'DowngradeSelection', entity: DowngradeSelection, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'Branch', entity: Branch, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'Clinic', entity: Clinic, timestampField: 'updatedAt', clinicScope: { type: 'self' } },
+  { name: 'Clinic', entity: Clinic, timestampField: 'updatedAt', clinicScope: { type: 'self' }, uniqueFields: ['slug'] },
   // clinicId is nullable on Role (system-wide default roles) — those rows
   // simply never match a clinic filter and won't sync out, which is
   // correct: every instance already seeds its own system roles locally.

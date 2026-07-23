@@ -100,6 +100,38 @@ export class SyncService {
     }
   }
 
+  /**
+   * Look up a different local row already holding one of `incoming`'s
+   * declared unique-field values. Used only when `incoming.id` itself
+   * wasn't found locally — i.e. a genuine "same logical record, different
+   * id" collision (see uniqueFields docstring in sync-registry.ts), not a
+   * normal update. Returns null for entities with no declared uniqueFields
+   * (the overwhelming majority), so this is a no-op for everything except
+   * Clinic today.
+   */
+  private async findByAlternateUniqueField(
+    entry: SyncRegistryEntry,
+    repo: Repository<any>,
+    incoming: any,
+  ): Promise<any | null> {
+    if (!entry.uniqueFields?.length) return null;
+    for (const field of entry.uniqueFields) {
+      const value = incoming[field];
+      if (value == null) continue;
+      const match = await repo.findOne({ where: { [field]: value } as any });
+      if (match) return match;
+    }
+    return null;
+  }
+
+  /** True for a DB-level unique/duplicate-key violation, across both the Postgres and better-sqlite3 drivers. */
+  private isUniqueConstraintError(err: any): boolean {
+    const code = err?.code ?? err?.driverError?.code;
+    if (code === '23505') return true; // Postgres unique_violation
+    const message: string = err?.message ?? err?.driverError?.message ?? '';
+    return /UNIQUE constraint failed/i.test(message);
+  }
+
   /** Per-record check used by applyIncoming to reject a pushed row that isn't the pushing device's own clinic's. */
   private recordBelongsToClinic(scope: ClinicScope, record: any, clinicId: string): boolean {
     if (scope.type === 'direct') return record[scope.field ?? 'clinicId'] === clinicId;
@@ -174,20 +206,62 @@ export class SyncService {
           continue;
         }
 
-        const existing = await repo.findOne({ where: { id: incoming.id } as any });
+        let existing = await repo.findOne({ where: { id: incoming.id } as any });
+
+        // No row with this id locally — before treating it as a brand new
+        // record, check whether one of its declared unique fields (e.g.
+        // Clinic.slug) already belongs to a different local row. That
+        // happens when the same logical record ended up with two
+        // different ids on two instances (see uniqueFields docstring) —
+        // inserting here would otherwise throw a UNIQUE constraint
+        // violation and abort the entire sync transaction. When found,
+        // reconcile onto that existing row (keeping ITS id) via the same
+        // last-write-wins comparison used below, instead of inserting a
+        // duplicate.
+        let targetId = incoming.id;
         if (!existing) {
-          await repo.save({ ...incoming, syncStatus: 'synced' });
-          applied.push(incoming.id);
+          const conflictingRow = await this.findByAlternateUniqueField(entry, repo, incoming);
+          if (conflictingRow) {
+            existing = conflictingRow;
+            targetId = conflictingRow.id;
+            this.logger.warn(
+              `${entry.name} ${incoming.id} collides on a unique field with local row ${targetId} — reconciling onto the existing row instead of inserting a duplicate`,
+            );
+          }
+        }
+
+        if (!existing) {
+          try {
+            await repo.save({ ...incoming, syncStatus: 'synced' });
+            applied.push(incoming.id);
+          } catch (err: any) {
+            // Safety net for any other not-yet-declared unique constraint —
+            // don't let one bad row take down the whole sync transaction.
+            if (!this.isUniqueConstraintError(err)) throw err;
+            this.logger.warn(
+              `Skipped ${entry.name} row ${incoming.id} — unique constraint conflict on insert: ${err?.message ?? err}`,
+            );
+            conflicts.push(incoming.id);
+          }
           continue;
         }
+
         const incomingTs = new Date(incoming[entry.timestampField]).getTime();
         const existingTs = new Date((existing as any)[entry.timestampField]).getTime();
         if (incomingTs >= existingTs) {
-          await repo.save({ ...incoming, id: incoming.id, syncStatus: 'synced' });
-          applied.push(incoming.id);
+          try {
+            await repo.save({ ...incoming, id: targetId, syncStatus: 'synced' });
+            applied.push(incoming.id);
+          } catch (err: any) {
+            if (!this.isUniqueConstraintError(err)) throw err;
+            this.logger.warn(
+              `Skipped ${entry.name} row ${incoming.id} — unique constraint conflict on update: ${err?.message ?? err}`,
+            );
+            conflicts.push(incoming.id);
+          }
         } else {
           // Local copy is newer — incoming write loses. Flag, don't overwrite.
-          await repo.update({ id: incoming.id } as any, { syncStatus: 'conflict' } as any);
+          await repo.update({ id: targetId } as any, { syncStatus: 'conflict' } as any);
           conflicts.push(incoming.id);
         }
       }
