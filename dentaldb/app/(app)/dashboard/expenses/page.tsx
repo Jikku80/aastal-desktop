@@ -13,12 +13,15 @@ import {
 import toast from 'react-hot-toast';
 import { expenseApi } from '@/lib/api';
 import { usePermissions } from '@/store/permissions.store';
+import { useAuthStore } from '@/store/auth.store';
 import { useCalendarType } from '@/hooks/useCalendarType';
 import { formatDate } from '@/lib/calendar';
 import Header from '@/components/layout/Header';
 import PermissionGate from '@/components/rbac/PermissionGate';
 import ExpenseModal from '@/components/expenses/ExpenseModal';
 import ExpenseDetailPanel from '@/components/expenses/ExpenseDetailPanel';
+import NoBranchBanner from '@/components/layout/NoBranchBanner';
+import { NoBranchesExistBanner } from '@/components/layout/NoBranchesExistBanner';
 
 const CATEGORY_COLORS: Record<string, string> = {
   salaries: '#6366f1', rent: '#f59e0b', utilities: '#3b82f6',
@@ -352,20 +355,22 @@ function ExpensesTab({ canManage, canApprove, calendarType }: any) {
   const [approvalStatus, setApprovalStatus] = useState('');
   const [page, setPage]             = useState(1);
   const qc = useQueryClient();
+  const { activeBranch, branches } = useAuthStore();
+  const branchId = activeBranch?.id;
 
   const { data: expensesData, isLoading } = useQuery({
-    queryKey: ['expenses', category, approvalStatus, page],
-    queryFn:  () => expenseApi.list({ category: category || undefined, approvalStatus: approvalStatus || undefined, page, limit: 20 }).then(r => r.data),
+    queryKey: ['expenses', category, approvalStatus, page, branchId],
+    queryFn:  () => expenseApi.list({ category: category || undefined, approvalStatus: approvalStatus || undefined, page, limit: 20, branchId }).then(r => r.data),
   });
 
   const { data: summary } = useQuery({
-    queryKey: ['expenses-summary'],
-    queryFn:  () => expenseApi.getSummary().then(r => r.data),
+    queryKey: ['expenses-summary', branchId],
+    queryFn:  () => expenseApi.getSummary({ branchId }).then(r => r.data),
   });
 
   const { data: trend } = useQuery({
-    queryKey: ['expenses-trend', calendarType],
-    queryFn:  () => expenseApi.getMonthlyTrend({ calendarType }).then(r => r.data),
+    queryKey: ['expenses-trend', calendarType, branchId],
+    queryFn:  () => expenseApi.getMonthlyTrend({ calendarType, branchId }).then(r => r.data),
   });
 
   const approveMutation = useMutation({
@@ -403,6 +408,8 @@ function ExpensesTab({ canManage, canApprove, calendarType }: any) {
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 20 }} className="sm:p-6">
+
+      {!activeBranch && branches.length > 1 && <NoBranchBanner action="view branch-specific expenses" />}
 
       {/* Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }} className="lg:grid-cols-4">
@@ -617,39 +624,50 @@ export default function ExpensesPage() {
   const { can }      = usePermissions();
   const canManage    = can('expense.manage');
   const canApprove   = can('expense.approve');
+  const { branches, isHydrated } = useAuthStore();
+
+  const hasNoBranches = isHydrated && branches.length === 0;
 
   return (
     <PermissionGate permission="expense.view">
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <Header title="Expenses" subtitle="Manage Expenses" />
 
-        {/* Tab bar */}
-        <div style={{ padding: '0 16px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 0, flexShrink: 0 }}>
-          {([
-            { key: 'expenses', label: 'Expenses' },
-            { key: 'vendors',  label: 'Vendors'  },
-          ] as const).map(tab => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              style={{
-                padding: '10px 20px', fontSize: 13, fontWeight: 500, border: 'none', cursor: 'pointer',
-                background: 'transparent',
-                borderBottom: activeTab === tab.key ? '2px solid #027cc6' : '2px solid transparent',
-                color: activeTab === tab.key ? '#027cc6' : 'var(--text-secondary)',
-                marginBottom: -1, transition: 'all 0.15s',
-              }}>
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Tab content — each tab is fully self-contained */}
-        {activeTab === 'expenses' && (
-          <ExpensesTab canManage={canManage} canApprove={canApprove} calendarType={calendarType} />
-        )}
-        {activeTab === 'vendors' && (
+        {hasNoBranches ? (
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            <VendorsTab canManage={canManage} />
+            <NoBranchesExistBanner feature="Expenses" />
           </div>
+        ) : (
+          <>
+            {/* Tab bar */}
+            <div style={{ padding: '0 16px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 0, flexShrink: 0 }}>
+              {([
+                { key: 'expenses', label: 'Expenses' },
+                { key: 'vendors',  label: 'Vendors'  },
+              ] as const).map(tab => (
+                <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+                  style={{
+                    padding: '10px 20px', fontSize: 13, fontWeight: 500, border: 'none', cursor: 'pointer',
+                    background: 'transparent',
+                    borderBottom: activeTab === tab.key ? '2px solid #027cc6' : '2px solid transparent',
+                    color: activeTab === tab.key ? '#027cc6' : 'var(--text-secondary)',
+                    marginBottom: -1, transition: 'all 0.15s',
+                  }}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab content — each tab is fully self-contained */}
+            {activeTab === 'expenses' && (
+              <ExpensesTab canManage={canManage} canApprove={canApprove} calendarType={calendarType} />
+            )}
+            {activeTab === 'vendors' && (
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                <VendorsTab canManage={canManage} />
+              </div>
+            )}
+          </>
         )}
       </div>
     </PermissionGate>

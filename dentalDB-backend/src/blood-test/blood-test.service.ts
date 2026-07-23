@@ -13,14 +13,14 @@ export class BloodTestService {
   ) {}
 
   async create(clinicId: string, dto: CreateBloodTestDto): Promise<BloodTest> {
-    const test = this.repo.create({ clinicId, ...dto });
+    const test = this.repo.create({ clinicId, branchId: dto.branchId || undefined, ...dto });
     return this.repo.save(test);
   }
 
   async findAll(clinicId: string, query?: any) {
     const {
       page = 1, limit = 20, patientId, status, priority, testType,
-      startDate, endDate, search,
+      startDate, endDate, search, branchId, branchIds,
     } = query || {};
 
     let qb = this.repo
@@ -35,6 +35,12 @@ export class BloodTestService {
     if (testType)  qb = qb.andWhere('b.testType = :testType',   { testType });
     if (startDate) qb = qb.andWhere('b.createdAt >= :startDate', { startDate });
     if (endDate)   qb = qb.andWhere('b.createdAt <= :endDate',  { endDate: endDate + 'T23:59:59Z' });
+    if (branchId) {
+      qb = qb.andWhere('b.branchId = :branchId', { branchId });
+    } else if (branchIds) {
+      const ids = String(branchIds).split(',').map((s: string) => s.trim()).filter(Boolean);
+      if (ids.length > 0) qb = qb.andWhere('b.branchId IN (:...ids)', { ids });
+    }
     if (search) {
       qb = qb.andWhere(
         `(b.testName ${ilike()} :q OR b.labName ${ilike()} :q OR patient.firstName ${ilike()} :q OR patient.lastName ${ilike()} :q)`,

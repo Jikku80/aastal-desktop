@@ -4,11 +4,31 @@ import {
 } from 'typeorm';
 import { Patient } from '../../patients/entities/patient.entity';
 import { User } from '../../users/entities/user.entity';
+import { Branch } from '../../branch/entities/branch.entity';
 
 const isSQLite = process.env.DB_DRIVER === 'sqlite';
 
+/**
+ * A single dated visit entry, appended automatically whenever billing is
+ * created/updated for a patient with services attached (see
+ * ClinicalRecordsService.upsertFromBilling). This is what lets one
+ * ClinicalRecord row represent an ongoing chart across many dates instead of
+ * a single free-text `treatmentPlan` box getting overwritten every visit.
+ */
+export interface ClinicalRecordVisit {
+  id: string;
+  /** ISO datetime the visit/billing happened */
+  date: string;
+  appointmentId?: string;
+  invoiceId?: string;
+  doctorId?: string;
+  services: string[];
+  notes?: string;
+}
+
 @Entity('clinical_records')
 @Index(['clinicId', 'patientId'])
+@Index(['branchId'])
 export class ClinicalRecord {
   @Column({ type: 'varchar', length: 20, default: 'synced' })
   syncStatus: 'synced' | 'pending' | 'conflict';
@@ -19,6 +39,17 @@ export class ClinicalRecord {
   @Column()
   clinicId: string;
 
+  // Nullable: older records predate branch scoping, and a billing-driven
+  // upsert may run before a branch has been resolved. Records with no
+  // branchId are only visible to users who can see all of a clinic's
+  // branches (same convention as Invoice/Appointment.branchId).
+  @Column({ nullable: true })
+  branchId: string;
+
+  @ManyToOne(() => Branch, { nullable: true, onDelete: 'SET NULL', eager: false })
+  @JoinColumn({ name: 'branchId' })
+  branch: Branch;
+
   @Column()
   patientId: string;
 
@@ -26,10 +57,13 @@ export class ClinicalRecord {
   @JoinColumn({ name: 'patientId' })
   patient: Patient;
 
-  @Column()
+  // Nullable: a clinical record can be auto-created from a billing/invoice
+  // flow that has no doctor attached to any billed service — in that case
+  // this is left blank rather than forced to a fake/default value.
+  @Column({ nullable: true })
   doctorId: string;
 
-  @ManyToOne(() => User, { eager: true })
+  @ManyToOne(() => User, { eager: true, nullable: true })
   @JoinColumn({ name: 'doctorId' })
   doctor: User;
 
@@ -41,6 +75,11 @@ export class ClinicalRecord {
 
   @Column({ nullable: true, type: 'text' })
   treatmentPlan: string;
+
+  // Dated visit history — each billing/appointment completion appends one
+  // entry here instead of clobbering a single treatment-plan text box.
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
+  visits: ClinicalRecordVisit[];
 
   @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   attachments: { name: string; url: string; type: string }[];

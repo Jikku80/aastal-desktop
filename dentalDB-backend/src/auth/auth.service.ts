@@ -42,12 +42,30 @@ export class AuthService {
   ) {}
 
   setTokenCookies(res: Response, accessToken: string, refreshToken: string) {
-    const isProd  = this.config.get('NODE_ENV') === 'production';
-    const isHttps = this.config.get('COOKIE_SECURE') === 'true';
+    // Frontend (aastal.com) and backend (api.clinickarobar.com) are on
+    // different domains in production — this is a genuinely cross-site
+    // deployment, not same-origin-behind-a-proxy. Cross-site cookies are
+    // only ever sent by the browser if they're set with
+    // `SameSite=None; Secure`; anything else (including the default
+    // `Lax`) is silently dropped by the browser on cross-origin
+    // XHR/fetch calls. That's silent by design — no console error, no
+    // failed request, no backend log — the cookie from login's Set-Cookie
+    // response header is just never attached to the next request, so the
+    // very next authenticated call (e.g. /auth/me) 401s and the frontend
+    // bounces back to the login page with nothing to show why.
+    //
+    // This used to depend on a separate `COOKIE_SECURE` env var that
+    // isn't documented anywhere and defaults to unset/false, so it fell
+    // through to `SameSite=Lax` in production and broke every login.
+    // Tying this directly to NODE_ENV=production removes that footgun —
+    // production is always cross-site HTTPS here, so it always needs
+    // `secure: true, sameSite: 'none'`; local dev keeps `lax` since
+    // localhost:3000 -> localhost:4000 is same-site for cookie purposes.
+    const isProd = this.config.get('NODE_ENV') === 'production';
     const base = {
       httpOnly: true,
       secure: isProd,
-      sameSite: isHttps ? 'none' as const : 'lax' as const,
+      sameSite: isProd ? 'none' as const : 'lax' as const,
       path: '/',
     };
     res.cookie(COOKIE_ACCESS,  accessToken,  { ...base, maxAge: 15 * 60 * 1000 });
@@ -207,9 +225,9 @@ export class AuthService {
     this.setTokenCookies(res, tokens.accessToken, tokens.refreshToken);
     await this.userRepo.update(user.id, { lastLoginAt: new Date() });
 
-    // Audit login
+    // Audit login (clinicId is null for independent doctors — audit_logs.clinicId is nullable to allow this)
     setImmediate(() => this.auditService.log({
-      clinicId:   user.clinicId,
+      clinicId:   user.clinicId ?? null,
       userId:     user.id,
       action:     AuditAction.LOGIN,
       entityType: AuditEntityType.AUTH,
@@ -446,8 +464,8 @@ export class AuthService {
     try {
       await this.notifications.sendEmail({
         to: email,
-        subject: `${otp} is your ClinicKarobar verification code`,
-        html: `<p>Your ClinicKarobar verification code is:</p><h2 style="letter-spacing:8px;font-family:monospace">${otp}</h2><p>Expires in 10 minutes.</p>`,
+        subject: `${otp} is your Aastal verification code`,
+        html: `<p>Your Aastal verification code is:</p><h2 style="letter-spacing:8px;font-family:monospace">${otp}</h2><p>Expires in 10 minutes.</p>`,
       });
     } catch (e) {
       this.logger.warn(`[DoctorOTP] Email failed: ${(e as any)?.message}`);
@@ -540,21 +558,14 @@ export class AuthService {
       entityType: AuditEntityType.USER,
       entityId:   user.id,
       userId:     user.id,
-      clinicId:   'independent',
+      clinicId:   null, // independent doctor — no clinic to scope this event to
       changes:    { after: { role: UserRole.DOCTOR, email: dto.email } },
     });
 
     const { accessToken, refreshToken } = await this.generateTokens(user);
     await this.saveRefreshToken(user.id, refreshToken);
-    this.setCookies(res, accessToken, refreshToken);
+    this.setTokenCookies(res, accessToken, refreshToken);
 
     return { user: this.sanitize(user), accessToken };
-  }
-
-  private setCookies(res: Response, accessToken: string, refreshToken: string) {
-    const isProd = this.config.get('NODE_ENV') === 'production';
-    const cookieOpts = { httpOnly: true, secure: isProd, sameSite: 'lax' as const };
-    (res as any).cookie('access_token',  accessToken,  { ...cookieOpts, maxAge: 15 * 60 * 1000 });
-    (res as any).cookie('refresh_token', refreshToken, { ...cookieOpts, maxAge: 7 * 24 * 60 * 60 * 1000 });
   }
 }

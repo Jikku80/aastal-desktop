@@ -33,6 +33,10 @@ export class CreateBloodTestDto {
   @IsString()
   patientId: string;
 
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
   @IsString()
   orderedById: string;
 

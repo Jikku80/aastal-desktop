@@ -15,6 +15,7 @@ import { Clinic } from '../clinics/entities/clinic.entity';
 import { BloodTestService } from '../blood-test/blood-test.service';
 import { LabWorkService } from '../lab-work/lab-work.service';
 import { PatientWalletService } from '../patient-wallet/patient-wallet.service';
+import { ClinicalRecordsService } from '../clinical-records/clinical-records.service';
 import { nepalDayBoundsUTC, nepalTodayParts, nepalWallClockToUTC } from '../common/utils/timezone.util';
 
 @Injectable()
@@ -33,6 +34,7 @@ export class BillingService {
     private bloodTestService: BloodTestService,
     private labWorkService: LabWorkService,
     private patientWalletService: PatientWalletService,
+    private clinicalRecordsService: ClinicalRecordsService,
   ) {}
 
   /**
@@ -84,6 +86,52 @@ export class BillingService {
     }
   }
 
+  /**
+   * Auto-syncs the patient's clinical record right after an invoice is
+   * created — server-side, so it happens for EVERY invoice-creation path
+   * (the app, any future API client, imports, etc.) instead of depending on
+   * a second, separate call from the frontend that could get skipped if the
+   * tab closes or the network hiccups right after the invoice request lands.
+   *
+   * - Uses invoice.patientId (a UUID), never the patient's name.
+   * - Products/lab-blood-test-only invoices (no serviceId on any item) never
+   *   touch clinical records — ClinicalRecordsService.upsertFromBilling also
+   *   enforces this itself, so this is just an early-exit, not the only guard.
+   * - No existing record for this patient → creates one.
+   * - A record already exists → appends a new dated visit entry (new
+   *   timestamp, the services just billed, the resolved doctor) rather than
+   *   overwriting anything.
+   * - Idempotent per invoiceId (enforced in ClinicalRecordsService), so a
+   *   retried/duplicate call for the same invoice never double-appends.
+   * - Never throws: a clinical-record sync failure must never fail or roll
+   *   back an otherwise-successful invoice creation.
+   */
+  private async syncClinicalRecord(invoice: Invoice): Promise<void> {
+    try {
+      const serviceItems = (invoice.items || []).filter((i: any) => i.serviceId);
+      if (serviceItems.length === 0) return;
+
+      const services = serviceItems
+        .map((i: any) => (i.description || '').trim())
+        .filter(Boolean);
+      if (services.length === 0) return;
+
+      const doctorId = serviceItems.find((i: any) => i.doctorId)?.doctorId || undefined;
+
+      await this.clinicalRecordsService.upsertFromBilling(invoice.clinicId, {
+        patientId:     invoice.patientId,
+        branchId:      invoice.branchId || undefined,
+        doctorId,
+        appointmentId: invoice.appointmentId || undefined,
+        invoiceId:     invoice.id,
+        services,
+        visitDate:     (invoice.createdAt ?? new Date()).toISOString(),
+      });
+    } catch (e) {
+      this.logger.warn('Clinical record sync failed for invoice ' + invoice.id + ': ' + (e as any)?.message);
+    }
+  }
+
   async create(clinicId: string, dto: any): Promise<Invoice> {
     // create() persists whatever paymentMethod/paidAmount/status the client
     // sends — it has no wiring into PatientWalletService at all (unlike
@@ -123,6 +171,13 @@ export class BillingService {
           }
         } catch (e) {
           if (e instanceof BadRequestException || e instanceof NotFoundException) throw e;
+          // Anything else (DB/connection error, bad productId shape, etc.) used to
+          // be swallowed here, which let the invoice creation continue as if the
+          // stock check had passed — masking the real problem instead of failing
+          // loudly. Log it and surface a clear 400 so the actual cause shows up
+          // in the response instead of turning into a generic failure downstream.
+          this.logger.error('Stock check failed for product ' + item.productId + ': ' + (e as any)?.message, (e as any)?.stack);
+          throw new BadRequestException('Could not verify stock for one of the products on this invoice. Please try again.');
         }
       }
     }
@@ -212,6 +267,11 @@ export class BillingService {
           await this.labWorkService.markBilled(clinicId, labWorkIds, saved.id).catch(e =>
             this.logger.warn('Failed to mark lab work billed: ' + e?.message));
         }
+
+        // Fires for every invoice regardless of paid/unpaid status — a
+        // billed service is a real visit whether or not it's been paid for
+        // yet. Products/tests-only invoices are a no-op (see method doc).
+        await this.syncClinicalRecord(saved);
 
         if (saved.status === InvoiceStatus.PAID && saved.appointmentId) {
           await this.aptRepo.update({ id: saved.appointmentId }, { isPaid: true });

@@ -20,6 +20,7 @@ import { AnalyticsModule } from '../analytics/analytics.module';
 import { BloodTestModule } from '../blood-test/blood-test.module';
 import { LabWorkModule } from '../lab-work/lab-work.module';
 import { PatientWalletModule } from '../patient-wallet/patient-wallet.module';
+import { ClinicalRecordsModule } from '../clinical-records/clinical-records.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Invoice, Appointment, User, Branch, Clinic]),
@@ -33,6 +34,7 @@ import { PatientWalletModule } from '../patient-wallet/patient-wallet.module';
     BloodTestModule,
     LabWorkModule,
     PatientWalletModule,
+    ClinicalRecordsModule,
   ],
   controllers: [BillingController],
   providers: [BillingService, PdfService, BranchLockGuard, BillingScheduler],

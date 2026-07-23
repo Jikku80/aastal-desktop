@@ -50,6 +50,7 @@ export class NotificationsService {
   async create(data: {
     clinicId: string;
     userId?: string;
+    patientId?: string;
     branchId?: string;
     type: NotificationType;
     title: string;
@@ -689,42 +690,51 @@ export class NotificationsService {
 
   // ── Cross-clinic patient notification helpers ──────────────────────────────
   // Used by PatientPortalService to query notifications across multiple clinics
-  // without requiring a staff JWT. These scope to patient-relevant types only.
+  // without requiring a staff JWT. These scope to patient-relevant types only,
+  // AND to notifications whose patientId matches one of this patient's own
+  // linked clinicPatientIds — clinicId/type alone previously let a patient see
+  // every other patient's notifications in the same clinic.
 
-  createPatientQueryBuilder(clinicIds: string[], types: NotificationType[]) {
-    return this.notifRepo
+  createPatientQueryBuilder(clinicIds: string[], types: NotificationType[], patientIds: string[]) {
+    const qb = this.notifRepo
       .createQueryBuilder('n')
       .where('n.clinicId IN (:...clinicIds)', { clinicIds })
       .andWhere('n.type IN (:...types)', { types });
+
+    // No linked clinicPatientIds → this patient has no notifications of their
+    // own; force an empty result rather than falling back to clinic-wide.
+    if (!patientIds.length) return qb.andWhere('1 = 0');
+    return qb.andWhere('n.patientId IN (:...patientIds)', { patientIds });
   }
 
-  async getPatientUnreadCount(clinicIds: string[], types: NotificationType[]): Promise<number> {
-    if (!clinicIds.length) return 0;
+  async getPatientUnreadCount(clinicIds: string[], types: NotificationType[], patientIds: string[]): Promise<number> {
+    if (!clinicIds.length || !patientIds.length) return 0;
     return this.notifRepo
       .createQueryBuilder('n')
       .where('n.clinicId IN (:...clinicIds)', { clinicIds })
       .andWhere('n.type IN (:...types)', { types })
+      .andWhere('n.patientId IN (:...patientIds)', { patientIds })
       .andWhere('n.isRead = false')
       .getCount();
   }
 
-  async markReadForPatient(clinicIds: string[], notifId: string): Promise<void> {
-    if (!clinicIds.length) return;
+  async markReadForPatient(clinicIds: string[], patientIds: string[], notifId: string): Promise<void> {
+    if (!clinicIds.length || !patientIds.length) return;
     await this.notifRepo
       .createQueryBuilder()
       .update()
       .set({ isRead: true })
-      .where('id = :notifId AND clinicId IN (:...clinicIds)', { notifId, clinicIds })
+      .where('id = :notifId AND clinicId IN (:...clinicIds) AND patientId IN (:...patientIds)', { notifId, clinicIds, patientIds })
       .execute();
   }
 
-  async markAllReadForPatient(clinicIds: string[], types: NotificationType[]): Promise<void> {
-    if (!clinicIds.length) return;
+  async markAllReadForPatient(clinicIds: string[], types: NotificationType[], patientIds: string[]): Promise<void> {
+    if (!clinicIds.length || !patientIds.length) return;
     await this.notifRepo
       .createQueryBuilder()
       .update()
       .set({ isRead: true })
-      .where('clinicId IN (:...clinicIds) AND type IN (:...types) AND isRead = false', { clinicIds, types })
+      .where('clinicId IN (:...clinicIds) AND type IN (:...types) AND patientId IN (:...patientIds) AND isRead = false', { clinicIds, types, patientIds })
       .execute();
   }
 }

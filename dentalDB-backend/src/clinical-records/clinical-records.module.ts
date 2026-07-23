@@ -6,9 +6,10 @@ import { ClinicalRecordsController } from './clinical-records.controller';
 import { Branch } from '../branch/entities/branch.entity';
 import { BranchLockGuard } from '../common/guards/branch-lock.guard';
 import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { BranchesModule } from '../branch/branch.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ClinicalRecord, Prescription, Branch])],
+  imports: [TypeOrmModule.forFeature([ClinicalRecord, Prescription, Branch]), BranchesModule],
   controllers: [ClinicalRecordsController],
   providers: [ClinicalRecordsService, BranchLockGuard, PermissionsGuard],
   exports: [ClinicalRecordsService],

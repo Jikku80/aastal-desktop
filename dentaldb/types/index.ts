@@ -378,16 +378,27 @@ export interface Prescription {
   createdAt: string;
 }
 
+export interface ClinicalRecordVisit {
+  id: string;
+  date: string;
+  appointmentId?: string;
+  invoiceId?: string;
+  doctorId?: string;
+  services: string[];
+  notes?: string;
+}
+
 export interface ClinicalRecord {
   id: string;
   clinicId: string;
   patientId: string;
   patient?: Patient;
-  doctorId: string;
+  doctorId?: string;
   doctor?: User;
   appointmentId?: string;
   diagnosisNotes?: string;
   treatmentPlan?: string;
+  visits?: ClinicalRecordVisit[];
   attachments?: { name: string; url: string; type: string }[];
   prescriptions: Prescription[];
   createdAt: string;

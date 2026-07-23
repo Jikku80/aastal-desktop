@@ -33,6 +33,10 @@ export class CreateLabWorkDto {
   @IsString()
   patientId: string;
 
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
   @IsString()
   orderedById: string;
 

@@ -37,6 +37,14 @@ export class PatientAccount {
   @Column({ nullable: true })
   otpExpires: Date;
 
+  /** Bcrypt hash, set once the patient completes password setup (after their first OTP login) */
+  @Column({ nullable: true, select: false })
+  password: string;
+
+  /** True once the patient has set up email + password — lets the login screen offer password sign-in instead of OTP */
+  @Column({ default: false })
+  hasPassword: boolean;
+
   @Column({ nullable: true, select: false })
   refreshToken: string;
 

@@ -212,6 +212,7 @@ export default function PublicListingPage() {
         languagesSpoken: form.languagesSpoken.split(',').map((s: string) => s.trim()).filter(Boolean),
         latitude:  form.latitude  !== '' ? parseFloat(form.latitude)  : null,
         longitude: form.longitude !== '' ? parseFloat(form.longitude) : null,
+        cancellationWindowHours: form.cancellationWindowHours === '' ? 24 : form.cancellationWindowHours,
       });
       toast.success('Listing settings saved!');
     } catch (e: any) {
@@ -288,7 +289,7 @@ export default function PublicListingPage() {
             <label className="text-sm font-medium text-[var(--text-secondary)] block mb-2">Cancellation Window</label>
             <div className="flex items-center gap-3">
               <input type="number" min="0" max="168" value={form.cancellationWindowHours}
-                onChange={e => setForm((f: any) => ({ ...f, cancellationWindowHours: parseInt(e.target.value) }))}
+                onChange={e => setForm((f: any) => ({ ...f, cancellationWindowHours: e.target.value === '' ? '' : parseInt(e.target.value) }))}
                 className="w-24 border border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-primary)] rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--brand)]/20" />
               <span className="text-[var(--text-muted)] text-sm">hours before appointment</span>
             </div>

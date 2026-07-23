@@ -6,6 +6,11 @@ import { Migration1782585652427 } from '../migrations/sqlite/1782585652427-Migra
 import { Migration1782620042829 } from '../migrations/sqlite/1782620042829-Migration';
 import { SyncDevices1782900000001 } from '../migrations/sqlite/1782900000001-SyncDevices';
 import { AutoGenDiff1783827206937 } from '../migrations/sqlite/1783827206937-AutoGenDiff';
+import { PatientAccountPassword1784200000000 } from '../migrations/sqlite/1784200000000-PatientAccountPassword';
+import { ClinicalRecordVisits1784300000000 } from '../migrations/sqlite/1784300000000-ClinicalRecordVisits';
+import { RecordsBranchScoping1784400000000 } from '../migrations/sqlite/1784400000000-RecordsBranchScoping';
+import { IndependentDoctorRoleScope1784500000000 } from '../migrations/sqlite/1784500000000-IndependentDoctorRoleScope';
+import { NotificationPatientId1784600000000 } from '../migrations/sqlite/1784600000000-NotificationPatientId';
 
 export const SQLITE_MIGRATIONS = [
   Migration1782578519527,
@@ -13,4 +18,9 @@ export const SQLITE_MIGRATIONS = [
   Migration1782620042829,
   SyncDevices1782900000001,
   AutoGenDiff1783827206937,
+  PatientAccountPassword1784200000000,
+  ClinicalRecordVisits1784300000000,
+  RecordsBranchScoping1784400000000,
+  IndependentDoctorRoleScope1784500000000,
+  NotificationPatientId1784600000000,
 ];

@@ -1,8 +1,9 @@
-import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcryptjs';
 import * as nodemailer from 'nodemailer';
 import { ConfigService } from '@nestjs/config';
 import { PatientAccount } from './entities/patient-account.entity';
@@ -143,8 +144,80 @@ export class PatientAuthService {
         lastName: account.lastName,
         phone: account.phone,
         email: account.email,
+        hasPassword: account.hasPassword,
       },
     };
+  }
+
+  /** Used by the login screen to decide whether to send an OTP or prompt for a password instead. */
+  async checkIdentifier(identifier: string): Promise<{ exists: boolean; hasPassword: boolean }> {
+    const isPhone = /^\+?\d{7,15}$/.test(identifier.replace(/\s/g, ''));
+    const where = isPhone ? { phone: identifier } : { email: identifier };
+    const account = await this.accountRepo.findOne({ where });
+    return { exists: !!account, hasPassword: !!account?.hasPassword };
+  }
+
+  /** Password-based login for returning patients who've already completed setup. */
+  async login(identifier: string, password: string): Promise<{ accessToken: string; account: Partial<PatientAccount> }> {
+    const isPhone = /^\+?\d{7,15}$/.test(identifier.replace(/\s/g, ''));
+    const where = isPhone ? { phone: identifier } : { email: identifier };
+
+    const account = await this.accountRepo
+      .createQueryBuilder('pa')
+      .addSelect('pa.password')
+      .where(where)
+      .getOne();
+
+    if (!account || !account.hasPassword || !account.password) {
+      throw new UnauthorizedException('Invalid email/phone or password');
+    }
+    if (!(await bcrypt.compare(password, account.password))) {
+      throw new UnauthorizedException('Invalid email/phone or password');
+    }
+
+    account.lastLoginAt = new Date();
+    await this.accountRepo.save(account);
+
+    const payload = { sub: account.id, type: 'patient' };
+    const accessToken = this.jwt.sign(payload);
+
+    return {
+      accessToken,
+      account: {
+        id: account.id,
+        firstName: account.firstName,
+        lastName: account.lastName,
+        phone: account.phone,
+        email: account.email,
+        hasPassword: account.hasPassword,
+      },
+    };
+  }
+
+  /** Lets a patient (already authenticated via OTP) set up email + password for future logins. */
+  async setupPassword(accountId: string, email: string | undefined, password: string): Promise<{ message: string }> {
+    if (!password || password.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+
+    const account = await this.accountRepo.findOne({ where: { id: accountId } });
+    if (!account) throw new UnauthorizedException('Account not found');
+
+    if (email && email.trim() && email.trim() !== account.email) {
+      const existing = await this.accountRepo.findOne({ where: { email: email.trim() } });
+      if (existing && existing.id !== accountId) {
+        throw new ConflictException('That email is already in use by another account');
+      }
+      account.email = email.trim();
+    } else if (!account.email && !email) {
+      throw new BadRequestException('Email is required to set up password login');
+    }
+
+    account.password = await bcrypt.hash(password, 12);
+    account.hasPassword = true;
+    await this.accountRepo.save(account);
+
+    return { message: 'Password set up successfully' };
   }
 
   async getAccount(id: string): Promise<PatientAccount> {

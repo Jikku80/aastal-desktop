@@ -31,7 +31,7 @@ export class LabWorkService {
   async findAll(clinicId: string, query?: any) {
     const {
       page = 1, limit = 20, patientId, status, priority,
-      startDate, endDate, search,
+      startDate, endDate, search, branchId, branchIds,
     } = query || {};
 
     let qb = this.repo
@@ -45,6 +45,12 @@ export class LabWorkService {
     if (priority)   qb = qb.andWhere('l.priority = :priority',     { priority });
     if (startDate)  qb = qb.andWhere('l.createdAt >= :startDate',  { startDate });
     if (endDate)    qb = qb.andWhere('l.createdAt <= :endDate',    { endDate: endDate + 'T23:59:59Z' });
+    if (branchId) {
+      qb = qb.andWhere('l.branchId = :branchId', { branchId });
+    } else if (branchIds) {
+      const ids = String(branchIds).split(',').map((s: string) => s.trim()).filter(Boolean);
+      if (ids.length > 0) qb = qb.andWhere('l.branchId IN (:...ids)', { ids });
+    }
     if (search) {
       qb = qb.andWhere(
         `(l.testName ${ilike()} :q OR l.labName ${ilike()} :q OR patient.firstName ${ilike()} :q OR patient.lastName ${ilike()} :q)`,

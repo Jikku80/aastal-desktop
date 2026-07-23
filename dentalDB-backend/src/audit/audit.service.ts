@@ -4,7 +4,7 @@ import { Repository, Between } from 'typeorm';
 import { AuditLog, AuditAction, AuditEntityType } from './entities/audit-log.entity';
 
 export interface LogParams {
-  clinicId: string;
+  clinicId: string | null;
   userId?: string;
   action: AuditAction;
   entityType: AuditEntityType;

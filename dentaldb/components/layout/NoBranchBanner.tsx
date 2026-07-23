@@ -2,7 +2,7 @@
 import { GitBranch } from 'lucide-react';
 
 interface NoBranchBannerProps {
-  action: 'create appointments' | 'create patients' | 'create invoices' | 'add products';
+  action: string;
 }
 
 export default function NoBranchBanner({ action }: NoBranchBannerProps) {

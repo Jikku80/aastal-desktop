@@ -9,6 +9,7 @@ import { Appointment } from '../appointments/entities/appointment.entity';
 import { ClinicalRecord, Prescription } from '../clinical-records/entities/clinical-record.entity';
 import { Patient, Gender as PatientGender } from '../patients/entities/patient.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
+import { User } from '../users/entities/user.entity';
 import { VideoProviderService } from '../telehealth/video-provider.service';
 import { FilesService } from '../files/files.service';
 import { BloodTestService } from '../blood-test/blood-test.service';
@@ -31,6 +32,7 @@ export class PatientPortalService {
     @InjectRepository(Clinic) private clinicRepo: Repository<Clinic>,
     @InjectRepository(RefillRequest) private refillRequestRepo: Repository<RefillRequest>,
     @InjectRepository(Referral) private referralRepo: Repository<Referral>,
+    @InjectRepository(User) private userRepo: Repository<User>,
     private readonly videoProvider: VideoProviderService,
     private readonly filesService: FilesService,
     private readonly bloodTestService: BloodTestService,
@@ -199,6 +201,55 @@ export class PatientPortalService {
     return { data, total };
   }
 
+  /**
+   * Notifies the assigned doctor when a patient books an appointment through
+   * the portal — for both clinic-context and independent-context bookings.
+   * AppointmentsService.notifyDoctor covers appointments staff create from
+   * the clinic dashboard; portal bookings go through this service instead
+   * and previously never notified the doctor at all.
+   *
+   * Uses the doctor's own clinicId (their home/employer clinic) as the
+   * notification's clinicId rather than the appointment's — an independent
+   * booking can have a null appointment.clinicId (it isn't tied to any
+   * clinic), but notifications.clinicId is required, and the doctor's own
+   * staff notification feed is scoped by their own clinicId regardless of
+   * which context the appointment was booked under. A doctor with no
+   * clinicId at all (a fully independent doctor, no clinic employer) has
+   * nowhere for this notification to land yet, so it's skipped rather than
+   * violating the not-null constraint.
+   */
+  private async notifyDoctorOfBooking(appt: Appointment, isIndependent: boolean): Promise<void> {
+    const dentistId = (appt as any).dentistId;
+    if (!dentistId) return;
+
+    const doctor = await this.userRepo.findOne({ where: { id: dentistId } });
+    if (!doctor || !doctor.clinicId) return;
+
+    let patientName = 'A patient';
+    const apptPatientId = (appt as any).patientId;
+    if (apptPatientId) {
+      const patient = await this.patientRepo.findOne({ where: { id: apptPatientId } });
+      const fullName = patient ? `${patient.firstName} ${patient.lastName}`.trim() : '';
+      if (fullName) patientName = fullName;
+    }
+
+    const timeStr = new Date((appt as any).scheduledAt).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+    });
+
+    const notif = await this.notificationsService.create({
+      clinicId:  doctor.clinicId,
+      userId:    doctor.id,
+      patientId: apptPatientId || undefined,
+      type:      NotificationType.APPOINTMENT_CREATED,
+      title:     isIndependent ? 'New independent appointment booked' : 'New appointment booked',
+      body:      `${patientName} booked ${isIndependent ? 'an independent ' : 'an '}appointment for ${timeStr}.`,
+      entityId:  (appt as any).id,
+      link:      isIndependent ? '/doctor/appointments' : '/dashboard/appointments',
+    });
+    this.notificationsGateway.emitToUser(doctor.id, 'notification', notif);
+  }
+
   async bookAppointment(patientAccountId: string, dto: {
     clinicId?: string;
     branchId?: string;
@@ -237,6 +288,13 @@ export class PatientPortalService {
     } as any);
 
     const saved = await this.apptRepo.save(appt);
+
+    // Notify the assigned doctor — covers both clinic-context and
+    // independent-context portal bookings, the same as appointments staff
+    // create from the clinic dashboard already do via
+    // AppointmentsService.notifyDoctor. Best-effort: never block or fail
+    // the booking itself over a notification error.
+    this.notifyDoctorOfBooking(saved as any, dto.bookingContext === 'independent').catch(() => {});
 
     // Auto-provision a video room for video appointments so the room URL
     // is available immediately from the portal without a separate call.
@@ -577,6 +635,20 @@ export class PatientPortalService {
       this.getPrescriptions(patientAccountId),
     ]);
 
+    // ClinicalRecord.visits[] carries the services billed for a visit (set
+    // via BillingService when an invoice is created — see
+    // ClinicalRecordsService.upsertFromBilling). The appointment list above
+    // doesn't have that, so match each completed appointment to its clinical
+    // record visit entry (by appointmentId) to pull the services in.
+    const servicesByAppointmentId = new Map<string, string[]>();
+    for (const record of (records.data || [])) {
+      for (const visit of (record as any).visits || []) {
+        if (!visit?.appointmentId) continue;
+        const existing = servicesByAppointmentId.get(visit.appointmentId) || [];
+        servicesByAppointmentId.set(visit.appointmentId, [...existing, ...(visit.services || [])]);
+      }
+    }
+
     const completedVisits = (appointments.data || []).filter((a: any) => a.status === 'completed');
     return {
       totalVisits: completedVisits.length,
@@ -585,11 +657,12 @@ export class PatientPortalService {
       ),
       lastVisit: completedVisits[0]?.scheduledAt || null,
       visits: completedVisits.slice(0, 10).map((a: any) => ({
-        id:     a.id,
-        date:   a.scheduledAt,
-        clinic: a.clinic?.name,
-        doctor: a.dentist ? `${a.dentist.firstName} ${a.dentist.lastName}` : null,
-        notes:  a.notes,
+        id:       a.id,
+        date:     a.scheduledAt,
+        clinic:   a.clinic?.name,
+        doctor:   a.dentist ? `${a.dentist.firstName} ${a.dentist.lastName}` : null,
+        notes:    a.notes,
+        services: servicesByAppointmentId.get(a.id) || [],
       })),
     };
   }
@@ -867,32 +940,52 @@ export class PatientPortalService {
     return [...new Set(patients.map((p: any) => p.clinicId).filter(Boolean))];
   }
 
+  /** The patient's own clinic-scoped Patient.id(s) across every linked clinic record. */
+  private async getPatientOwnPatientIds(patientAccountId: string): Promise<string[]> {
+    const links = await this.getLinkedRecords(patientAccountId);
+    return links.map(l => l.clinicPatientId).filter(Boolean) as string[];
+  }
+
   async getPatientNotifications(patientAccountId: string, limit = 20): Promise<any> {
-    const clinicIds = await this.getPatientClinicIds(patientAccountId);
+    const [clinicIds, patientIds] = await Promise.all([
+      this.getPatientClinicIds(patientAccountId),
+      this.getPatientOwnPatientIds(patientAccountId),
+    ]);
     if (clinicIds.length === 0) return { data: [], total: 0 };
 
     // Fetch notifications across all linked clinics where type is patient-relevant
-    const qb = this.notificationsService.createPatientQueryBuilder(clinicIds, this.PATIENT_NOTIF_TYPES);
+    // AND the notification concerns this specific patient (not any other patient
+    // in the same clinic).
+    const qb = this.notificationsService.createPatientQueryBuilder(clinicIds, this.PATIENT_NOTIF_TYPES, patientIds);
     const data = await qb.orderBy('n.createdAt', 'DESC').take(limit).getMany();
     return { data, total: data.length };
   }
 
   async getPatientNotificationUnreadCount(patientAccountId: string): Promise<number> {
-    const clinicIds = await this.getPatientClinicIds(patientAccountId);
+    const [clinicIds, patientIds] = await Promise.all([
+      this.getPatientClinicIds(patientAccountId),
+      this.getPatientOwnPatientIds(patientAccountId),
+    ]);
     if (clinicIds.length === 0) return 0;
-    return this.notificationsService.getPatientUnreadCount(clinicIds, this.PATIENT_NOTIF_TYPES);
+    return this.notificationsService.getPatientUnreadCount(clinicIds, this.PATIENT_NOTIF_TYPES, patientIds);
   }
 
   async markPatientNotificationRead(patientAccountId: string, notifId: string): Promise<void> {
-    // Verify this notification belongs to a clinic the patient is linked to
-    const clinicIds = await this.getPatientClinicIds(patientAccountId);
+    // Verify this notification belongs to a clinic AND patient this account is linked to
+    const [clinicIds, patientIds] = await Promise.all([
+      this.getPatientClinicIds(patientAccountId),
+      this.getPatientOwnPatientIds(patientAccountId),
+    ]);
     if (clinicIds.length === 0) return;
-    await this.notificationsService.markReadForPatient(clinicIds, notifId);
+    await this.notificationsService.markReadForPatient(clinicIds, patientIds, notifId);
   }
 
   async markAllPatientNotificationsRead(patientAccountId: string): Promise<void> {
-    const clinicIds = await this.getPatientClinicIds(patientAccountId);
+    const [clinicIds, patientIds] = await Promise.all([
+      this.getPatientClinicIds(patientAccountId),
+      this.getPatientOwnPatientIds(patientAccountId),
+    ]);
     if (clinicIds.length === 0) return;
-    await this.notificationsService.markAllReadForPatient(clinicIds, this.PATIENT_NOTIF_TYPES);
+    await this.notificationsService.markAllReadForPatient(clinicIds, this.PATIENT_NOTIF_TYPES, patientIds);
   }
 }

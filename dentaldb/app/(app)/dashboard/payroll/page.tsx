@@ -9,11 +9,14 @@ import {
 import toast from 'react-hot-toast';
 import { payrollApi } from '@/lib/api';
 import { usePermissions } from '@/store/permissions.store';
+import { useAuthStore } from '@/store/auth.store';
 import { useCalendarType } from '@/hooks/useCalendarType';
 import { formatDate } from '@/lib/calendar';
 import Header from '@/components/layout/Header';
 import PermissionGate from '@/components/rbac/PermissionGate';
 import PayrollCalculateModal from '@/components/payroll/PayrollCalculateModal';
+import NoBranchBanner from '@/components/layout/NoBranchBanner';
+import { NoBranchesExistBanner } from '@/components/layout/NoBranchesExistBanner';
 
 // ─── Style tokens ─────────────────────────────────────────────────────────────
 const STATUS_STYLES: Record<string, { bg: string; color: string; border: string }> = {
@@ -57,10 +60,10 @@ function EntryEditDrawer({
   const qc = useQueryClient();
   const mut = useMutation({
     mutationFn: () => payrollApi.updateEntry(runId, entry.id, {
-      taxDeduction:    form.taxDeduction,
-      otherDeductions: form.otherDeductions,
-      bonus:           form.bonus,
-      allowances:      form.allowances,
+      taxDeduction:    Number(form.taxDeduction) || 0,
+      otherDeductions: Number(form.otherDeductions) || 0,
+      bonus:           Number(form.bonus) || 0,
+      allowances:      Number(form.allowances) || 0,
       notes:           form.notes,
     }),
     onSuccess: () => {
@@ -75,9 +78,9 @@ function EntryEditDrawer({
   const grossPreview = Number(entry.baseSalary)
     + Number(entry.commissionEarned)
     + Number(entry.overtimeRate ?? 0)
-    + form.bonus
-    + form.allowances;
-  const netPreview = Math.max(0, grossPreview - form.taxDeduction - form.otherDeductions);
+    + (Number(form.bonus) || 0)
+    + (Number(form.allowances) || 0);
+  const netPreview = Math.max(0, grossPreview - (Number(form.taxDeduction) || 0) - (Number(form.otherDeductions) || 0));
 
   return (
     <motion.div
@@ -119,7 +122,7 @@ function EntryEditDrawer({
               </label>
               <input type="number" min={0} step={0.01}
                 value={(form as any)[key]}
-                onChange={e => set(key, parseFloat(e.target.value) || 0)}
+                onChange={e => set(key, e.target.value === '' ? '' : parseFloat(e.target.value))}
                 style={inputSt} />
             </div>
           ))}
@@ -166,13 +169,15 @@ function DeductionRulesPanel({ onClose }: { onClose: () => void }) {
     queryFn: () => payrollApi.getDeductionRules().then(r => r.data),
   });
 
-  const [form, setForm] = useState<Record<string, number>>({});
-  const set = (k: string, v: number) => setForm(f => ({ ...f, [k]: v }));
+  const [form, setForm] = useState<Record<string, number | ''>>({});
+  const set = (k: string, v: number | '') => setForm(f => ({ ...f, [k]: v }));
   const val = (k: string, def: number) => form[k] ?? (data ? Number((data as any)[k]) : def);
 
   const qc = useQueryClient();
   const mut = useMutation({
-    mutationFn: () => payrollApi.saveDeductionRules(form),
+    mutationFn: () => payrollApi.saveDeductionRules(
+      Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v === '' ? 0 : v]))
+    ),
     onSuccess: () => { toast.success('Deduction rules saved'); qc.invalidateQueries({ queryKey: ['payroll-deduction-rules'] }); },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Save failed'),
   });
@@ -241,7 +246,7 @@ function DeductionRulesPanel({ onClose }: { onClose: () => void }) {
                       </label>
                       <input type="number" min={0} step={0.01}
                         value={val(f.key, f.def)}
-                        onChange={e => set(f.key, parseFloat(e.target.value) || 0)}
+                        onChange={e => set(f.key, e.target.value === '' ? '' : parseFloat(e.target.value))}
                         style={inputSt} />
                     </div>
                   ))}
@@ -384,10 +389,13 @@ export default function PayrollPage() {
 
   const canManage   = can('payroll.manage');
   const canFinalize = can('payroll.finalize');
+  const { activeBranch, branches, isHydrated } = useAuthStore();
+  const branchId = activeBranch?.id;
+  const hasNoBranches = isHydrated && branches.length === 0;
 
   const { data: runsData, isLoading } = useQuery({
-    queryKey: ['payroll-runs'],
-    queryFn:  () => payrollApi.list().then(r => r.data),
+    queryKey: ['payroll-runs', branchId],
+    queryFn:  () => payrollApi.list({ branchId }).then(r => r.data),
   });
 
   const { data: expandedData } = useQuery({
@@ -442,8 +450,15 @@ export default function PayrollPage() {
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <Header title="Payroll" subtitle="Manage Payroll" />
 
+        {hasNoBranches ? (
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <NoBranchesExistBanner feature="Payroll" />
+          </div>
+        ) : (
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 20 }}
           className="sm:p-6">
+
+          {!activeBranch && branches.length > 1 && <NoBranchBanner action="view branch-specific payroll" />}
 
           {/* Summary cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}
@@ -636,6 +651,7 @@ export default function PayrollPage() {
             )}
           </div>
         </div>
+        )}
       </div>
 
       <AnimatePresence>

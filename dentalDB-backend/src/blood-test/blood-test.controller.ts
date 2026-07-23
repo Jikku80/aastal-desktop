@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Patch, Delete,
-  Body, Param, Query, Request, UseGuards,
+  Body, Param, Query, Request, UseGuards, ForbiddenException,
 } from '@nestjs/common';
 import { BloodTestService } from './blood-test.service';
 import { CreateBloodTestDto, UpdateBloodTestDto } from './dto/blood-test.dto';
@@ -8,16 +8,34 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../rbac/guards/permissions.guard';
 import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 import { BranchLockGuard } from '../common/guards/branch-lock.guard';
+import { BranchesService } from '../branch/branch.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, BranchLockGuard)
 @Controller('blood-test')
 export class BloodTestController {
-  constructor(private readonly svc: BloodTestService) {}
+  constructor(
+    private readonly svc: BloodTestService,
+    private readonly branchesService: BranchesService,
+  ) {}
 
   @Post()
   @RequirePermissions('blood_test.manage')
-  create(@Request() req, @Body() dto: CreateBloodTestDto) {
-    return this.svc.create(req.user.clinicId, dto);
+  async create(@Request() req, @Body() dto: CreateBloodTestDto) {
+    const { id: userId, clinicId } = req.user;
+    let branchId = dto.branchId;
+
+    const perms: Set<string> = req.user._permissions;
+    const isOwner = perms.has('*') || perms.has('branch.manage');
+
+    if (!isOwner) {
+      const accessibleIds = await this.branchesService.getAccessibleBranchIds(clinicId, userId, req.user.role);
+      if (accessibleIds.length === 0)
+        throw new ForbiddenException('You are not assigned to any branch');
+      if (!branchId || !accessibleIds.includes(branchId))
+        branchId = accessibleIds[0];
+    }
+
+    return this.svc.create(clinicId, { ...dto, branchId: branchId || undefined });
   }
 
   @Get('stats')
@@ -28,8 +46,17 @@ export class BloodTestController {
 
   @Get()
   @RequirePermissions('blood_test.view')
-  findAll(@Request() req, @Query() query: any) {
-    return this.svc.findAll(req.user.clinicId, query);
+  async findAll(@Request() req, @Query() query: any) {
+    const { id: userId, clinicId } = req.user;
+    const perms: Set<string> = req.user._permissions;
+    const isOwner = perms.has('*') || perms.has('branch.manage');
+
+    if (!isOwner) {
+      const ids = await this.branchesService.getAccessibleBranchIds(clinicId, userId, req.user.role);
+      if (ids.length > 0 && !query.branchId)
+        query = { ...query, branchIds: ids.join(',') };
+    }
+    return this.svc.findAll(clinicId, query);
   }
 
   @Get('patient/:patientId')

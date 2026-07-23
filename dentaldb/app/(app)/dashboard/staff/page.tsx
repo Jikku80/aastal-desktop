@@ -84,8 +84,14 @@ function StaffModal({ onClose, onSuccess, member }: { onClose: () => void; onSuc
 
   const mutation = useMutation({
     mutationFn: (data: FormData) => {
-      const payload = { ...data };
+      const payload: any = { ...data };
       if (!payload.password) delete payload.password;
+      // The branch selector is only rendered for new staff (see the
+      // `!member && branches.length > 1` block below) — in edit mode
+      // `branchId` never has a real input and always carries the
+      // hardcoded '' from defaultValues, so don't send it as if the user
+      // meant to clear the member's branch assignment.
+      if (member) delete payload.branchId;
       return member ? usersApi.update(member.id, payload) : usersApi.create(payload);
     },
     onSuccess,

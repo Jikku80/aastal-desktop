@@ -389,6 +389,11 @@ export const clinicalRecordsApi = {
   create: (d: any)             => api.post('/clinical-records', d),
   update: (id: string, d: any) => api.patch(`/clinical-records/${id}`, d),
   delete: (id: string)         => api.delete(`/clinical-records/${id}`),
+  // Called right after an invoice/billing is created — creates the patient's
+  // clinical record if none exists yet, or appends a new dated visit entry
+  // (new services, new date/time) to the existing one. No-ops server-side
+  // if `services` is empty.
+  upsertFromBilling: (d: any)  => api.post('/clinical-records/upsert-from-billing', d),
 };
 
 // ── Prescriptions (template + PDF) ────────────────────────────────────────────

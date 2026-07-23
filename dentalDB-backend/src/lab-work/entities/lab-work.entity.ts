@@ -6,6 +6,7 @@ import {
 const isSQLite = process.env.DB_DRIVER === 'sqlite';
 import { Patient } from '../../patients/entities/patient.entity';
 import { User } from '../../users/entities/user.entity';
+import { Branch } from '../../branch/entities/branch.entity';
 
 export enum LabWorkStatus {
   PENDING    = 'pending',
@@ -25,6 +26,7 @@ export enum LabWorkPriority {
 @Index(['clinicId', 'patientId'])
 @Index(['clinicId', 'status'])
 @Index(['clinicId', 'createdAt'])
+@Index(['branchId'])
 export class LabWork {
   @Column({ type: 'varchar', length: 20, default: 'synced' })
   syncStatus: 'synced' | 'pending' | 'conflict';
@@ -34,6 +36,13 @@ export class LabWork {
 
   @Column()
   clinicId: string;
+
+  @Column({ nullable: true })
+  branchId: string;
+
+  @ManyToOne(() => Branch, { nullable: true, onDelete: 'SET NULL', eager: false })
+  @JoinColumn({ name: 'branchId' })
+  branch: Branch;
 
   @Column()
   patientId: string;

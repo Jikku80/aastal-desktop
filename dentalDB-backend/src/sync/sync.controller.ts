@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { SyncService } from './sync.service';
 import { SyncDevicesService } from './sync-devices.service';
 import { SyncDeviceGuard } from './guards/sync-device.guard';
@@ -18,6 +19,7 @@ export class SyncController {
     private readonly devices: SyncDevicesService,
     private readonly connectivity: ConnectivityService,
     private readonly outbox: OutboxService,
+    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -62,6 +64,24 @@ export class SyncController {
   @Post('trigger')
   @UseGuards(JwtAuthGuard)
   async trigger() {
+    // The frontend's useOnlineStatus hook calls this unconditionally on
+    // mount and on every browser 'online' event (see useOnlineStatus.ts) so
+    // that the offline/Electron instance gets an immediate pull the moment
+    // connectivity returns, without waiting out its poll interval. On the
+    // hosted/online instance (no SYNC_REMOTE_BASE_URL — it IS the canonical
+    // remote, there's nothing to sync with) that same call previously fell
+    // through to SyncService.fullSync(), which threw
+    // "SYNC_REMOTE_BASE_URL not configured", got caught by
+    // AllExceptionsFilter, and logged an ERROR + 500 on essentially every
+    // page load. Treat "not configured" as "nothing to do" here instead.
+    if (!this.config.get<string>('SYNC_REMOTE_BASE_URL')) {
+      return {
+        pull: { pulled: 0, conflicts: 0 },
+        push: { pushed: 0, conflicts: 0 },
+        skipped: true,
+        reason: 'SYNC_REMOTE_BASE_URL not configured — this instance is the canonical/online one',
+      };
+    }
     return this.sync.fullSync();
   }
 

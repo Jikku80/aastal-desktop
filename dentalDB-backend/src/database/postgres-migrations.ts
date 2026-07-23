@@ -19,6 +19,11 @@ import { Migration1782924499469 } from '../migrations/1782924499469-Migration';
 import { Migration1783496503624 } from '../migrations/1783496503624-Migration';
 import { Migration1783754843181 } from '../migrations/1783754843181-Migration';
 import { AuditLogWalletEnumValue1783933938709 } from '../migrations/1783933938709-AuditLogWalletEnumValue';
+import { PatientAccountPassword1784200000000 } from '../migrations/1784200000000-PatientAccountPassword';
+import { ClinicalRecordVisits1784300000000 } from '../migrations/1784300000000-ClinicalRecordVisits';
+import { RecordsBranchScoping1784400000000 } from '../migrations/1784400000000-RecordsBranchScoping';
+import { IndependentDoctorRoleScope1784500000000 } from '../migrations/1784500000000-IndependentDoctorRoleScope';
+import { NotificationPatientId1784600000000 } from '../migrations/1784600000000-NotificationPatientId';
 
 export const POSTGRES_MIGRATIONS = [
   SeoInfrastructure1700000000001,
@@ -37,4 +42,9 @@ export const POSTGRES_MIGRATIONS = [
   Migration1783496503624,
   Migration1783754843181,
   AuditLogWalletEnumValue1783933938709,
+  PatientAccountPassword1784200000000,
+  ClinicalRecordVisits1784300000000,
+  RecordsBranchScoping1784400000000,
+  IndependentDoctorRoleScope1784500000000,
+  NotificationPatientId1784600000000,
 ];

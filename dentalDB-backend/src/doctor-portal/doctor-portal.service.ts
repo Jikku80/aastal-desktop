@@ -17,6 +17,7 @@ import { PatientPortalService } from '../patient-portal/patient-portal.service';
 import { Referral, ReferralStatus } from './entities/referral.entity';
 import { RefillRequest, RefillRequestStatus } from './entities/refill-request.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
+import { DoctorCommission } from '../commissions/entities/commission.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { NotificationType } from '../notifications/entities/notification.entity';
@@ -75,6 +76,7 @@ export class DoctorPortalService {
     @InjectRepository(Referral)       private referralRepo:       Repository<Referral>,
     @InjectRepository(RefillRequest)  private refillRequestRepo:  Repository<RefillRequest>,
     @InjectRepository(Clinic)         private clinicRepo:         Repository<Clinic>,
+    @InjectRepository(DoctorCommission) private commissionRepo:   Repository<DoctorCommission>,
     private readonly doctorProfileService: DoctorProfileService,
     private readonly recordConsentService: PatientRecordConsentService,
     private readonly patientPortalService: PatientPortalService,
@@ -385,6 +387,12 @@ export class DoctorPortalService {
 
   // ── Invoices ──────────────────────────────────────────────────────────────
 
+  /**
+   * Doctors only see their own independent invoices here (clinicId IS NULL —
+   * not tied to any clinic), never a clinic's invoices for other patients'
+   * billing. What they earn from clinics they work with instead shows as
+   * commission, broken down per clinic (see commissionsByClinic below).
+   */
   async getInvoices(doctorId: string, query: { status?: string; page?: number; limit?: number }) {
     const { status, page = 1, limit = 20 } = query;
 
@@ -392,6 +400,7 @@ export class DoctorPortalService {
       .leftJoinAndSelect('i.patient', 'patient')
       .leftJoinAndSelect('i.appointment', 'appointment')
       .where('appointment.dentistId = :doctorId', { doctorId })
+      .andWhere('i.clinicId IS NULL')
       .orderBy('i.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
@@ -400,7 +409,39 @@ export class DoctorPortalService {
 
     const [data, total] = await qb.getManyAndCount();
     const totalRevenue = data.reduce((sum, i) => sum + Number((i as any).paidAmount || 0), 0);
-    return { data, total, page, limit, totalRevenue };
+
+    const commissionsByClinic = await this.getCommissionsByClinic(doctorId);
+
+    return { data, total, page, limit, totalRevenue, commissionsByClinic };
+  }
+
+  /** Earned commission for this doctor, broken down per clinic they work with. */
+  private async getCommissionsByClinic(doctorId: string): Promise<Array<{
+    clinicId: string; clinicName: string; totalCommission: number; totalServiceRevenue: number;
+  }>> {
+    const rows = await this.commissionRepo
+      .createQueryBuilder('c')
+      .select('c.clinicId', 'clinicId')
+      .addSelect('SUM(c.amount)', 'totalCommission')
+      .addSelect('SUM(c.serviceRevenue)', 'totalServiceRevenue')
+      .where('c.doctorId = :doctorId', { doctorId })
+      .groupBy('c.clinicId')
+      .getRawMany();
+
+    if (rows.length === 0) return [];
+
+    const clinicIds = rows.map((r: any) => r.clinicId).filter(Boolean);
+    const clinics = clinicIds.length
+      ? await this.clinicRepo.find({ where: { id: In(clinicIds) }, select: ['id', 'name'] as any })
+      : [];
+    const clinicNameById = new Map(clinics.map((c: any) => [c.id, c.name]));
+
+    return rows.map((r: any) => ({
+      clinicId: r.clinicId,
+      clinicName: clinicNameById.get(r.clinicId) || 'Unknown Clinic',
+      totalCommission: Number(r.totalCommission || 0),
+      totalServiceRevenue: Number(r.totalServiceRevenue || 0),
+    }));
   }
 
   // ── Cross-Clinic Full History (consent-gated) ──────────────────────────────

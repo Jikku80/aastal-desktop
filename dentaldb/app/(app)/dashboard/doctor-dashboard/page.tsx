@@ -134,8 +134,8 @@ export default function DoctorDashboardPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1.5">Years of Experience</label>
-                <input type="number" min="0" value={profile.yearsOfExperience || 0}
-                  onChange={e => setProfile((p: any) => ({ ...p, yearsOfExperience: +e.target.value }))}
+                <input type="number" min="0" value={profile.yearsOfExperience ?? ''}
+                  onChange={e => setProfile((p: any) => ({ ...p, yearsOfExperience: e.target.value === '' ? undefined : +e.target.value }))}
                   className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
               <div>
@@ -177,14 +177,14 @@ export default function DoctorDashboardPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1.5">In-Person Fee (Rs.)</label>
-                <input type="number" value={profile.consultationFee || ''}
-                  onChange={e => setProfile((p: any) => ({ ...p, consultationFee: +e.target.value }))}
+                <input type="number" value={profile.consultationFee ?? ''}
+                  onChange={e => setProfile((p: any) => ({ ...p, consultationFee: e.target.value === '' ? undefined : +e.target.value }))}
                   className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1.5">Video Fee (Rs.)</label>
-                <input type="number" value={profile.videoConsultationFee || ''}
-                  onChange={e => setProfile((p: any) => ({ ...p, videoConsultationFee: +e.target.value }))}
+                <input type="number" value={profile.videoConsultationFee ?? ''}
+                  onChange={e => setProfile((p: any) => ({ ...p, videoConsultationFee: e.target.value === '' ? undefined : +e.target.value }))}
                   className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
             </div>

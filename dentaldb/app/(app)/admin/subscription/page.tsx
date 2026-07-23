@@ -443,8 +443,8 @@ function UpdateSubModal({ clinic, onClose }: { clinic: any; onClose: () => void 
   const qc = useQueryClient();
   const [plan, setPlan]               = useState(clinic.subscription?.plan || 'pro');
   const [cycle, setCycle]             = useState(clinic.subscription?.billingCycle || 'monthly');
-  const [duration, setDuration]       = useState(1);
-  const [numBranches, setNumBranches] = useState<number>(() => (clinic.clinic?.settings as any)?.numBranches ?? 1);
+  const [duration, setDuration]       = useState<number | ''>(1);
+  const [numBranches, setNumBranches] = useState<number | ''>(() => (clinic.clinic?.settings as any)?.numBranches ?? 1);
 
   // Custom expiry — lets admin override the auto-calculated period end date.
   // Defaults to the current subscription's expiry so it's pre-populated for quick edits.
@@ -458,8 +458,8 @@ function UpdateSubModal({ clinic, onClose }: { clinic: any; onClose: () => void 
     mutationFn: () => adminApi.updateSubscription(clinic.clinic.id, {
       plan,
       billingCycle: cycle,
-      durationMonths: duration,
-      ...((plan === 'enterprise' || plan === 'pro') ? { numBranches } : {}),
+      durationMonths: Number(duration) || 1,
+      ...((plan === 'enterprise' || plan === 'pro') ? { numBranches: Number(numBranches) || 1 } : {}),
       ...(useCustomExpiry && customExpiry ? { customPeriodEnd: new Date(customExpiry).toISOString() } : {}),
     }),
     onSuccess: () => {
@@ -520,7 +520,7 @@ function UpdateSubModal({ clinic, onClose }: { clinic: any; onClose: () => void 
             <div>
               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1.5">Duration (months)</label>
               <input type="number" min={1} max={60} value={duration}
-                onChange={e => setDuration(Number(e.target.value))}
+                onChange={e => setDuration(e.target.value === '' ? '' : Number(e.target.value))}
                 className="input w-full text-sm" />
             </div>
           )}
@@ -563,12 +563,12 @@ function UpdateSubModal({ clinic, onClose }: { clinic: any; onClose: () => void 
                 Number of Branches ({plan === 'enterprise' ? 'Enterprise' : 'Pro'})
               </label>
               <input type="number" min={1} max={100} value={numBranches}
-                onChange={e => setNumBranches(Number(e.target.value))}
+                onChange={e => setNumBranches(e.target.value === '' ? '' : Number(e.target.value))}
                 className="input w-full text-sm" />
               <p className="text-[10px] text-[var(--text-muted)] mt-1">
                 {plan === 'pro'
-                  ? `NPR 1,500 base + ${numBranches - 1} × NPR 500 = NPR ${(1500 + (numBranches - 1) * 500).toLocaleString()}/mo`
-                  : `NPR 2,500 base + ${numBranches - 1} × NPR 500 = NPR ${(2500 + (numBranches - 1) * 500).toLocaleString()}/mo`}
+                  ? `NPR 1,500 base + ${(Number(numBranches) || 1) - 1} × NPR 500 = NPR ${(1500 + ((Number(numBranches) || 1) - 1) * 500).toLocaleString()}/mo`
+                  : `NPR 2,500 base + ${(Number(numBranches) || 1) - 1} × NPR 500 = NPR ${(2500 + ((Number(numBranches) || 1) - 1) * 500).toLocaleString()}/mo`}
                 {' '}· excess branches become read-only automatically.
               </p>
             </div>

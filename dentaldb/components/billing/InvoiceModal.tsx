@@ -16,8 +16,13 @@ import { formatNepalDateTime } from '@/lib/timezone';
 // inserted anywhere but the very end, because React then reuses/remaps each
 // row's DOM (and uncommitted input state) by position instead of by row, so
 // existing rows can appear to swap values around. Generated once, on add.
-interface ServiceLine { _uid: string; serviceId: string; serviceName: string; qty: number; unitPrice: number; doctorId: string; }
-interface ProductLine { _uid: string; productId: string; productName: string; qty: number; unitPrice: number; }
+// qty/unitPrice are `number | ''` — '' represents a field the user has
+// cleared out while typing a new value. Treat as 0 wherever it's used in a
+// calculation (see the `Number(x) || 0` helper calls below); never coerce
+// it to 0 in state itself, or the input snaps back to "0" the instant the
+// user backspaces the field, making it impossible to type a new number.
+interface ServiceLine { _uid: string; serviceId: string; serviceName: string; qty: number | ''; unitPrice: number | ''; doctorId: string; }
+interface ProductLine { _uid: string; productId: string; productName: string; qty: number | ''; unitPrice: number | ''; }
 interface TestLine { id: string; type: 'blood' | 'lab'; name: string; cost: number; }
 
 const newUid = () =>
@@ -134,7 +139,7 @@ function ServiceLineRow({
       onChange(line._uid, 'unitPrice', Number(svc.price) || 0);
     }
   };
-  const subtotal = line.qty * line.unitPrice;
+  const subtotal = (Number(line.qty) || 0) * (Number(line.unitPrice) || 0);
   const doctor = doctors.find(d => d.id === line.doctorId);
 
   return (
@@ -154,12 +159,12 @@ function ServiceLineRow({
       <div className="grid grid-cols-3 gap-2">
         <div>
           <label className="text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wide mb-0.5 block">Qty</label>
-          <input type="number" min={1} value={line.qty} onChange={e => onChange(line._uid, 'qty', Number(e.target.value))}
+          <input type="number" min={1} value={line.qty} onChange={e => onChange(line._uid, 'qty', e.target.value === '' ? '' : Number(e.target.value))}
             className="input w-full py-1.5 text-sm text-center" />
         </div>
         <div>
           <label className="text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wide mb-0.5 block">Unit Price</label>
-          <input type="number" min={0} value={line.unitPrice} onChange={e => onChange(line._uid, 'unitPrice', Number(e.target.value))}
+          <input type="number" min={0} value={line.unitPrice} onChange={e => onChange(line._uid, 'unitPrice', e.target.value === '' ? '' : Number(e.target.value))}
             className="input w-full py-1.5 text-sm text-right" />
         </div>
         <div>
@@ -209,7 +214,7 @@ function ProductLineRow({
       onChange(line._uid, 'unitPrice', Number(prod.price) || 0);
     }
   };
-  const subtotal = line.qty * line.unitPrice;
+  const subtotal = (Number(line.qty) || 0) * (Number(line.unitPrice) || 0);
 
   return (
     <div className="rounded-xl p-3 space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
@@ -228,12 +233,12 @@ function ProductLineRow({
       <div className="grid grid-cols-3 gap-2">
         <div>
           <label className="text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wide mb-0.5 block">Qty</label>
-          <input type="number" min={1} value={line.qty} onChange={e => onChange(line._uid, 'qty', Number(e.target.value))}
+          <input type="number" min={1} value={line.qty} onChange={e => onChange(line._uid, 'qty', e.target.value === '' ? '' : Number(e.target.value))}
             className="input w-full py-1.5 text-sm text-center" />
         </div>
         <div>
           <label className="text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wide mb-0.5 block">Unit Price</label>
-          <input type="number" min={0} value={line.unitPrice} onChange={e => onChange(line._uid, 'unitPrice', Number(e.target.value))}
+          <input type="number" min={0} value={line.unitPrice} onChange={e => onChange(line._uid, 'unitPrice', e.target.value === '' ? '' : Number(e.target.value))}
             className="input w-full py-1.5 text-sm text-right" />
         </div>
         <div>
@@ -273,9 +278,10 @@ export default function InvoiceModal({
   const [productLines, setProductLines] = useState<ProductLine[]>([]);
   const [testLines,    setTestLines]    = useState<TestLine[]>([]);
 
-  // Totals
-  const [taxPercent,     setTaxPercent]     = useState(Number(globalVat));
-  const [discountAmount, setDiscountAmount] = useState(0);
+  // Totals — `number | ''` so the field can sit blank while the user is
+  // typing a new value instead of snapping back to 0 (see Number(x)||0 below).
+  const [taxPercent,     setTaxPercent]     = useState<number | ''>(Number(globalVat));
+  const [discountAmount, setDiscountAmount] = useState<number | ''>(0);
   const [paymentMethod,  setPaymentMethod]  = useState('');
   const [notes,          setNotes]          = useState('');
   const [status,         setStatus]         = useState('not_yet_paid');
@@ -332,12 +338,12 @@ export default function InvoiceModal({
   const pendingLabWork    = (unbilledLab   || []).filter((t: any) => !testLines.some(l => l.id === t.id));
 
   // Computed totals
-  const serviceSubtotal = serviceLines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
-  const productSubtotal = productLines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
+  const serviceSubtotal = serviceLines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unitPrice) || 0), 0);
+  const productSubtotal = productLines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unitPrice) || 0), 0);
   const testSubtotal    = testLines.reduce((s, l) => s + Number(l.cost || 0), 0);
   const subtotal        = serviceSubtotal + productSubtotal + testSubtotal;
-  const taxAmount       = subtotal * (taxPercent / 100);
-  const total           = Math.max(subtotal + taxAmount - discountAmount, 0);
+  const taxAmount       = subtotal * ((Number(taxPercent) || 0) / 100);
+  const total           = Math.max(subtotal + taxAmount - (Number(discountAmount) || 0), 0);
 
   // Test line helpers
   const addTestLine    = (t: any, type: 'blood' | 'lab') =>
@@ -439,17 +445,17 @@ export default function InvoiceModal({
       const allItems = [
         ...serviceLines.map(l => ({
           description: l.serviceName || 'Service',
-          quantity:    l.qty,
-          unitPrice:   l.unitPrice,
-          total:       l.qty * l.unitPrice,
+          quantity:    Number(l.qty) || 0,
+          unitPrice:   Number(l.unitPrice) || 0,
+          total:       (Number(l.qty) || 0) * (Number(l.unitPrice) || 0),
           serviceId:   l.serviceId || undefined,
           doctorId:    l.doctorId  || undefined,
         })),
         ...productLines.map(l => ({
           description: l.productName || 'Product',
-          quantity:    l.qty,
-          unitPrice:   l.unitPrice,
-          total:       l.qty * l.unitPrice,
+          quantity:    Number(l.qty) || 0,
+          unitPrice:   Number(l.unitPrice) || 0,
+          total:       (Number(l.qty) || 0) * (Number(l.unitPrice) || 0),
           productId:   l.productId || undefined,
         })),
         ...testLines.map(l => ({
@@ -462,18 +468,27 @@ export default function InvoiceModal({
         })),
       ];
       if (allItems.length === 0) throw new Error('Add at least one service or product');
+      if (allItems.some(it => !it.quantity || it.quantity <= 0)) {
+        throw new Error('Enter a quantity for every line item');
+      }
 
       const res = await billingApi.createInvoice({
         patientId,
         appointmentId: appointmentId || undefined,
         branchId:      activeBranch?.id,
         items:         allItems,
-        subtotal, taxPercent, taxAmount, discountAmount,
+        subtotal, taxPercent: Number(taxPercent) || 0, taxAmount, discountAmount: Number(discountAmount) || 0,
         total, dueAmount: dueAfterManual, paidAmount: paidAmountNum,
         paymentMethod: paymentMethod || undefined,
         notes:         notes || undefined,
         status, dueDate: dueDate || undefined,
       });
+
+      // Clinical record sync now happens server-side, inside
+      // BillingService.create() itself (see syncClinicalRecord() in
+      // billing.service.ts) — guaranteed to run for every invoice creation
+      // path, not just this modal, and no longer dependent on a second
+      // network call succeeding after the invoice already exists.
 
       // From here on the invoice DEFINITELY exists — any failure below is a
       // wallet-specific failure, not an invoice-creation failure, and must
@@ -497,6 +512,9 @@ export default function InvoiceModal({
       qc.invalidateQueries({ queryKey: ['wallet-balance-inv', patientId] });
       qc.invalidateQueries({ queryKey: ['wallet', patientId] });
       qc.invalidateQueries({ queryKey: ['wallet-tx', patientId] });
+      qc.invalidateQueries({ queryKey: ['clinical-records'] });
+      qc.invalidateQueries({ queryKey: ['patient-clinical-records', patientId] });
+      qc.invalidateQueries({ queryKey: ['clinical-record-by-appt', appointmentId] });
       if (walletError) {
         // The invoice exists — don't hide that. Say so explicitly, with the
         // real reason, instead of a generic failure toast.
@@ -508,6 +526,7 @@ export default function InvoiceModal({
     },
     onError: (e: any) => toast.error(e?.message || e?.response?.data?.message || 'Failed to create invoice'),
   });
+
 
   // Reset the wallet-deduction choice and amount-paid input whenever the selected patient changes
   useEffect(() => { setUseWallet(false); setAmountPaidInput(''); }, [patientId]);
@@ -730,7 +749,7 @@ export default function InvoiceModal({
             <div className="flex items-center justify-between text-sm text-[var(--text-secondary)]">
               <div className="flex items-center gap-2">
                 <span>VAT (%)</span>
-                <input type="number" value={taxPercent} onChange={e => setTaxPercent(Number(e.target.value))} min={0} max={100}
+                <input type="number" value={taxPercent} onChange={e => setTaxPercent(e.target.value === '' ? '' : Number(e.target.value))} min={0} max={100}
                   className="w-14 px-2 py-0.5 text-xs rounded-lg text-center"
                   style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }} />
               </div>
@@ -739,11 +758,11 @@ export default function InvoiceModal({
             <div className="flex items-center justify-between text-sm text-[var(--text-secondary)]">
               <div className="flex items-center gap-2">
                 <span>Discount (NPR)</span>
-                <input type="number" value={discountAmount} onChange={e => setDiscountAmount(Number(e.target.value))} min={0}
+                <input type="number" value={discountAmount} onChange={e => setDiscountAmount(e.target.value === '' ? '' : Number(e.target.value))} min={0}
                   className="w-20 px-2 py-0.5 text-xs rounded-lg text-right"
                   style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }} />
               </div>
-              <span>− NPR {discountAmount.toLocaleString()}</span>
+              <span>− NPR {(Number(discountAmount) || 0).toLocaleString()}</span>
             </div>
             <div className="pt-2 flex justify-between font-bold text-[var(--text-primary)] text-base" style={{ borderTop: '1px solid var(--border)' }}>
               <span>Total</span><span>NPR {total.toLocaleString()}</span>

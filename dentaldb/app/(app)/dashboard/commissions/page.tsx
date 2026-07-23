@@ -4,6 +4,9 @@ import { useQuery } from '@tanstack/react-query';
 import { DollarSign, TrendingUp, Users, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { commissionsApi, usersApi } from '@/lib/api';
 import { useCalendarType } from '@/hooks/useCalendarType';
+import { useAuthStore } from '@/store/auth.store';
+import NoBranchBanner from '@/components/layout/NoBranchBanner';
+import { NoBranchesExistBanner } from '@/components/layout/NoBranchesExistBanner';
 import {
   BS_MONTHS,
   adToBS,
@@ -231,6 +234,9 @@ export default function CommissionsPage() {
   }
 
   const hasFilter = !!(startDate || endDate || doctorId);
+  const { activeBranch, branches, isHydrated } = useAuthStore();
+  const branchId = activeBranch?.id;
+  const hasNoBranches = isHydrated && branches.length === 0;
 
   const { data: staffData } = useQuery({
     queryKey: ['staff-list'],
@@ -239,21 +245,23 @@ export default function CommissionsPage() {
   const doctors = (Array.isArray(staffData) ? staffData : (staffData as any)?.data ?? []).filter((u: any) => /doctor|dentist/i.test(u.role));
 
   const { data, isLoading } = useQuery({
-    queryKey: ['commissions', startDate, endDate, doctorId],
+    queryKey: ['commissions', startDate, endDate, doctorId, branchId],
     queryFn: () =>
       commissionsApi.getSummary({
         startDate,
         endDate,
         doctorId: doctorId || undefined,
+        branchId,
       }).then(r => r.data),
   });
 
   const { data: chartData } = useQuery({
-    queryKey: ['commissions-chart', doctorId, calendarType],
+    queryKey: ['commissions-chart', doctorId, calendarType, branchId],
     queryFn: () =>
       commissionsApi.getMonthlyChart({
         doctorId: doctorId || undefined,
         calendarType,
+        branchId,
       }).then(r => r.data),
   });
 
@@ -278,7 +286,14 @@ export default function CommissionsPage() {
     <div className="flex flex-col h-screen">
       <Header title="Doctor Commissions" />
 
+      {hasNoBranches ? (
+        <div className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
+          <NoBranchesExistBanner feature="Commissions" />
+        </div>
+      ) : (
       <div className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
+
+        {!activeBranch && branches.length > 1 && <NoBranchBanner action="view branch-specific commissions" />}
 
         {/* Calendar mode badge */}
         <div className="flex items-center gap-2 mb-4">
@@ -470,6 +485,7 @@ export default function CommissionsPage() {
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 }

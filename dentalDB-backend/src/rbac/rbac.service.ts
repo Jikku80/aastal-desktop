@@ -321,11 +321,12 @@ export class RbacService {
       'listing.manage', 'reviews.respond',
     ];
 
-    // Use userId as clinicId surrogate for personal scope
-    const scopeKey = `independent:${userId}`;
-
+    // Independent doctors have no clinic, so this role is scoped by
+    // doctorUserId instead of clinicId (clinicId is a uuid FK column and
+    // can't hold a synthetic string key — see the doctorUserId doc comment
+    // on the Role entity for why this was previously broken).
     let role = await this.roleRepo.findOne({
-      where: { name: 'Independent Doctor', clinicId: scopeKey },
+      where: { name: 'Independent Doctor', doctorUserId: userId },
       relations: ['permissions'],
     });
 
@@ -336,7 +337,7 @@ export class RbacService {
         this.roleRepo.create({
           name: 'Independent Doctor',
           description: 'Default role for independent/freelance doctors',
-          clinicId: scopeKey,
+          doctorUserId: userId,
           isSystem: true,
           permissions: filtered,
         }),

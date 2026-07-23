@@ -42,8 +42,10 @@ export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
-  clinicId: string;
+  // Nullable: independent doctors (no clinic) still generate audit events
+  // (signup, login, etc.) — see AuthService.doctorSignup / login.
+  @Column({ nullable: true })
+  clinicId: string | null;
 
   @Column({ nullable: true })
   userId: string;

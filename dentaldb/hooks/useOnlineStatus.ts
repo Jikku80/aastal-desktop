@@ -65,11 +65,21 @@ export function useOnlineStatus() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handleOnline = () => {
-      syncApi.trigger().catch(() => {
-        // Best-effort nudge — if the local backend genuinely can't reach
-        // the remote yet, ConnectivityService's own poll will pick it up
-        // on its next cycle regardless.
-      });
+      // Check remoteConfigured fresh (not the closed-over `data` from
+      // render) before nudging — on a normal online/Postgres deployment
+      // there's no remote to sync with at all, so skip the trigger call
+      // entirely rather than firing it and letting it no-op server-side.
+      syncApi.status()
+        .then(({ data: s }) => {
+          if (s?.remoteConfigured) {
+            return syncApi.trigger().catch(() => {
+              // Best-effort nudge — if the local backend genuinely can't reach
+              // the remote yet, ConnectivityService's own poll will pick it up
+              // on its next cycle regardless.
+            });
+          }
+        })
+        .catch(() => {});
       queryClient.invalidateQueries({ queryKey: ['sync-status'] });
     };
     window.addEventListener('online', handleOnline);

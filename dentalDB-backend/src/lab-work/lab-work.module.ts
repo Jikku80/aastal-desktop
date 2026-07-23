@@ -7,9 +7,10 @@ import { Branch } from '../branch/entities/branch.entity';
 import { BranchLockGuard } from '../common/guards/branch-lock.guard';
 import { PermissionsGuard } from '../rbac/guards/permissions.guard';
 import { Expense } from '../expenses/entities/expense.entity';
+import { BranchesModule } from '../branch/branch.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([LabWork, Branch, Expense])],
+  imports: [TypeOrmModule.forFeature([LabWork, Branch, Expense]), BranchesModule],
   controllers: [LabWorkController],
   providers: [LabWorkService, BranchLockGuard, PermissionsGuard],
   exports: [LabWorkService],

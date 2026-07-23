@@ -38,6 +38,7 @@ export enum NotificationType {
 
 @Entity('notifications')
 @Index(['clinicId', 'userId', 'isRead'])
+@Index(['patientId'])
 export class Notification {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -48,6 +49,17 @@ export class Notification {
   /** null = broadcast to whole clinic */
   @Column({ nullable: true })
   userId: string;
+
+  /**
+   * Clinic-scoped Patient.id this notification concerns (e.g. the patient
+   * on an appointment). Null for notifications that aren't about a specific
+   * patient (staff broadcasts, leave/shift/holiday notices, etc).
+   * Patient-portal queries require this to be set and to match one of the
+   * requesting patient's own linked clinicPatientIds — this is what keeps a
+   * patient from seeing notifications that belong to other patients.
+   */
+  @Column({ nullable: true })
+  patientId: string;
 
   @Column({ type: isSQLite ? 'varchar' : 'enum', enum: NotificationType })
   type: NotificationType;

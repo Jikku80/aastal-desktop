@@ -320,7 +320,7 @@ export function GlobalSettingsEditor() {
                   <input
                     type="number" min={20} max={120}
                     value={(nav as any).logoHeight ?? 36}
-                    onChange={e => setNav({ logoHeight: Number(e.target.value) } as any)}
+                    onChange={e => setNav({ logoHeight: e.target.value ? Number(e.target.value) : undefined } as any)}
                     style={inputCls}
                   />
                 </div>
@@ -340,7 +340,7 @@ export function GlobalSettingsEditor() {
                 <input
                   type="number" min={10} max={48}
                   value={(nav as any).logoFontSize ?? 18}
-                  onChange={e => setNav({ logoFontSize: Number(e.target.value) } as any)}
+                  onChange={e => setNav({ logoFontSize: e.target.value ? Number(e.target.value) : undefined } as any)}
                   style={inputCls}
                 />
               </div>

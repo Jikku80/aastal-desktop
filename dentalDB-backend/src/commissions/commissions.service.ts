@@ -139,7 +139,7 @@ export class CommissionsService {
   }
 
   async getSummary(clinicId: string, query?: any) {
-    const { startDate, endDate, doctorId } = query || {};
+    const { startDate, endDate, doctorId, branchId } = query || {};
 
     let qb = this.repo
       .createQueryBuilder('c')
@@ -150,6 +150,13 @@ export class CommissionsService {
     if (doctorId)  qb = qb.andWhere('c.doctorId = :doctorId', { doctorId });
     if (startDate) qb = qb.andWhere('c.createdAt >= :startDate', { startDate });
     if (endDate)   qb = qb.andWhere('c.createdAt <= :endDate',   { endDate });
+    // DoctorCommission has no branchId column of its own — commissions are
+    // scoped to a branch through the invoice that generated them.
+    if (branchId) {
+      qb = qb
+        .innerJoin('c.invoice', 'invoice')
+        .andWhere('invoice.branchId = :branchId', { branchId });
+    }
 
     const commissions = await qb.orderBy('c.createdAt', 'DESC').getMany();
 
@@ -195,7 +202,7 @@ export class CommissionsService {
   }
 
   async getMonthlyChart(clinicId: string, query?: any) {
-    const { doctorId, calendarType = 'BS' } = query || {};
+    const { doctorId, calendarType = 'BS', branchId } = query || {};
 
     // Build the 6 month buckets in the correct calendar
     const buckets = buildMonthBuckets(calendarType);
@@ -210,6 +217,11 @@ export class CommissionsService {
           .andWhere('c.createdAt >= :start AND c.createdAt <= :end', { start, end });
 
         if (doctorId) qb = qb.andWhere('c.doctorId = :doctorId', { doctorId });
+        if (branchId) {
+          qb = qb
+            .innerJoin('c.invoice', 'invoice')
+            .andWhere('invoice.branchId = :branchId', { branchId });
+        }
 
         const raw = await qb.getRawOne();
         return {

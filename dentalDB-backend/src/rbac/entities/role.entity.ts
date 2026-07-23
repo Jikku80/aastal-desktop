@@ -5,6 +5,7 @@ import {
 } from 'typeorm';
 import { Permission } from './permission.entity';
 import { Clinic } from '../../clinics/entities/clinic.entity';
+import { User } from '../../users/entities/user.entity';
 
 @Entity('roles')
 export class Role {
@@ -26,6 +27,23 @@ export class Role {
   @ManyToOne(() => Clinic, { nullable: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'clinicId' })
   clinic: Clinic;
+
+  /**
+   * Personal scope for independent-doctor roles (Part 7). Independent
+   * doctors have no clinicId, so a clinic-scoped role can't represent
+   * their permissions — this column is the dedicated scope key instead.
+   * Exactly one of clinicId / doctorUserId should be set for any given
+   * role; clinicId stays null here on purpose.
+   * (Previously this was faked by stuffing `independent:<userId>` into
+   * clinicId, which is a uuid FK column and rejected the value outright —
+   * see RbacService.ensureIndependentDoctorRole.)
+   */
+  @Column({ nullable: true })
+  doctorUserId: string;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'doctorUserId' })
+  doctorUser: User;
 
   /** System roles (owner) cannot be deleted or renamed */
   @Column({ default: false })

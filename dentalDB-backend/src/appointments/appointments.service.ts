@@ -41,9 +41,10 @@ export class AppointmentsService {
         : `A ${aptType} appointment with ${patientName} is scheduled for ${timeStr}.`;
 
       const notif = await this.notificationsService.create({
-        clinicId: apt.clinicId,
-        userId:   apt.dentistId,
-        type:     NotificationType.APPOINTMENT_CREATED,
+        clinicId:  apt.clinicId,
+        userId:    apt.dentistId,
+        patientId: apt.patientId,
+        type:      NotificationType.APPOINTMENT_CREATED,
         title,
         body,
         entityId: apt.id,

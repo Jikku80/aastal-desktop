@@ -15,6 +15,7 @@ import { PatientAuthModule } from '../patient-auth/patient-auth.module';
 import { Referral } from './entities/referral.entity';
 import { RefillRequest } from './entities/refill-request.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
+import { DoctorCommission } from '../commissions/entities/commission.entity';
 import { PatientPortalModule } from '../patient-portal/patient-portal.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
@@ -23,6 +24,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     TypeOrmModule.forFeature([
       Appointment, Patient, ClinicalRecord, Invoice, User, DoctorProfile,
       PatientAccount, PatientAccountLink, Referral, RefillRequest, Clinic,
+      DoctorCommission,
     ]),
     DoctorProfileModule,
     PatientAuthModule,

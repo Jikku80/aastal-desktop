@@ -95,7 +95,7 @@ function OrderModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { user } = useAuthStore();
+  const { user, activeBranch } = useAuthStore();
   const qc = useQueryClient();
 
   const [form, setForm] = useState({
@@ -133,6 +133,7 @@ function OrderModal({
     try {
       await mut.mutateAsync({
         ...form,
+        ...(initial ? {} : { branchId: activeBranch?.id }),
         cost: form.cost ? parseFloat(form.cost) : undefined,
       });
     } finally { setSaving(false); }
@@ -739,9 +740,10 @@ export default function LabWorkPage() {
   const isBranchInactive = activeBranch && !activeBranch.isActive;
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['lab-work', page, search, statusFilter, priorityFilter],
+    queryKey: ['lab-work', page, search, statusFilter, priorityFilter, activeBranch?.id],
     queryFn: () => labApi.list({
       page, limit: 25,
+      branchId: activeBranch?.id,
       search:   search   || undefined,
       status:   statusFilter   || undefined,
       priority: priorityFilter || undefined,

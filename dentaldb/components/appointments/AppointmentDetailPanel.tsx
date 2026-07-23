@@ -43,7 +43,7 @@ export default function AppointmentDetailPanel({
   const [showRecallPrompt, setShowRecallPrompt] = useState(false);
   const [showBilling, setShowBilling] = useState(false);
   const [recallMode, setRecallMode] = useState<'relative' | 'date'>('relative');
-  const [recallAmount, setRecallAmount] = useState(6);
+  const [recallAmount, setRecallAmount] = useState<number | ''>(6);
   const [recallUnit, setRecallUnit] = useState<'days' | 'weeks' | 'months'>('months');
   // Exact-date mode value, in the same "YYYY-MM-DDTHH:mm" shape RegistrationDateField
   // works with — it renders BS year/month/day pickers instead of a plain input
@@ -726,6 +726,7 @@ export default function AppointmentDetailPanel({
                         step={1}
                         value={recallAmount}
                         onChange={e => {
+                          if (e.target.value === '') { setRecallAmount(''); return; }
                           const n = Math.floor(Number(e.target.value));
                           setRecallAmount(Number.isFinite(n) && n > 0 ? n : 1);
                         }}
@@ -739,9 +740,9 @@ export default function AppointmentDetailPanel({
                         onChange={e => setRecallUnit(e.target.value as 'days' | 'weeks' | 'months')}
                         className="input w-full"
                       >
-                        <option value="days">Day{recallAmount > 1 ? 's' : ''}</option>
-                        <option value="weeks">Week{recallAmount > 1 ? 's' : ''}</option>
-                        <option value="months">Month{recallAmount > 1 ? 's' : ''}</option>
+                        <option value="days">Day{Number(recallAmount) > 1 ? 's' : ''}</option>
+                        <option value="weeks">Week{Number(recallAmount) > 1 ? 's' : ''}</option>
+                        <option value="months">Month{Number(recallAmount) > 1 ? 's' : ''}</option>
                       </select>
                     </div>
                   </div>
@@ -764,9 +765,9 @@ export default function AppointmentDetailPanel({
                 </button>
                 <button
                   onClick={() => {
-                    let amount = recallAmount;
+                    let amount = Number(recallAmount) || 1;
                     let unit = recallUnit;
-                    let dueLabel = `${recallAmount} ${recallUnit} from now`;
+                    let dueLabel = `${amount} ${recallUnit} from now`;
 
                     if (recallMode === 'date') {
                       const chosen = parseDatetimeLocal(recallDateValue);

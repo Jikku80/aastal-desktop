@@ -7,6 +7,7 @@ import { PatientAccountLink } from '../patient-auth/entities/patient-account-lin
 import { Appointment } from '../appointments/entities/appointment.entity';
 import { ClinicalRecord, Prescription } from '../clinical-records/entities/clinical-record.entity';
 import { Patient } from '../patients/entities/patient.entity';
+import { User } from '../users/entities/user.entity';
 import { PatientAuthModule } from '../patient-auth/patient-auth.module';
 import { TelehealthModule } from '../telehealth/telehealth.module';
 import { FilesModule } from '../files/files.module';
@@ -22,7 +23,7 @@ import { Referral } from '../doctor-portal/entities/referral.entity';
   imports: [
     TypeOrmModule.forFeature([
       PatientAccount, PatientAccountLink, Appointment, ClinicalRecord, Prescription,
-      Patient, Clinic, RefillRequest, Referral,
+      Patient, Clinic, RefillRequest, Referral, User,
     ]),
     PatientAuthModule,
     TelehealthModule,

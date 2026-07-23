@@ -79,7 +79,7 @@ function AddRecallModal({ onClose }: { onClose: () => void }) {
   const [notes, setNotes]         = useState('');
   const [dentistId, setDentistId] = useState('');
   const [branchId, setBranchId]   = useState(activeBranch?.id || '');
-  const [duration, setDuration]   = useState(30);
+  const [duration, setDuration]   = useState<number | ''>(30);
 
   // Same appointment-slot fields the "Book Appointment" drawer uses — needed
   // here too because the backend auto-books a follow-up appointment for the
@@ -103,7 +103,7 @@ function AddRecallModal({ onClose }: { onClose: () => void }) {
       notes,
       dentistId: dentistId || undefined,
       branchId: branchId || undefined,
-      durationMinutes: duration,
+      durationMinutes: Number(duration) || 30,
     }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ['recalls'] });
@@ -164,7 +164,7 @@ function AddRecallModal({ onClose }: { onClose: () => void }) {
             </div>
             <div>
               <FieldLabel>Duration (min)</FieldLabel>
-              <input type="number" value={duration} onChange={e => setDuration(Number(e.target.value))} min={15} max={180} step={15} className="input w-full text-sm" />
+              <input type="number" value={duration} onChange={e => setDuration(e.target.value === '' ? '' : Number(e.target.value))} min={15} max={180} step={15} className="input w-full text-sm" />
             </div>
           </div>
 
@@ -226,7 +226,7 @@ function BookAppointmentDrawer({ recall, onClose }: { recall: Recall; onClose: (
   const [dentistId, setDentistId]     = useState('');
   const [branchId, setBranchId]       = useState(activeBranch?.id || '');
   const [notes, setNotes]             = useState(recall.reason ?? '');
-  const [duration, setDuration]       = useState(30);
+  const [duration, setDuration]       = useState<number | ''>(30);
 
   const { data: doctorsData } = useQuery({
     queryKey: ['branch-doctors-recall', branchId],
@@ -238,7 +238,7 @@ function BookAppointmentDrawer({ recall, onClose }: { recall: Recall; onClose: (
   const doctors = Array.isArray(doctorsData) ? doctorsData : (doctorsData?.data || []);
 
   const mut = useMutation({
-    mutationFn: () => recallsApi.createAppointment(recall.id, { scheduledAt: nepalLocalInputToUTCISOString(scheduledAt), dentistId: dentistId || undefined, branchId: branchId || undefined, notes, durationMinutes: duration }),
+    mutationFn: () => recallsApi.createAppointment(recall.id, { scheduledAt: nepalLocalInputToUTCISOString(scheduledAt), dentistId: dentistId || undefined, branchId: branchId || undefined, notes, durationMinutes: Number(duration) || 30 }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['recalls'] });
       qc.invalidateQueries({ queryKey: ['recall-stats'] });
@@ -294,7 +294,7 @@ function BookAppointmentDrawer({ recall, onClose }: { recall: Recall; onClose: (
             </div>
             <div>
               <FieldLabel>Duration (min)</FieldLabel>
-              <input type="number" value={duration} onChange={e => setDuration(Number(e.target.value))} min={15} max={180} step={15} className="input w-full text-sm" />
+              <input type="number" value={duration} onChange={e => setDuration(e.target.value === '' ? '' : Number(e.target.value))} min={15} max={180} step={15} className="input w-full text-sm" />
             </div>
           </div>
 
