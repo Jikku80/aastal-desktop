@@ -138,6 +138,40 @@ jobs:
           npm_config_arch: ${{ matrix.electron_arch }}
           npm_config_target_arch: ${{ matrix.electron_arch }}
 
+      - name: Write backend runtime config
+        shell: bash
+        # This is intentionally NOT a secret. Nothing here is sensitive — it just
+        # pins the packaged desktop backend to offline SQLite mode so it never
+        # falls back to guessing (which previously meant "silently try Postgres
+        # with placeholder credentials and hang retrying forever"). See main.ts:
+        # it loads a .env sitting next to dist/main.js before deciding DB_DRIVER,
+        # and never overrides an explicit value — this file supplies that value.
+        #
+        # Do NOT put real hosted-DB credentials (DB_HOST/DB_USERNAME/DB_PASSWORD)
+        # in this file. Anything written here ships inside the installer and is
+        # readable by anyone who installs the app — GitHub Secrets only protect
+        # values during this CI run, not values baked into a distributed binary.
+        # The desktop app should never need hosted DB creds: it runs its own
+        # local backend against SQLite and talks to your real hosted backend (if
+        # at all) over its normal authenticated HTTPS API, the same as any other
+        # client.
+        run: |
+          cat <<EOF > electron/.staging/backend/.env
+          DB_DRIVER=sqlite
+          APP_PLATFORM=desktop
+          SQLITE_AUTO_MIGRATE=true
+          NODE_ENV=production
+          EOF
+
+          # ── Example only — safe pattern for a REAL secret, if one is ever
+          # genuinely needed at build time (e.g. a push-notification key or a
+          # third-party API key the desktop app must ship with). Add the value
+          # in this repo's Settings → Secrets and variables → Actions first,
+          # then uncomment and reference it the same way GH_TOKEN is used
+          # further down in this workflow — never paste the value here directly.
+          #
+          # echo "SOME_API_KEY=${{ secrets.SOME_API_KEY }}" >> electron/.staging/backend/.env
+
       - name: Verify better-sqlite3 native binary is present
         shell: bash
         # Fails fast with a clear message instead of a mysterious runtime crash
@@ -159,6 +193,23 @@ jobs:
         # the Windows packaging timeout below; staging alone doesn't.
         run: npm run electron:bundle-backend
         timeout-minutes: 10
+
+      - name: Verify backend runtime config survived bundling
+        shell: bash
+        # esbuild only concerns itself with JS — a dotfile sitting in the staged
+        # root has nothing to do with the module graph, so depending on how
+        # electron:bundle-backend copies its output over, it's an easy thing to
+        # silently drop. This check exists so that if it ever does, the build
+        # fails loudly here instead of shipping an app that falls back to
+        # guessing DB_DRIVER again. If this ever fails, update
+        # electron/bundle-backend.js to also copy .env into its output dir.
+        run: |
+          if [ ! -f "electron/.staging/backend/.env" ]; then
+            echo "::error::.env missing from electron/.staging/backend after bundling — bundle-backend.js needs to preserve it. Check electron/bundle-backend.js's output-copy list."
+            exit 1
+          fi
+          echo "Found staged .env:"
+          cat electron/.staging/backend/.env
 
       - name: Package (Linux)
         if: matrix.platform == 'linux'

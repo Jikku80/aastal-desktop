@@ -1,7 +1,29 @@
-if (process.versions?.electron || process.env.APP_PLATFORM === 'desktop') {
-  process.env.DB_DRIVER = 'sqlite';
-} else {
-  process.env.DB_DRIVER = 'postgres';
+// Load a bundled .env (if present) before anything else runs. This MUST
+// happen before the DB_DRIVER decision below — a .env file sitting on disk
+// has no effect until something actually parses it, and entity files further
+// down the import chain read process.env.DB_DRIVER at module-load time.
+// Packaged Electron builds ship this next to the compiled backend
+// (e.g. resources/backend/.env); local/dev runs typically rely on a
+// project-root .env instead, which dotenv.config() already finds via cwd —
+// so this is an *additive* load, not a replacement for that.
+import * as dotenv from 'dotenv';
+import { join as pathJoin } from 'path';
+dotenv.config({ path: pathJoin(__dirname, '.env') });
+dotenv.config();
+
+// process.versions.electron is only reliable when code runs inside
+// Electron's own Node runtime. The desktop build spawns the backend as a
+// plain `node dist/main.js` subprocess, where that flag is NOT set even
+// though the app is very much the desktop build — so this is a fallback
+// guess, not a source of truth. If DB_DRIVER was already provided (by a
+// loaded .env, or by the Electron main process setting it directly on the
+// spawned child's env), that explicit value always wins and is never
+// overridden here.
+if (!process.env.DB_DRIVER) {
+  process.env.DB_DRIVER =
+    (process.versions?.electron || process.env.APP_PLATFORM === 'desktop')
+      ? 'sqlite'
+      : 'postgres';
 }
 
 import { NestFactory }     from '@nestjs/core';
