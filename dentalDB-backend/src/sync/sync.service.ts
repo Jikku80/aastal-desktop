@@ -193,7 +193,23 @@ export class SyncService {
    * — LWW still resolves automatically, nothing blocks on this) vs. which
    * were rejected outright for not belonging to the pushing clinic.
    */
-  async applyIncoming(entityName: string, records: any[], clinicId?: string, manager?: EntityManager): Promise<PushResult> {
+  async applyIncoming(
+    entityName: string,
+    records: any[],
+    clinicId?: string,
+    manager?: EntityManager,
+    // Populated (old incoming id -> local id actually written) whenever a
+    // row reconciles onto a different existing local row via
+    // findByAlternateUniqueField below — e.g. incoming User 257b38eb
+    // reconciles onto local c5d95529 because both share an email. Any
+    // OTHER row in the same pull that references 257b38eb as a foreign
+    // key (e.g. a UserRole.userId) needs rewriting to c5d95529 too, or it
+    // ends up pointing at an id nothing local ever gets saved under and
+    // throws FOREIGN KEY constraint failed at commit. Callers (pullChanges)
+    // are responsible for applying this to dependents' rows before they're
+    // passed to applyIncoming — this method only records the mapping.
+    idRemap?: Map<string, string>,
+  ): Promise<PushResult> {
     const entry = SYNC_REGISTRY.find((e) => e.name === entityName);
     if (!entry) throw new Error(`Unknown sync entity: ${entityName}`);
     const repo = this.getRepo(entry, manager);
@@ -239,6 +255,7 @@ export class SyncService {
             this.logger.warn(
               `${entry.name} ${incoming.id} collides on a unique field with local row ${targetId} — reconciling onto the existing row instead of inserting a duplicate`,
             );
+            if (targetId !== incoming.id) idRemap?.set(incoming.id, targetId);
           }
         }
 
@@ -608,12 +625,52 @@ export class SyncService {
       await queryRunner.query('PRAGMA defer_foreign_keys = ON');
     }
 
+    // Reconciling a row onto a different existing local row (see
+    // findByAlternateUniqueField / uniqueFields) changes which id it lives
+    // under locally. Any other row in this same pull that references the
+    // OLD (incoming) id as a foreign key — e.g. a UserRole.userId pointing
+    // at a User that just got reconciled onto a different local id — needs
+    // that reference rewritten to the new local id, or it ends up
+    // referencing an id nothing local is ever saved under and throws
+    // FOREIGN KEY constraint failed at commit, even with FK checks
+    // deferred (deferral only helps with rows not inserted *yet*, not rows
+    // that reference an id that will never exist). So: (1) process entities
+    // declaring uniqueFields first, since those are the only ones that can
+    // reconcile onto a different id, recording old-id -> local-id in
+    // idRemaps as they do; (2) before applying any entity's rows, rewrite
+    // whichever of its columns are known foreign keys into an
+    // already-processed entity (its clinicId, if 'direct'-scoped, or its
+    // 'via' scope's localField) using the remap collected so far.
+    const idRemaps = new Map<string, Map<string, string>>();
+    const uniqueFieldEntries = SYNC_REGISTRY.filter((e) => e.uniqueFields?.length);
+    const otherEntries = SYNC_REGISTRY.filter((e) => !e.uniqueFields?.length);
+    const orderedEntries = [...uniqueFieldEntries, ...otherEntries];
+
+    const applyRemap = (rows: any[], field: string, remap: Map<string, string> | undefined) => {
+      if (!remap?.size) return;
+      for (const row of rows) {
+        const remapped = remap.get(row[field]);
+        if (remapped) row[field] = remapped;
+      }
+    };
+
     let pulled = 0;
     let conflicts = 0;
     try {
-      for (const [entityName, rows] of Object.entries(data.entities)) {
-        if (!rows.length) continue;
-        const result = await this.applyIncoming(entityName, rows, undefined, queryRunner.manager);
+      for (const entry of orderedEntries) {
+        const rows = data.entities[entry.name];
+        if (!rows?.length) continue;
+
+        if (entry.clinicScope.type === 'direct') {
+          applyRemap(rows, entry.clinicScope.field ?? 'clinicId', idRemaps.get('Clinic'));
+        } else if (entry.clinicScope.type === 'via') {
+          const viaName = SYNC_REGISTRY.find((e) => e.entity === entry.clinicScope.viaEntity)?.name;
+          applyRemap(rows, entry.clinicScope.localField, viaName ? idRemaps.get(viaName) : undefined);
+        }
+
+        const entryRemap = new Map<string, string>();
+        const result = await this.applyIncoming(entry.name, rows, undefined, queryRunner.manager, entryRemap);
+        if (entryRemap.size) idRemaps.set(entry.name, entryRemap);
         pulled += result.applied.length;
         conflicts += result.conflicts.length;
       }
