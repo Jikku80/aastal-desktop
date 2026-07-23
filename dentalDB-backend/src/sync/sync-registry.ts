@@ -142,7 +142,16 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   { name: 'Role', entity: Role, timestampField: 'updatedAt', clinicScope: direct },
   // Permission keys are genuinely global system config (not owned by any
   // clinic) — every instance needs the full set regardless of clinicId.
-  { name: 'Permission', entity: Permission, timestampField: 'updatedAt', clinicScope: { type: 'global' } },
+  // uniqueFields: ['key'] — every instance seeds its own copy of the same
+  // global permission set locally (each with its own freshly-generated
+  // id), so a pulled Permission row's id essentially never matches a
+  // local row even though its key does. Without this, every single
+  // Permission row hits "UNIQUE constraint failed: permissions.key" and
+  // gets silently skipped via the safety-net catch in applyIncoming, on
+  // every single sync, forever. Declaring the unique field lets it
+  // reconcile onto the existing local row instead, the same way Clinic's
+  // slug does.
+  { name: 'Permission', entity: Permission, timestampField: 'updatedAt', clinicScope: { type: 'global' }, uniqueFields: ['key'] },
   // No clinicId column — scope indirectly via the user the role assignment belongs to.
   { name: 'UserRole', entity: UserRole, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: User, localField: 'userId' } },
   { name: 'User', entity: User, timestampField: 'updatedAt', clinicScope: direct },

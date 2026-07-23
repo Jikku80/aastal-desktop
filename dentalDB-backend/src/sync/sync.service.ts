@@ -169,6 +169,18 @@ export class SyncService {
       const timeWhere = since ? { [entry.timestampField]: MoreThan(since) } : {};
       const where = { ...clinicWhere, ...timeWhere };
       const rows = await repo.find(Object.keys(where).length ? { where: where as any } : {});
+      // Same problem as the push side (see SELECT_FALSE_FIELDS_TO_SYNC /
+      // attachSelectFalseFields below), just in the opposite direction:
+      // User.password is `select: false`, so this plain repo.find() never
+      // includes it. Any device pulling a User row it doesn't already have
+      // locally (a new hire, or this device's very first sync) would then
+      // try to INSERT that row with no password at all, which throws
+      // "NOT NULL constraint failed: users.password" and aborts the whole
+      // sync transaction — every entity in that pull, not just User, since
+      // pullChanges applies the full changeset in one transaction. Without
+      // this, a clinic can get stuck never fully syncing to a new device
+      // once it has more than one user.
+      await this.attachSelectFalseFields(entry.name, repo, rows);
       entities[entry.name] = rows;
     }
     return { serverTime: new Date().toISOString(), entities };
@@ -463,11 +475,36 @@ export class SyncService {
       const clinicRepo = this.dataSource.getRepository(Clinic);
       const userRepo = this.dataSource.getRepository(User);
 
+      // Resolved separately from remoteClinic.id: a brand-new desktop
+      // install seeds a local placeholder Clinic (isLocalPlaceholder:
+      // true) before anyone has logged in. The very first remote login
+      // then tries to mirror the *hosted* clinic in under its own id,
+      // which collides on the slug UNIQUE constraint with that local
+      // placeholder row — and unlike the generic sync path (applyIncoming
+      // / findByAlternateUniqueField), this hand-rolled upsert wasn't
+      // checking for that collision, so login itself threw a 500. Default
+      // to the remote's id; only fall back to reconciling onto a local
+      // slug match when that id isn't already present locally.
+      let resolvedClinicId = remoteClinic?.id ?? remoteUser.clinicId;
+
       if (remoteClinic) {
-        const existingClinic = await clinicRepo.findOne({ where: { id: remoteClinic.id } });
+        let existingClinic = await clinicRepo.findOne({ where: { id: remoteClinic.id } });
+
+        if (!existingClinic && remoteClinic.slug) {
+          const slugMatch = await clinicRepo.findOne({ where: { slug: remoteClinic.slug } });
+          if (slugMatch) {
+            existingClinic = slugMatch;
+            resolvedClinicId = slugMatch.id;
+            this.logger.warn(
+              `Remote clinic ${remoteClinic.id} collides on slug with local row ${resolvedClinicId} — reconciling onto the existing row instead of inserting a duplicate`,
+            );
+          }
+        }
+
         const clinicRow = clinicRepo.create({
           ...(existingClinic ?? {}),
           ...remoteClinic,
+          id: resolvedClinicId,
           isLocalPlaceholder: false,
           syncStatus: 'synced' as any,
         });
@@ -482,7 +519,11 @@ export class SyncService {
         lastName:   remoteUser.lastName,
         email:      remoteUser.email,
         role:       remoteUser.role as any,
-        clinicId:   remoteUser.clinicId,
+        // Use resolvedClinicId, not the raw remoteUser.clinicId — if the
+        // Clinic row above got reconciled onto a local id, the FK here
+        // must point at that same local id or this user row would
+        // reference a clinic id that doesn't actually exist locally.
+        clinicId:   resolvedClinicId,
         isActive:   remoteUser.isActive,
         avatar:     remoteUser.avatar ?? existingUser?.avatar ?? null,
         password:   passwordHash,
