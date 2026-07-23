@@ -31,7 +31,18 @@ const path = require('path');
 // ORIGIN only (no /api/v1) — see the note in main.js about why
 // SYNC_REMOTE_BASE_URL must be the bare origin, not the API-prefixed path.
 // Override via Settings > Sync for staging/self-hosted deployments.
-const DEFAULT_REMOTE_BASE_URL = 'https://clinickarobar.com';
+//
+// Must be app.clinickarobar.com, NOT the bare clinickarobar.com apex — the
+// hosted Next.js frontend's own middleware/next.config redirects the bare
+// apex to https://app.clinickarobar.com (see dentaldb/next.config.js), and
+// that's also the only origin the backend's CORS/API actually answers on
+// (api.clinickarobar.com was the originally-planned dedicated API subdomain
+// per lib/api.ts's comment, but the API ended up served from app.* instead).
+// Pointing this at the bare apex meant every outbound sync call — device
+// registration, remote login fallback, /health polling — silently 404'd
+// against a host that doesn't actually route /api/v1/*, which looked
+// exactly like a broken sync feature even though the code itself was fine.
+const DEFAULT_REMOTE_BASE_URL = 'https://app.clinickarobar.com';
 
 function configPath(app) {
   return path.join(app.getPath('userData'), 'sync-config.json');

@@ -2,14 +2,16 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
 // Production API base URL.
 // Set NEXT_PUBLIC_API_URL in your deployment environment (.env.production):
-//   NEXT_PUBLIC_API_URL=https://api.clinickarobar.com
-// The backend should be served at https://api.clinickarobar.com/api/v1
-// OR proxied under the main domain at /api/v1 via nginx reverse proxy.
+//   NEXT_PUBLIC_API_URL=https://app.clinickarobar.com
+// The API is served from https://app.clinickarobar.com/api/v1 (the
+// originally-planned dedicated api.clinickarobar.com subdomain was never
+// stood up — app.* is the real host, same one the frontend itself lives
+// on, and the only origin the backend's CORS/routing actually answers on).
 // Both frontends (admin + user) must use the same API origin to share cookies.
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   (process.env.NODE_ENV === 'production'
-    ? 'https://clinickarobar.com'   // ← dedicated API subdomain (recommended)
+    ? 'https://app.clinickarobar.com'   // ← must match electron/sync-config.js's DEFAULT_REMOTE_BASE_URL
     // Dev fallback must be the BACKEND's port (see dentalDB-backend/src/main.ts,
     // `PORT || 4000`), not this app's own dev port (3002) — pointing at 3002
     // made every unconfigured local dev API call 404 against this Next.js app

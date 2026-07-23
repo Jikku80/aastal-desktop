@@ -11,7 +11,7 @@
 // not at runtime — so if someone instead ran the plain `build` script (or
 // forgot to build dentaldb at all before packaging), the packaged desktop
 // app would silently ship wired to the *production* API
-// (https://api.clinickarobar.com, see dentaldb/lib/api.ts's fallback)
+// (https://app.clinickarobar.com, see dentaldb/lib/api.ts's fallback)
 // instead of talking to its own bundled local backend.
 //
 // This hook removes the manual step entirely: it always (re)builds
