@@ -669,26 +669,31 @@ export class SyncService {
           applyRemap(rows, scope.localField, viaName ? idRemaps.get(viaName) : undefined);
         }
 
-        // Role carries an eager-loaded `permissions: Permission[]` many-to-
-        // many relation (role_permissions join table) nested inside its own
-        // row payload, not a scalar FK column — the direct/via remap above
-        // only rewrites Role's own clinicId, never this nested array. If
-        // any Permission rows reconciled onto a different local id earlier
-        // in this same pull (see Permission's uniqueFields: ['key']), the
-        // incoming Role row still embeds the OLD Permission ids in
-        // permissions[].id, and saving it as-is inserts role_permissions
-        // rows pointing at ids that were never actually written locally —
-        // FOREIGN KEY constraint failed at commit. Rewrite them here too.
-        if (entry.name === 'Role') {
-          const permissionRemap = idRemaps.get('Permission');
-          if (permissionRemap?.size) {
-            for (const row of rows) {
-              if (Array.isArray(row.permissions)) {
-                for (const perm of row.permissions) {
-                  const remapped = permissionRemap.get(perm.id);
-                  if (remapped) perm.id = remapped;
-                }
-              }
+        // Beyond the clinicScope's own field (handled above), an entity
+        // may hold arbitrary other FK columns pointing at entities whose
+        // ids get reconciled via uniqueFields (e.g. Task.assignedToUserId
+        // -> User, Appointment.dentistId -> User). This runs regardless
+        // of clinicScope type — 'global'-scoped entities like DoctorProfile
+        // still need their User FK remapped even though they have no
+        // clinic filtering. See foreignKeys docstring on SyncRegistryEntry.
+        for (const fk of entry.foreignKeys ?? []) {
+          const refName = SYNC_REGISTRY.find((e) => e.entity === fk.refEntity)?.name;
+          applyRemap(rows, fk.field, refName ? idRemaps.get(refName) : undefined);
+        }
+
+        // Same idea, but for an eager many-to-many relation embedded as a
+        // nested array of { id, ... } objects (e.g. Role.permissions via
+        // the role_permissions join table) rather than a scalar column.
+        for (const m2m of entry.manyToManyFields ?? []) {
+          const refName = SYNC_REGISTRY.find((e) => e.entity === m2m.refEntity)?.name;
+          const remap = refName ? idRemaps.get(refName) : undefined;
+          if (!remap?.size) continue;
+          for (const row of rows) {
+            const items = row[m2m.field];
+            if (!Array.isArray(items)) continue;
+            for (const item of items) {
+              const remapped = remap.get(item.id);
+              if (remapped) item.id = remapped;
             }
           }
         }
