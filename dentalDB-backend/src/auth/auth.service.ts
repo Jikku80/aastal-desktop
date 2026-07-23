@@ -58,10 +58,31 @@ export class AuthService {
     // isn't documented anywhere and defaults to unset/false, so it fell
     // through to `SameSite=Lax` in production and broke every login.
     // Tying this directly to NODE_ENV=production removes that footgun —
-    // production is always cross-site HTTPS here, so it always needs
-    // `secure: true, sameSite: 'none'`; local dev keeps `lax` since
-    // localhost:3000 -> localhost:4000 is same-site for cookie purposes.
-    const isProd = this.config.get('NODE_ENV') === 'production';
+    // hosted production is always cross-site HTTPS there, so it always
+    // needs `secure: true, sameSite: 'none'`.
+    //
+    // BUT: the packaged Electron desktop build ALSO runs its bundled
+    // backend with NODE_ENV=production (release.yml writes
+    // NODE_ENV=production into the shipped .env) while serving everything
+    // over plain http://127.0.0.1 — never https. A `Secure` cookie is
+    // never even stored by the browser over plain HTTP (and
+    // `SameSite=None` without `Secure` is rejected outright by Chromium),
+    // so on desktop the access/refresh cookies from login's Set-Cookie
+    // header were silently dropped — no console error, no failed request,
+    // just never attached to the next call. Login itself "succeeded" (the
+    // WS gateway picks up its token another way) but every subsequent
+    // cookie-authenticated request 401'd, which is what made sync (and
+    // everything else) look completely broken right after login.
+    // APP_PLATFORM=desktop is the same flag main.ts already uses to tell
+    // the packaged build apart from real hosted production (see main.ts's
+    // own comment on why process.versions.electron ISN'T a reliable signal
+    // here: the backend runs as a spawned `ELECTRON_RUN_AS_NODE=1` child
+    // process, not inside Electron's own runtime, so APP_PLATFORM is the
+    // only thing to check). Desktop's frontend/backend are same-site (both
+    // 127.0.0.1, just different ports), so it only ever needs the same
+    // `lax`/non-secure cookies local dev uses.
+    const isDesktop = this.config.get('APP_PLATFORM') === 'desktop';
+    const isProd = this.config.get('NODE_ENV') === 'production' && !isDesktop;
     const base = {
       httpOnly: true,
       secure: isProd,

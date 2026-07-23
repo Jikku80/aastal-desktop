@@ -25,7 +25,7 @@ export class PatientAuthController {
     // request silently drops any cookie set with the 'lax' default. See
     // AuthService.setTokenCookies for the full explanation; this mirrors
     // that same fix for the patient cookie.
-    const isProd = process.env.NODE_ENV === 'production';
+    const isProd = process.env.NODE_ENV === 'production' && process.env.APP_PLATFORM !== 'desktop';
     res.cookie('patient_token', result.accessToken, {
       httpOnly: true,
       secure: isProd,
@@ -55,7 +55,7 @@ export class PatientAuthController {
   ) {
     if (!identifier?.trim() || !password) throw new UnauthorizedException('Identifier and password are required');
     const result = await this.patientAuthService.login(identifier.trim(), password);
-    const isProd = process.env.NODE_ENV === 'production';
+    const isProd = process.env.NODE_ENV === 'production' && process.env.APP_PLATFORM !== 'desktop';
     res.cookie('patient_token', result.accessToken, {
       httpOnly: true,
       secure: isProd,
