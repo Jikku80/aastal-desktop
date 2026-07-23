@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository, MoreThan, In } from 'typeorm';
+import { DataSource, EntityManager, Repository, MoreThan, In } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
@@ -41,8 +41,8 @@ export class SyncService {
     private readonly syncConfigStore: SyncConfigStore,
   ) {}
 
-  private getRepo(entry: SyncRegistryEntry) {
-    return this.dataSource.getRepository(entry.entity as any);
+  private getRepo(entry: SyncRegistryEntry, manager?: EntityManager) {
+    return (manager ?? this.dataSource).getRepository(entry.entity as any);
   }
 
   private getRemoteBaseUrl(): string | null {
@@ -149,10 +149,10 @@ export class SyncService {
    * — LWW still resolves automatically, nothing blocks on this) vs. which
    * were rejected outright for not belonging to the pushing clinic.
    */
-  async applyIncoming(entityName: string, records: any[], clinicId?: string): Promise<PushResult> {
+  async applyIncoming(entityName: string, records: any[], clinicId?: string, manager?: EntityManager): Promise<PushResult> {
     const entry = SYNC_REGISTRY.find((e) => e.name === entityName);
     if (!entry) throw new Error(`Unknown sync entity: ${entityName}`);
-    const repo = this.getRepo(entry);
+    const repo = this.getRepo(entry, manager);
     const applied: string[] = [];
     const conflicts: string[] = [];
     const rejected: string[] = [];
@@ -467,14 +467,49 @@ export class SyncService {
       this.http.get<ChangesResponse>(url, { headers: this.syncDeviceHeaders() }),
     );
 
+    // SYNC_REGISTRY is a flat, mechanically-generated list of entities — not
+    // a dependency order — so on a first-time (or long-overdue) pull, rows
+    // for one entity (e.g. Patient) can easily arrive and be applied before
+    // rows for something it has a required FK to (e.g. Clinic, User), which
+    // fails locally with SqliteError: FOREIGN KEY constraint failed even
+    // though the referenced row *is* in this same pull, just later in the
+    // batch. Applying the whole batch as one transaction with FK checks
+    // deferred to COMMIT (rather than checked per-INSERT) fixes this
+    // regardless of registry order, as long as every referenced row is
+    // somewhere in this same changeset by commit time — which it always is,
+    // since the server sends the full changeset in one response. This only
+    // matters for better-sqlite3 (the offline instance) — Postgres never
+    // hits this because pushPending only ever pushes one entity's pending
+    // rows at a time, long after their parents were pushed/synced.
+    const isSqlite = this.dataSource.options.type === 'better-sqlite3';
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    if (isSqlite) {
+      // Only takes effect for the transaction it's issued in, and only
+      // while `PRAGMA foreign_keys = ON` (the better-sqlite3 default set in
+      // data-source.sqlite.ts) — see
+      // https://www.sqlite.org/pragma.html#pragma_defer_foreign_keys
+      await queryRunner.query('PRAGMA defer_foreign_keys = ON');
+    }
+
     let pulled = 0;
     let conflicts = 0;
-    for (const [entityName, rows] of Object.entries(data.entities)) {
-      if (!rows.length) continue;
-      const result = await this.applyIncoming(entityName, rows);
-      pulled += result.applied.length;
-      conflicts += result.conflicts.length;
+    try {
+      for (const [entityName, rows] of Object.entries(data.entities)) {
+        if (!rows.length) continue;
+        const result = await this.applyIncoming(entityName, rows, undefined, queryRunner.manager);
+        pulled += result.applied.length;
+        conflicts += result.conflicts.length;
+      }
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
     }
+
     await this.setLastSyncAt(data.serverTime);
     return { pulled, conflicts };
   }
@@ -603,6 +638,19 @@ export class SyncService {
     }
 
     this.fullSyncInFlight = (async () => {
+      // Before the first successful login, no device token has been minted
+      // yet (autoRegisterDeviceIfNeeded only runs from AuthService.login),
+      // so syncDeviceHeaders() sends no X-Sync-Device-Token and
+      // SyncDeviceGuard rejects the request with 401. ConnectivityService
+      // fires a sync attempt on every boot and every 15s poll regardless —
+      // without this check, a freshly-installed/logged-out app spends its
+      // first however-many-minutes hitting the remote and logging an ERROR
+      // every single time purely because nobody has logged in yet, which is
+      // expected, not a failure. Once a token exists this is a no-op check.
+      if (this.getRemoteBaseUrl() && !this.syncConfigStore.getDeviceToken()) {
+        this.logger.debug('Skipping sync — no device token yet (waiting for first login to auto-register)');
+        return { pull: { pulled: 0, conflicts: 0 }, push: { pushed: 0, conflicts: 0 } };
+      }
       this.logger.log('Starting full sync (pull then push)');
       const pull = await this.pullChanges();
       const push = await this.pushPending();
