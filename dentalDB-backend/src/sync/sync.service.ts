@@ -664,8 +664,33 @@ export class SyncService {
         if (entry.clinicScope.type === 'direct') {
           applyRemap(rows, entry.clinicScope.field ?? 'clinicId', idRemaps.get('Clinic'));
         } else if (entry.clinicScope.type === 'via') {
-          const viaName = SYNC_REGISTRY.find((e) => e.entity === entry.clinicScope.viaEntity)?.name;
-          applyRemap(rows, entry.clinicScope.localField, viaName ? idRemaps.get(viaName) : undefined);
+          const scope = entry.clinicScope;
+          const viaName = SYNC_REGISTRY.find((e) => e.entity === scope.viaEntity)?.name;
+          applyRemap(rows, scope.localField, viaName ? idRemaps.get(viaName) : undefined);
+        }
+
+        // Role carries an eager-loaded `permissions: Permission[]` many-to-
+        // many relation (role_permissions join table) nested inside its own
+        // row payload, not a scalar FK column — the direct/via remap above
+        // only rewrites Role's own clinicId, never this nested array. If
+        // any Permission rows reconciled onto a different local id earlier
+        // in this same pull (see Permission's uniqueFields: ['key']), the
+        // incoming Role row still embeds the OLD Permission ids in
+        // permissions[].id, and saving it as-is inserts role_permissions
+        // rows pointing at ids that were never actually written locally —
+        // FOREIGN KEY constraint failed at commit. Rewrite them here too.
+        if (entry.name === 'Role') {
+          const permissionRemap = idRemaps.get('Permission');
+          if (permissionRemap?.size) {
+            for (const row of rows) {
+              if (Array.isArray(row.permissions)) {
+                for (const perm of row.permissions) {
+                  const remapped = permissionRemap.get(perm.id);
+                  if (remapped) perm.id = remapped;
+                }
+              }
+            }
+          }
         }
 
         const entryRemap = new Map<string, string>();
