@@ -60,6 +60,30 @@ export function setupOnlineOnlyGate(app: INestApplication): void {
         // Incoming path here already excludes /api/v1 (stripped by the
         // mount point below) — re-add it before forwarding upstream.
         pathRewrite: (path) => `/api/v1${path}`,
+        // This hop is server-to-server (this local backend calling the
+        // remote VPS backend on the caller's behalf) — NOT a browser
+        // cross-origin request, even though the original inbound request
+        // (from the Electron renderer on 127.0.0.1:3100) carried a real
+        // browser `Origin` header. `changeOrigin` above only rewrites the
+        // Host header; it does NOT touch Origin, so without this, that
+        // browser Origin header was being forwarded as-is straight through
+        // to the remote. The remote's CORS check (main.ts) then saw
+        // "Origin: http://127.0.0.1:3100" on what looked like a direct
+        // browser request and correctly rejected it — this is exactly what
+        // produced "CORS blocked: http://127.0.0.1:3100" / "GET
+        // /api/v1/subscriptions" in the VPS logs. Stripping Origin here
+        // makes the forwarded request arrive with none at all, which
+        // main.ts's own `if (!origin) return callback(null, true)` already
+        // allows through unconditionally — the correct behavior for a
+        // legitimate server-to-server call. Whitelisting 127.0.0.1:3100 on
+        // the remote instead would have "fixed" this too, but would also
+        // have let a real browser at that same local Origin bypass CORS
+        // directly — not what we want to open up.
+        on: {
+          proxyReq: (proxyReq) => {
+            proxyReq.removeHeader('origin');
+          },
+        },
       })
     : null;
 
