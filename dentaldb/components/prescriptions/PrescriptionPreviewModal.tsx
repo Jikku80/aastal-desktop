@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { X, Printer, Loader2, Download } from 'lucide-react';
+import { BASE_URL } from '@/lib/api';
 
 interface Props {
   recordId: string;
@@ -8,7 +9,7 @@ interface Props {
   onClose: () => void;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_BASE = BASE_URL; // Electron-aware, from lib/api.ts
 
 export default function PrescriptionPreviewModal({ recordId, patientName, onClose }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);

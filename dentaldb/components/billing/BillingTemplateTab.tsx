@@ -3,9 +3,9 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Save, Palette, FileText, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { billingTemplateApi } from '@/lib/api';
+import { billingTemplateApi, BASE_URL } from '@/lib/api';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_BASE = BASE_URL; // Electron-aware, from lib/api.ts
 
 const PRESET_COLORS = [
   { label: 'Brand Blue',   value: '#027cc6' },

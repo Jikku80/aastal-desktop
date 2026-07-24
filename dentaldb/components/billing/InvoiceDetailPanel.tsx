@@ -7,7 +7,7 @@ import {
 import { format } from 'date-fns';
 import { useMutation } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { billingApi, walletApi } from '@/lib/api';
+import { billingApi, walletApi, BASE_URL as API_BASE_URL } from '@/lib/api';
 import { usePermissions } from '@/store/permissions.store';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Invoice, PaymentMethod } from '@/types';
@@ -96,7 +96,7 @@ export default function InvoiceDetailPanel({
   const handleDownloadPdf = async () => {
     setDlState('loading');
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const apiBase = API_BASE_URL; // Electron-aware, from lib/api.ts
       const url     = `${apiBase}/api/v1/billing/invoices/${invoice.id}/pdf`;
       const response = await fetch(url, { method: 'GET', credentials: 'include' });
       if (!response.ok) throw new Error(`Server returned ${response.status}`);

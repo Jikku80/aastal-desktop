@@ -11,7 +11,7 @@ import {
   ChevronRight, ChevronLeft,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { inventoryApi, websiteOrdersApi } from '@/lib/api';
+import { inventoryApi, websiteOrdersApi, BASE_URL } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import Header from '@/components/layout/Header';
 import NoBranchBanner from '@/components/layout/NoBranchBanner';
@@ -68,7 +68,7 @@ function ProductDialog({ product, branchId, onClose }: { product?: Product | nul
   const [imagePreview, setImagePreview] = useState<string | null>(
     product?.imageUrl
       ? (product.imageUrl.startsWith('/')
-          ? `${process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/v1\/?$/, '') ?? ''}${product.imageUrl}`
+          ? `${BASE_URL}${product.imageUrl}`
           : product.imageUrl)
       : null
   );
@@ -894,7 +894,7 @@ export default function InventoryPage() {
                             >
                               {p.imageUrl ? (
                                 <img
-                                  src={p.imageUrl.startsWith('/') ? `${process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/v1\/?$/, '') ?? ''}${p.imageUrl}` : p.imageUrl}
+                                  src={p.imageUrl.startsWith('/') ? `${BASE_URL}${p.imageUrl}` : p.imageUrl}
                                   alt={p.name}
                                   className="w-full h-full object-cover"
                                 />

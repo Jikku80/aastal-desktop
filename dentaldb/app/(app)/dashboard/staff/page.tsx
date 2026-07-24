@@ -13,7 +13,7 @@ import {
 import { format } from 'date-fns';
 import { formatNepalDateTime } from '@/lib/timezone';
 import toast from 'react-hot-toast';
-import { usersApi, appointmentsApi, rbacApi, branchesApi } from '@/lib/api';
+import { usersApi, appointmentsApi, rbacApi, branchesApi, BASE_URL } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import Header from '@/components/layout/Header';
 import { ActionIconButton } from '@/components/ui/ActionIconButton';
@@ -79,7 +79,9 @@ function StaffModal({ onClose, onSuccess, member }: { onClose: () => void; onSuc
   const sigInputRef = useRef<HTMLInputElement>(null);
   const [sigUrl, setSigUrl] = useState<string>((member as any)?.signatureUrl || '');
   const [uploadingSig, setUploadingSig] = useState(false);
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  // Electron-aware BASE_URL from lib/api.ts, not a locally recomputed copy
+  // (a local copy here always skipped the isElectron check).
+  const API_BASE = BASE_URL;
   const resolvedSig = sigUrl ? (sigUrl.startsWith('http') ? sigUrl : `${API_BASE}${sigUrl}`) : null;
 
   const mutation = useMutation({

@@ -4,11 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, FileText, Image, File, Trash2, Download, Loader2, Eye, X, FileSpreadsheet } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { filesApi } from '@/lib/api';
+import { filesApi, BASE_URL } from '@/lib/api';
 import { ActionIconButton, ActionIconGroup } from '@/components/ui/ActionIconButton';
 import { clsx } from 'clsx';
-
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 const CATEGORIES = ['xray','report','document','image','other'] as const;
 type Category = typeof CATEGORIES[number];

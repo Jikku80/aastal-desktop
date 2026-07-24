@@ -13,7 +13,7 @@ import {
 import { format } from 'date-fns';
 import { formatNepalClockTime } from '@/lib/timezone';
 import toast from 'react-hot-toast';
-import { profileApi, appointmentsApi, usersApi, commissionsApi } from '@/lib/api';
+import { profileApi, appointmentsApi, usersApi, commissionsApi, BASE_URL } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useCalendarType } from '@/hooks/useCalendarType';
 import { formatDate, formatMonthYear, currentMonthRange } from '@/lib/calendar';
@@ -21,7 +21,9 @@ import Header from '@/components/layout/Header';
 import PatientDetailPanel from '@/components/patients/PatientDetailPanel';
 import AppointmentDetailPanel from '@/components/appointments/AppointmentDetailPanel';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+// BASE_URL now comes from lib/api.ts (Electron-aware) — this used to be its
+// own local `process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'`,
+// which skipped the isElectron check entirely.
 
 const schema = z.object({
   firstName: z.string().min(1, 'Required'),

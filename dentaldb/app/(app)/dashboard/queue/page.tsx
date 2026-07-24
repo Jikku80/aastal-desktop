@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '@/store/auth.store';
 import { usePermissions } from '@/store/permissions.store';
-import { patientsApi, queueApi, usersApi, appointmentsApi } from '@/lib/api';
+import { patientsApi, queueApi, usersApi, appointmentsApi, BASE_URL } from '@/lib/api';
 import InvoiceModal from '@/components/billing/InvoiceModal';
 import { formatNepalClockTime, nepalLocalInputToUTCISOString, utcToNepalLocalInputValue } from '@/lib/timezone';
 import Header from '@/components/layout/Header';
@@ -17,7 +17,10 @@ import {
   Loader2, Receipt, Pencil, Trash2,
 } from 'lucide-react';
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+// Reuse lib/api.ts's Electron-aware BASE_URL — a locally recomputed
+// process.env.NEXT_PUBLIC_API_URL here always skipped the isElectron check,
+// which kept this socket pointed at production from inside the desktop app.
+const SOCKET_URL = BASE_URL;
 
 // ── Status config ──────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {

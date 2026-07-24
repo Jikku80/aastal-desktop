@@ -336,8 +336,7 @@ export function EditorImageUpload({ label, value, onChange }: {
       const { websiteApi: wApi } = await import('@/lib/api/websiteApi');
       const result = await wApi.uploadImage(file);
       const rawUrl = result.url || '';
-      const apiOrigin = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000')
-        .replace(/\/api\/v1\/?$/, '');
+      const { BASE_URL: apiOrigin } = await import('@/lib/api'); // Electron-aware, not a raw env read
       const fullUrl = rawUrl.startsWith('http') ? rawUrl : `${apiOrigin}${rawUrl}`;
       onChange(fullUrl);
       setUrlInput(fullUrl);

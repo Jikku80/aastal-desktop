@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { adminApi, branchesApi } from '@/lib/api';
+import { adminApi, branchesApi, BASE_URL } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -13,7 +13,10 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+// BASE_URL now comes from lib/api.ts (Electron-aware) — this used to be its
+// own local copy, which skipped the isElectron check and is why the direct
+// fetch('/api/v1/branches') call below could still hit production from
+// inside the desktop app.
 
 const STATUS_STYLES: Record<string, string> = {
   active:    'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',

@@ -2,9 +2,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '@/store/auth.store';
-import { queueApi } from '@/lib/api';
+import { queueApi, BASE_URL } from '@/lib/api';
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+// Reuse lib/api.ts's Electron-aware BASE_URL — a locally recomputed
+// process.env.NEXT_PUBLIC_API_URL here always skipped the isElectron check,
+// which kept this socket pointed at production from inside the desktop app.
+const SOCKET_URL = BASE_URL;
 
 export default function QueueDisplayPage() {
   const { clinic, activeBranch } = useAuthStore();

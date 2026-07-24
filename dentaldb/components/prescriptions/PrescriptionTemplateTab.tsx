@@ -3,9 +3,9 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Eye, EyeOff, Save, PenLine, RefreshCw, ExternalLink, ImagePlus, User } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { prescriptionsApi, clinicsApi, usersApi } from '@/lib/api';
+import { prescriptionsApi, clinicsApi, usersApi, BASE_URL } from '@/lib/api';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_BASE = BASE_URL; // Electron-aware, from lib/api.ts
 
 // ── Toggle row ──────────────────────────────────────────────────────────────────
 function ToggleRow({

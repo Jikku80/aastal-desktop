@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { io, Socket } from 'socket.io-client';
-import { notificationsApi } from '@/lib/api';
+import { notificationsApi, BASE_URL as API_BASE_URL } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useRouter } from 'next/navigation';
 import { clsx } from 'clsx';
@@ -105,7 +105,7 @@ export default function NotificationBell() {
     if (!user) return;
     if (socketRef.current?.connected) return;
 
-    const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    const BASE = API_BASE_URL; // Electron-aware, from lib/api.ts
     const socket: Socket = io(`${BASE}/notifications`, {
       withCredentials: true,
       transports: ['websocket', 'polling'],  // polling fallback for restrictive networks

@@ -3,8 +3,13 @@ import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '@/store/auth.store';
 import { useQueryClient } from '@tanstack/react-query';
+import { BASE_URL } from '@/lib/api';
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+// Reuse lib/api.ts's Electron-aware BASE_URL instead of recomputing
+// process.env.NEXT_PUBLIC_API_URL locally — a local copy here always skipped
+// the isElectron runtime check, so this socket kept connecting to the
+// production API from inside the desktop app even after lib/api.ts was fixed.
+const SOCKET_URL = BASE_URL;
 
 export function useAppointmentSocket() {
   const socketRef = useRef<Socket | null>(null);

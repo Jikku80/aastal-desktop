@@ -162,7 +162,16 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   { name: 'Appointment', entity: Appointment, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'dentistId', refEntity: User }, { field: 'branchId', refEntity: Branch }, { field: 'patientId', refEntity: Patient }, { field: 'serviceId', refEntity: ClinicService }] },
   { name: 'ClinicalRecord', entity: ClinicalRecord, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'doctorId', refEntity: User }, { field: 'patientId', refEntity: Patient }] },
   // No clinicId column — scope indirectly via the clinical record it belongs to.
-  { name: 'Prescription', entity: Prescription, timestampField: 'updatedAt', clinicScope: { type: 'via', viaEntity: ClinicalRecord, localField: 'clinicalRecordId' } },
+  // timestampField is 'createdAt' — Prescription has NO updatedAt column at
+  // all (see clinical-record.entity.ts; it's a @CreateDateColumn-only
+  // entity, unlike its sibling ClinicalRecord in the same file, which does
+  // have both). Same wrong-field bug as Vitals/ConsentSubmission/
+  // IntakeFormSubmission/UserRole below — all five caused
+  // EntityPropertyNotFoundError on every GET /sync/changes call, for every
+  // clinic, aborting the whole registry loop before it could return any
+  // entity at all (see generateChangesSince — it iterates SYNC_REGISTRY in
+  // one unguarded loop, so ONE bad entry blocks everything after it too).
+  { name: 'Prescription', entity: Prescription, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: ClinicalRecord, localField: 'clinicalRecordId' } },
   { name: 'DentalChart', entity: DentalChart, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'patientId', refEntity: Patient }] },
   { name: 'BloodTest', entity: BloodTest, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'orderedById', refEntity: User }, { field: 'patientId', refEntity: Patient }] },
   { name: 'LabWork', entity: LabWork, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'orderedById', refEntity: User }, { field: 'patientId', refEntity: Patient }] },

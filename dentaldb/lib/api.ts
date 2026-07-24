@@ -8,15 +8,64 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 // stood up — app.* is the real host, same one the frontend itself lives
 // on, and the only origin the backend's CORS/routing actually answers on).
 // Both frontends (admin + user) must use the same API origin to share cookies.
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'production'
-    ? 'https://app.clinickarobar.com'   // ← must match electron/sync-config.js's DEFAULT_REMOTE_BASE_URL
-    // Dev fallback must be the BACKEND's port (see dentalDB-backend/src/main.ts,
-    // `PORT || 4000`), not this app's own dev port (3002) — pointing at 3002
-    // made every unconfigured local dev API call 404 against this Next.js app
-    // itself instead of the backend.
-    : 'http://localhost:4000');
+//
+// This same compiled frontend bundle ships in TWO contexts: the hosted web
+// app AND the Electron desktop app (see electron/main.js — it serves this
+// exact .next/standalone build on 127.0.0.1:3100). The desktop build script
+// (.github/workflows) explicitly sets NEXT_PUBLIC_API_URL=http://127.0.0.1:4000
+// at build time so the desktop app talks to its own bundled local backend,
+// never the hosted one — but that only works if every build of the desktop
+// app actually goes through that exact scripted step. Any build that
+// doesn't (a manual/local electron-builder run, a forgotten env var, a CI
+// change) silently fell through to the 'https://app.clinickarobar.com'
+// production fallback below instead — the app would still "work" (same
+// origin, same cookies, no build error), just now calling the LIVE
+// production API directly over the internet from inside the desktop shell.
+// The browser then sends its own real Origin header
+// (http://127.0.0.1:3100, the Electron renderer's local port) on that
+// request, which the hosted backend's CORS policy correctly rejects, since
+// a desktop install was never supposed to reach it directly in the first
+// place — the fix is not to whitelist 127.0.0.1:3100 server-side (that
+// would defeat the entire offline-first local-backend architecture and
+// let a misconfigured desktop build silently bypass local SQLite/sync
+// forever), it's to make the desktop app immune to this build-config gap
+// entirely: detect at runtime that we're inside Electron (via
+// window.electronAPI.isElectron, exposed by electron/preload.js
+// specifically for the local backend's own port) and always use the local
+// backend in that case, regardless of what NEXT_PUBLIC_API_URL did or
+// didn't get baked in as.
+//
+// IMPORTANT: the Electron check must run FIRST and win unconditionally.
+// An earlier version of this file wrote `process.env.NEXT_PUBLIC_API_URL ||
+// (isElectronRuntime ? local : ...)` — `||` short-circuits the moment the
+// env var is truthy, so whenever a build shipped with NEXT_PUBLIC_API_URL
+// baked to the production URL (any build that didn't go through the exact
+// `build:electron` step), the Electron branch was never even reached.
+// That's the precise bug that kept producing "CORS blocked:
+// http://127.0.0.1:3100" against the hosted backend even after this file
+// was "fixed" — the fallback-detection code existed but could never fire.
+// Checking isElectronRuntime first, before the env var, closes that gap
+// for good: inside Electron we ALWAYS use the local backend, no matter
+// what got inlined at build time.
+//
+// Also exported (rather than kept private) so every other file that needs
+// the API origin imports THIS resolution instead of recomputing its own
+// `process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'` — several
+// had drifted into doing exactly that, which is how this bug kept
+// resurfacing on some pages even after being fixed here.
+export const isElectronRuntime =
+  typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron;
+
+export const BASE_URL = isElectronRuntime
+  ? 'http://127.0.0.1:4000' // Desktop shell, however it was built — always the local bundled backend.
+  : process.env.NEXT_PUBLIC_API_URL ||
+    (process.env.NODE_ENV === 'production'
+      ? 'https://app.clinickarobar.com'   // ← must match electron/sync-config.js's DEFAULT_REMOTE_BASE_URL
+      // Dev fallback must be the BACKEND's port (see dentalDB-backend/src/main.ts,
+      // `PORT || 4000`), not this app's own dev port (3002) — pointing at 3002
+      // made every unconfigured local dev API call 404 against this Next.js app
+      // itself instead of the backend.
+      : 'http://localhost:4000');
 
 export const api = axios.create({
   baseURL: `${BASE_URL}/api/v1`,
@@ -399,7 +448,12 @@ export const clinicalRecordsApi = {
 };
 
 // ── Prescriptions (template + PDF) ────────────────────────────────────────────
-const BASE_URL_RAW = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+// These build plain URLs (for opening/downloading a PDF directly) rather than
+// going through the `api` axios instance, so they need the same
+// Electron-aware BASE_URL as everything else — reuse the exported one above
+// instead of recomputing `process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'`
+// locally, which is exactly what silently skipped the Electron check before.
+const BASE_URL_RAW = BASE_URL;
 export const prescriptionsApi = {
   getTemplate:     ()           => api.get('/prescriptions/template'),
   updateTemplate:  (d: any)     => api.patch('/prescriptions/template', d),
