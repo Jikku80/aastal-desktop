@@ -14,6 +14,7 @@ import { DoctorCommission } from '../commissions/entities/commission.entity';
 import { Role } from '../rbac/entities/role.entity';
 import { UserRole as UserRoleAssignment } from '../rbac/entities/user-role.entity';
 import { DoctorClinicAffiliation, AffiliationStatus } from '../doctor-affiliation/entities/doctor-clinic-affiliation.entity';
+import { Branch } from '../branch/entities/branch.entity';
 import { ShiftResolver } from '../shifts/shift-resolver.service';
 import { AuthCacheService } from '../auth/auth-cache.service';
 import { invalidateLiveAuthCache } from '../auth/live-auth-cache.util';
@@ -184,12 +185,30 @@ export class UsersService {
       }
     }
 
-    // Assign to branch if branchId provided
+    // Assign to branch if branchId provided.
+    //
+    // IMPORTANT: this used to be a raw `INSERT INTO user_branches ...`
+    // written with Postgres-only `$1, $2` placeholder syntax. That works
+    // fine against the hosted Postgres backend, but this same code path
+    // also runs inside the Electron-bundled SQLite backend (DB_DRIVER=sqlite
+    // — see electron/main.js), where `$1`/`$2` are not positional
+    // placeholders at all. The insert silently failed there, so staff
+    // created on-device were never actually linked to their branch in
+    // user_branches — they'd have zero branches, so BranchSwitcher.tsx's
+    // "branches.length === 0 && !isAdmin" case rendered nothing at all for
+    // them (not even the single-branch locked indicator), and
+    // GET /branches/my (branch.service.ts#getUserBranches, which joins
+    // through b.staff) returned an empty array every time.
+    //
+    // The relation query builder below goes through the ORM's `staff`
+    // many-to-many relation (see Branch entity's @JoinTable) instead of
+    // hand-rolled SQL, so it works identically against Postgres and SQLite.
     if (branchId) {
-      await this.repo.manager.query(
-        `INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [saved.id, branchId],
-      );
+      await this.repo.manager
+        .createQueryBuilder()
+        .relation(Branch, 'staff')
+        .of(branchId)
+        .add(saved.id);
     }
 
     // Part 0.1 — Auto-create DoctorClinicAffiliation when assigning a doctor-type role
