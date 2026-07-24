@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import * as os from 'os';
 import { SyncMeta } from './entities/sync-meta.entity';
-import { SYNC_REGISTRY, SyncRegistryEntry, ClinicScope } from './sync-registry';
+import { SYNC_REGISTRY, SYNC_PUSH_ORDER, SyncRegistryEntry, ClinicScope } from './sync-registry';
 import { runInsideSyncApply } from './sync-context';
 import { SyncConfigStore } from './sync-config-store';
 import { Clinic } from '../clinics/entities/clinic.entity';
@@ -130,6 +130,30 @@ export class SyncService {
     if (code === '23505') return true; // Postgres unique_violation
     const message: string = err?.message ?? err?.driverError?.message ?? '';
     return /UNIQUE constraint failed/i.test(message);
+  }
+
+  /**
+   * True for a DB-level foreign-key violation, across both the Postgres
+   * and better-sqlite3 drivers. Distinct from isUniqueConstraintError —
+   * SYNC_PUSH_ORDER (see sync-registry.ts) makes this the rare case now,
+   * but it's kept as a safety net: a device that's been offline long
+   * enough, or one syncing against a registry that's changed shape, can
+   * still push a row whose referenced parent hasn't landed remotely yet.
+   * Previously this fell through applyIncoming's insert/update catch
+   * (which only recognized unique violations) uncaught, aborting the
+   * whole entity's push and every entity queued after it in the same
+   * pushPending() run.
+   */
+  private isForeignKeyConstraintError(err: any): boolean {
+    const code = err?.code ?? err?.driverError?.code;
+    if (code === '23503') return true; // Postgres foreign_key_violation
+    const message: string = err?.message ?? err?.driverError?.message ?? '';
+    return /FOREIGN KEY constraint failed/i.test(message);
+  }
+
+  /** Either of the above — the two recoverable constraint-violation classes applyIncoming treats as a per-row conflict instead of a fatal error. */
+  private isRecoverableConstraintError(err: any): boolean {
+    return this.isUniqueConstraintError(err) || this.isForeignKeyConstraintError(err);
   }
 
   /** Per-record check used by applyIncoming to reject a pushed row that isn't the pushing device's own clinic's. */
@@ -264,11 +288,13 @@ export class SyncService {
             await repo.save({ ...incoming, syncStatus: 'synced' });
             applied.push(incoming.id);
           } catch (err: any) {
-            // Safety net for any other not-yet-declared unique constraint —
-            // don't let one bad row take down the whole sync transaction.
-            if (!this.isUniqueConstraintError(err)) throw err;
+            // Safety net for any other not-yet-declared unique constraint,
+            // or a foreign-key violation (e.g. a parent row SYNC_PUSH_ORDER
+            // expected to already be on the remote isn't there yet) — don't
+            // let one bad row take down the whole sync transaction.
+            if (!this.isRecoverableConstraintError(err)) throw err;
             this.logger.warn(
-              `Skipped ${entry.name} row ${incoming.id} — unique constraint conflict on insert: ${err?.message ?? err}`,
+              `Skipped ${entry.name} row ${incoming.id} — ${this.isForeignKeyConstraintError(err) ? 'foreign key' : 'unique'} constraint conflict on insert: ${err?.message ?? err}`,
             );
             conflicts.push(incoming.id);
           }
@@ -282,9 +308,9 @@ export class SyncService {
             await repo.save({ ...incoming, id: targetId, syncStatus: 'synced' });
             applied.push(incoming.id);
           } catch (err: any) {
-            if (!this.isUniqueConstraintError(err)) throw err;
+            if (!this.isRecoverableConstraintError(err)) throw err;
             this.logger.warn(
-              `Skipped ${entry.name} row ${incoming.id} — unique constraint conflict on update: ${err?.message ?? err}`,
+              `Skipped ${entry.name} row ${incoming.id} — ${this.isForeignKeyConstraintError(err) ? 'foreign key' : 'unique'} constraint conflict on update: ${err?.message ?? err}`,
             );
             conflicts.push(incoming.id);
           }
@@ -779,7 +805,11 @@ export class SyncService {
 
     let pushed = 0;
     let conflicts = 0;
-    for (const entry of SYNC_REGISTRY) {
+    // SYNC_PUSH_ORDER, not raw SYNC_REGISTRY — see its docstring in
+    // sync-registry.ts. Each entity here is a separate HTTP call/remote
+    // transaction, so a row must never be pushed before whatever it has a
+    // foreign key to has already landed remotely.
+    for (const entry of SYNC_PUSH_ORDER) {
       const repo = this.getRepo(entry);
       const rows = await repo.find({ where: { syncStatus: 'pending' } as any });
       if (!rows.length) continue;

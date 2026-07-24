@@ -209,3 +209,63 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   { name: 'PatientFile', entity: PatientFile, timestampField: 'createdAt', clinicScope: direct },
   { name: 'Notice', entity: Notice, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'createdByUserId', refEntity: User }] },
 ];
+
+/**
+ * Dependency-safe ordering of SYNC_REGISTRY for the PUSH direction.
+ *
+ * SYNC_REGISTRY's declared order is fine for pullChanges — that applies
+ * a whole pull as one DB transaction with FK checks deferred to COMMIT
+ * (see the `PRAGMA defer_foreign_keys` comment in sync.service.ts), so it
+ * doesn't matter that e.g. Appointment appears before User in the array.
+ *
+ * pushPending is different: each entity's pending rows go out in their
+ * own HTTP call, applied as its own separate transaction on the remote,
+ * with FK checks enforced immediately (Postgres has no equivalent of
+ * deferring across separate requests). Pushing Appointment (which has a
+ * dentistId -> User foreign key) before User has ever been pushed threw
+ * "insert or update on table appointments violates foreign key
+ * constraint" on the remote — and because that's a distinct error class
+ * from the UNIQUE-violation safety net in applyIncoming, it wasn't
+ * caught: it propagated out of pushPending() and aborted every entity
+ * queued after it. Since the raw array order never changes, every retry
+ * failed on the exact same row, wedging that clinic's sync permanently.
+ *
+ * This topologically sorts entries so a referenced entity (declared via
+ * clinicScope 'via', foreignKeys, or manyToManyFields) is always pushed
+ * — and therefore exists on the remote — before anything that points at
+ * it. Computed once at module load and reused for every push.
+ */
+export function computeSyncPushOrder(registry: SyncRegistryEntry[] = SYNC_REGISTRY): SyncRegistryEntry[] {
+  const byEntity = new Map<Function, SyncRegistryEntry>();
+  for (const entry of registry) byEntity.set(entry.entity, entry);
+
+  const dependenciesOf = (entry: SyncRegistryEntry): Function[] => {
+    const deps: Function[] = [];
+    if (entry.clinicScope.type === 'via') deps.push(entry.clinicScope.viaEntity);
+    for (const fk of entry.foreignKeys ?? []) deps.push(fk.refEntity);
+    for (const m2m of entry.manyToManyFields ?? []) deps.push(m2m.refEntity);
+    return deps;
+  };
+
+  const ordered: SyncRegistryEntry[] = [];
+  const visited = new Set<Function>();
+  const visiting = new Set<Function>(); // guards against an accidental cycle in the declared deps
+
+  const visit = (entry: SyncRegistryEntry) => {
+    if (visited.has(entry.entity) || visiting.has(entry.entity)) return;
+    visiting.add(entry.entity);
+    for (const dep of dependenciesOf(entry)) {
+      const depEntry = byEntity.get(dep);
+      if (depEntry) visit(depEntry);
+    }
+    visiting.delete(entry.entity);
+    visited.add(entry.entity);
+    ordered.push(entry);
+  };
+
+  for (const entry of registry) visit(entry);
+  return ordered;
+}
+
+/** Precomputed once — pushPending() iterates this instead of raw SYNC_REGISTRY order. */
+export const SYNC_PUSH_ORDER: SyncRegistryEntry[] = computeSyncPushOrder();
