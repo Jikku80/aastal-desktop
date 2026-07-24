@@ -72,24 +72,35 @@ export interface SyncRegistryEntry {
    */
   uniqueFields?: string[];
   /**
-   * Other scalar FK columns on this entity that reference another
+   * Every other scalar FK column on this entity that references another
    * SYNC_REGISTRY entity's id, distinct from the clinicScope relationship
-   * (e.g. Task.assignedToUserId -> User, Appointment.dentistId -> User).
-   * Needed because when the referenced entity's id gets remapped via
-   * uniqueFields reconciliation (see uniqueFields above — currently
-   * User.email, Permission.key, Clinic.slug), any OTHER entity's row in
-   * the SAME pull that still points at the old id throws "FOREIGN KEY
-   * constraint failed" at commit unless it's rewritten first. The
-   * clinicScope's own field (clinicId for 'direct', localField for
-   * 'via') is already remapped separately in pullChanges and does not
-   * need to be repeated here.
+   * (e.g. Task.assignedToUserId -> User, Appointment.branchId -> Branch).
+   * This list should be exhaustive for every REAL DB-level FOREIGN KEY
+   * constraint on the entity's table (see the sqlite migrations — that's
+   * the schema that actually enforces these at commit) whose target is
+   * itself a SYNC_REGISTRY entity. The clinicScope's own field (clinicId
+   * for 'direct', localField for 'via') is already remapped separately in
+   * pullChanges and does not need to be repeated here.
    *
-   * NOTE: this list is currently scoped to columns referencing User,
-   * since User is the only registry entity (besides Clinic and
-   * Permission, both already covered elsewhere) that both (a) declares
-   * uniqueFields and (b) is pointed at by scalar FK columns on other
-   * entities. If a future entity gains uniqueFields, audit for any
-   * other entity holding a raw FK to it and add it here too.
+   * Two independent reasons an entry needs to be here, either one enough
+   * on its own:
+   *   1. Remap safety — when the referenced entity's id gets remapped via
+   *      uniqueFields reconciliation (currently User.email, Permission.key,
+   *      Clinic.slug), any OTHER entity's row in the SAME pull that still
+   *      points at the old id throws "FOREIGN KEY constraint failed" at
+   *      commit unless it's rewritten first.
+   *   2. Insert ordering — SYNC_APPLY_ORDER (computeSyncApplyOrder below)
+   *      only knows to order the referenced entity before this one if the
+   *      dependency is declared here. An undeclared FK can still work by
+   *      accident (if the referenced entity happens to sit earlier in the
+   *      raw SYNC_REGISTRY array below) or fail outright in the
+   *      non-deferred retry pass (see pullChanges) if it doesn't.
+   *
+   * Audited exhaustively against every table's actual FK constraints as of
+   * 2026-07-24 (see the Leave/DoctorClinicAffiliation postmortems above —
+   * both were caused by exactly this kind of gap). If a new @ManyToOne/
+   * @JoinColumn relation is added to a synced entity's DB table, re-check
+   * this list.
    */
   foreignKeys?: { field: string; refEntity: Function }[];
   /**
@@ -126,29 +137,29 @@ export type ClinicScope =
 const direct: ClinicScope = { type: 'direct' };
 
 export const SYNC_REGISTRY: SyncRegistryEntry[] = [
-  { name: 'Patient', entity: Patient, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'Vitals', entity: Vitals, timestampField: 'createdAt', clinicScope: direct, foreignKeys: [{ field: 'recordedBy', refEntity: User }] },
-  { name: 'Appointment', entity: Appointment, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'dentistId', refEntity: User }] },
-  { name: 'ClinicalRecord', entity: ClinicalRecord, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'doctorId', refEntity: User }] },
+  { name: 'Patient', entity: Patient, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'branchId', refEntity: Branch }] },
+  { name: 'Vitals', entity: Vitals, timestampField: 'createdAt', clinicScope: direct, foreignKeys: [{ field: 'recordedBy', refEntity: User }, { field: 'patientId', refEntity: Patient }, { field: 'appointmentId', refEntity: Appointment }] },
+  { name: 'Appointment', entity: Appointment, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'dentistId', refEntity: User }, { field: 'branchId', refEntity: Branch }, { field: 'patientId', refEntity: Patient }, { field: 'serviceId', refEntity: ClinicService }] },
+  { name: 'ClinicalRecord', entity: ClinicalRecord, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'doctorId', refEntity: User }, { field: 'patientId', refEntity: Patient }] },
   // No clinicId column — scope indirectly via the clinical record it belongs to.
   { name: 'Prescription', entity: Prescription, timestampField: 'updatedAt', clinicScope: { type: 'via', viaEntity: ClinicalRecord, localField: 'clinicalRecordId' } },
-  { name: 'DentalChart', entity: DentalChart, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'BloodTest', entity: BloodTest, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'orderedById', refEntity: User }] },
-  { name: 'LabWork', entity: LabWork, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'orderedById', refEntity: User }] },
+  { name: 'DentalChart', entity: DentalChart, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'patientId', refEntity: Patient }] },
+  { name: 'BloodTest', entity: BloodTest, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'orderedById', refEntity: User }, { field: 'patientId', refEntity: Patient }] },
+  { name: 'LabWork', entity: LabWork, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'orderedById', refEntity: User }, { field: 'patientId', refEntity: Patient }] },
   { name: 'PrescriptionTemplate', entity: PrescriptionTemplate, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'Invoice', entity: Invoice, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Invoice', entity: Invoice, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'branchId', refEntity: Branch }, { field: 'patientId', refEntity: Patient }, { field: 'appointmentId', refEntity: Appointment }] },
   { name: 'PayrollDeductionRule', entity: PayrollDeductionRule, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'PayrollEntry', entity: PayrollEntry, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }] },
+  { name: 'PayrollEntry', entity: PayrollEntry, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }, { field: 'payrollRunId', refEntity: PayrollRun }] },
   { name: 'PayrollRun', entity: PayrollRun, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'DoctorCommission', entity: DoctorCommission, timestampField: 'createdAt', clinicScope: direct, foreignKeys: [{ field: 'doctorId', refEntity: User }] },
+  { name: 'DoctorCommission', entity: DoctorCommission, timestampField: 'createdAt', clinicScope: direct, foreignKeys: [{ field: 'doctorId', refEntity: User }, { field: 'invoiceId', refEntity: Invoice }, { field: 'serviceId', refEntity: ClinicService }] },
   { name: 'Vendor', entity: Vendor, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'Expense', entity: Expense, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'Product', entity: Product, timestampField: 'updatedAt', clinicScope: direct },
+  { name: 'Expense', entity: Expense, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'vendorId', refEntity: Vendor }] },
+  { name: 'Product', entity: Product, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'branchId', refEntity: Branch }] },
   { name: 'PurchaseOrder', entity: PurchaseOrder, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'Attendance', entity: Attendance, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }] },
+  { name: 'Attendance', entity: Attendance, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }, { field: 'shiftId', refEntity: Shift }] },
   { name: 'Shift', entity: Shift, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'ShiftAssignment', entity: ShiftAssignment, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }] },
-  { name: 'ShiftPattern', entity: ShiftPattern, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }] },
+  { name: 'ShiftAssignment', entity: ShiftAssignment, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }, { field: 'shiftId', refEntity: Shift }] },
+  { name: 'ShiftPattern', entity: ShiftPattern, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }, { field: 'shiftId', refEntity: Shift }] },
   // Leave has TWO scalar FKs to User: userId (the person on leave) and
   // approvedByUserId (who approved/rejected it, nullable until acted on).
   // approvedByUserId was previously undeclared here, so applyRemap never
@@ -158,15 +169,15 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   // (deferred FK check). Both must be listed or the same class of bug
   // recurs for any entity with more than one FK to the same ref entity.
   { name: 'Leave', entity: Leave, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }, { field: 'approvedByUserId', refEntity: User }] },
-  { name: 'Holiday', entity: Holiday, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'Task', entity: Task, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'assignedToUserId', refEntity: User }, { field: 'createdByUserId', refEntity: User }] },
+  { name: 'Holiday', entity: Holiday, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'branchId', refEntity: Branch }] },
+  { name: 'Task', entity: Task, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'assignedToUserId', refEntity: User }, { field: 'createdByUserId', refEntity: User }, { field: 'assignedToBranchId', refEntity: Branch }] },
   { name: 'ConsentTemplate', entity: ConsentTemplate, timestampField: 'updatedAt', clinicScope: direct },
   // No clinicId column — scope indirectly via the appointment it was signed against.
   { name: 'ConsentSubmission', entity: ConsentSubmission, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: Appointment, localField: 'appointmentId' } },
   { name: 'IntakeFormTemplate', entity: IntakeFormTemplate, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'IntakeFormSubmission', entity: IntakeFormSubmission, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: Appointment, localField: 'appointmentId' } },
-  { name: 'WaitingQueue', entity: WaitingQueue, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'doctorId', refEntity: User }] },
-  { name: 'WalletTransaction', entity: WalletTransaction, timestampField: 'createdAt', clinicScope: direct },
+  { name: 'WaitingQueue', entity: WaitingQueue, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'doctorId', refEntity: User }, { field: 'patientId', refEntity: Patient }, { field: 'appointmentId', refEntity: Appointment }] },
+  { name: 'WalletTransaction', entity: WalletTransaction, timestampField: 'createdAt', clinicScope: direct, foreignKeys: [{ field: 'walletId', refEntity: PatientWallet }] },
   { name: 'PatientWallet', entity: PatientWallet, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'ClinicService', entity: ClinicService, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'DowngradeSelection', entity: DowngradeSelection, timestampField: 'updatedAt', clinicScope: direct },
@@ -189,7 +200,7 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   // slug does.
   { name: 'Permission', entity: Permission, timestampField: 'updatedAt', clinicScope: { type: 'global' }, uniqueFields: ['key'] },
   // No clinicId column — scope indirectly via the user the role assignment belongs to.
-  { name: 'UserRole', entity: UserRole, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: User, localField: 'userId' } },
+  { name: 'UserRole', entity: UserRole, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: User, localField: 'userId' }, foreignKeys: [{ field: 'roleId', refEntity: Role }] },
   // uniqueFields: ['email'] — users.email has a DB-level UNIQUE index
   // (see User entity). Without this, a pulled User row whose id doesn't
   // exist locally but whose email already belongs to a different local
@@ -210,11 +221,19 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   // rows are owned by the doctor, not any one clinic, so they're
   // deliberately global here. DoctorClinicAffiliation (below) is the
   // actual clinic-scoped join table and IS filtered.
-  { name: 'IndependentAvailability', entity: IndependentAvailability, timestampField: 'updatedAt', clinicScope: { type: 'global' }, foreignKeys: [{ field: 'doctorUserId', refEntity: User }] },
+  { name: 'IndependentAvailability', entity: IndependentAvailability, timestampField: 'updatedAt', clinicScope: { type: 'global' }, foreignKeys: [{ field: 'doctorUserId', refEntity: User }, { field: 'locationId', refEntity: DoctorLocation }] },
   { name: 'DoctorProfile', entity: DoctorProfile, timestampField: 'updatedAt', clinicScope: { type: 'global' }, foreignKeys: [{ field: 'userId', refEntity: User }] },
   { name: 'DoctorLocation', entity: DoctorLocation, timestampField: 'updatedAt', clinicScope: { type: 'global' }, foreignKeys: [{ field: 'doctorUserId', refEntity: User }] },
-  { name: 'DoctorClinicAffiliation', entity: DoctorClinicAffiliation, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'doctorUserId', refEntity: User }] },
-  { name: 'PatientFile', entity: PatientFile, timestampField: 'createdAt', clinicScope: direct },
+  // branchId is a real DB-level FK (branches.id, nullable, ON DELETE SET
+  // NULL — see doctor-clinic-affiliations migration) that was previously
+  // undeclared here, same class of gap as Leave.approvedByUserId above:
+  // undeclared FK columns aren't guaranteed a place in the dependency
+  // graph SYNC_APPLY_ORDER computes, so nothing enforces Branch landing
+  // locally before a row that references it. Declaring it closes that gap
+  // explicitly instead of relying on Branch's incidental position earlier
+  // in the raw array.
+  { name: 'DoctorClinicAffiliation', entity: DoctorClinicAffiliation, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'doctorUserId', refEntity: User }, { field: 'branchId', refEntity: Branch }] },
+  { name: 'PatientFile', entity: PatientFile, timestampField: 'createdAt', clinicScope: direct, foreignKeys: [{ field: 'patientId', refEntity: Patient }] },
   { name: 'Notice', entity: Notice, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'createdByUserId', refEntity: User }] },
 ];
 
