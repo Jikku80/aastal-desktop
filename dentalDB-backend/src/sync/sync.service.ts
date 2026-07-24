@@ -889,7 +889,29 @@ export class SyncService {
    * in-flight, it just awaits and shares that same run's result rather
    * than starting a second one.
    */
-  private fullSyncInFlight: Promise<{ pull: { pulled: number; conflicts: number }; push: { pushed: number; conflicts: number } }> | null = null;
+  /**
+   * Turns an axios error into a readable one-liner instead of the bare
+   * "Request failed with status code 500" that AllExceptionsFilter was
+   * logging — that message alone gives no way to tell WHICH remote call
+   * failed or WHY (which entity, which Postgres error, etc.), since the
+   * remote's actual response body (its own error message) was being
+   * discarded. Axios errors have .response.data with the remote's real
+   * error payload; fall back to err.message for anything else.
+   */
+  private describeRemoteError(err: any): string {
+    const status = err?.response?.status;
+    const remoteMessage = err?.response?.data?.message ?? err?.response?.data?.error;
+    if (status) {
+      const detail = Array.isArray(remoteMessage) ? remoteMessage.join('; ') : remoteMessage;
+      return `remote responded ${status}${detail ? ` — ${detail}` : ''}`;
+    }
+    return err?.message ?? String(err);
+  }
+
+  private fullSyncInFlight: Promise<{
+    pull: { pulled: number; conflicts: number; error?: string };
+    push: { pushed: number; conflicts: number; error?: string };
+  }> | null = null;
 
   async fullSync() {
     if (this.fullSyncInFlight) {
@@ -912,9 +934,46 @@ export class SyncService {
         return { pull: { pulled: 0, conflicts: 0 }, push: { pushed: 0, conflicts: 0 } };
       }
       this.logger.log('Starting full sync (pull then push)');
-      const pull = await this.pullChanges();
-      const push = await this.pushPending();
-      this.logger.log(`Sync complete: pulled ${pull.pulled} (${pull.conflicts} conflicts), pushed ${push.pushed} (${push.conflicts} conflicts)`);
+
+      // Pull and push are now isolated from each other: previously a
+      // failure in EITHER (typically the remote responding 500 to one of
+      // the two calls) threw out of fullSync() entirely, which (a) meant a
+      // failing push could mask a pull that actually succeeded — data that
+      // DID come down (branches, patients, etc.) never got credited or
+      // logged, making "did anything actually sync?" impossible to tell
+      // from these logs, and (b) surfaced as a bare uncaught
+      // "AxiosError: Request failed with status code 500" with no
+      // indication of which direction failed or why, since
+      // AllExceptionsFilter only logs exception.message, not the remote's
+      // actual response body. Each half is now caught independently, its
+      // real remote error extracted via describeRemoteError, and logged as
+      // a warning (not re-thrown) — this endpoint is polled every 15s and
+      // retried on every reconnect by design (see useOnlineStatus.ts on the
+      // frontend, which already treats trigger() failures as best-effort),
+      // so a transient remote failure logging as ERROR on every single
+      // cycle was log noise, not an actionable signal.
+      let pull: { pulled: number; conflicts: number; error?: string };
+      try {
+        pull = await this.pullChanges();
+      } catch (err: any) {
+        const detail = this.describeRemoteError(err);
+        this.logger.warn(`Sync pull failed (will retry next cycle): ${detail}`);
+        pull = { pulled: 0, conflicts: 0, error: detail };
+      }
+
+      let push: { pushed: number; conflicts: number; error?: string };
+      try {
+        push = await this.pushPending();
+      } catch (err: any) {
+        const detail = this.describeRemoteError(err);
+        this.logger.warn(`Sync push failed (will retry next cycle): ${detail}`);
+        push = { pushed: 0, conflicts: 0, error: detail };
+      }
+
+      this.logger.log(
+        `Sync complete: pulled ${pull.pulled} (${pull.conflicts} conflicts)${pull.error ? ' [pull failed]' : ''}, ` +
+        `pushed ${push.pushed} (${push.conflicts} conflicts)${push.error ? ' [push failed]' : ''}`,
+      );
       return { pull, push };
     })();
 

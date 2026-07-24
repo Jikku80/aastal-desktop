@@ -82,7 +82,26 @@ export class SyncController {
         reason: 'SYNC_REMOTE_BASE_URL not configured — this instance is the canonical/online one',
       };
     }
-    return this.sync.fullSync();
+    // SyncService.fullSync() now catches pull/push failures internally and
+    // returns them as { error: '...' } on the relevant half instead of
+    // throwing (see sync.service.ts) — this endpoint gets polled every 15s
+    // and retried on every reconnect by design, so a transient remote
+    // failure (remote temporarily down, or 500ing on one bad row) used to
+    // hit AllExceptionsFilter and log a full ERROR + stack trace on EVERY
+    // single cycle, drowning out logs that actually matter. fullSync()
+    // itself is not expected to throw anymore, but this try/catch stays as
+    // a last-resort safety net so a genuinely unexpected failure here still
+    // degrades to a normal JSON error response instead of an uncaught 500.
+    try {
+      return await this.sync.fullSync();
+    } catch (err: any) {
+      return {
+        pull: { pulled: 0, conflicts: 0 },
+        push: { pushed: 0, conflicts: 0 },
+        skipped: true,
+        reason: `Sync trigger failed unexpectedly: ${err?.message ?? err}`,
+      };
+    }
   }
 
   // -----------------------------------------------------------------------
