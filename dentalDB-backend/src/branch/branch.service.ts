@@ -111,41 +111,13 @@ export class BranchesService {
   }
 
   async getUserBranches(clinicId: string, userId: string): Promise<Branch[]> {
-    const assigned = await this.branchRepo
+    return this.branchRepo
       .createQueryBuilder('b')
       .leftJoinAndSelect('b.staff', 'staff')
       .innerJoin('b.staff', 'u', 'u.id = :userId', { userId })
       .where('b.clinicId = :clinicId', { clinicId })
       .orderBy('b.createdAt', 'ASC')
       .getMany();
-
-    if (assigned.length > 0) return assigned;
-
-    // No explicit row in user_branches for this user (staff created via
-    // the "— No specific branch —" option, or created before per-branch
-    // assignment existed). Returning [] here is what makes
-    // BranchSwitcher.tsx render nothing at all for them (its
-    // `branches.length === 0 && !isAdmin` guard) and made them unable to
-    // pick a branch context, even though other staff at the clinic could.
-    // Treat them as clinic-wide instead: let them see/select every branch,
-    // same as findStaff()'s branch filter now treats unassigned staff as
-    // visible everywhere. Kept consistent with canAccessBranch() and
-    // getAccessibleBranchIds() below.
-    return this.branchRepo.find({
-      where: { clinicId },
-      relations: ['staff'],
-      order: { createdAt: 'ASC' },
-    });
-  }
-
-  /** True if this user has at least one row in user_branches. */
-  private async hasAnyBranchAssignment(clinicId: string, userId: string): Promise<boolean> {
-    const count = await this.branchRepo
-      .createQueryBuilder('b')
-      .innerJoin('b.staff', 'u', 'u.id = :userId', { userId })
-      .where('b.clinicId = :clinicId', { clinicId })
-      .getCount();
-    return count > 0;
   }
 
   async create(clinicId: string, dto: {
@@ -609,20 +581,7 @@ export class BranchesService {
       .innerJoin('b.staff', 'u', 'u.id = :userId', { userId })
       .where('b.id = :branchId AND b.clinicId = :clinicId', { branchId, clinicId })
       .getOne();
-    if (branch) return true;
-
-    // Not explicitly assigned to THIS branch. If they're explicitly
-    // assigned to one or more *other* branches, they're correctly scoped
-    // away from this one — deny. But if they have NO branch assignment at
-    // all, treat them as clinic-wide (same fallback as
-    // getUserBranches()/getAccessibleBranchIds()) rather than locking them
-    // out of every branch's data — otherwise the branch switcher would
-    // offer a branch that every real request then rejects with 403.
-    const hasAnyAssignment = await this.hasAnyBranchAssignment(clinicId, userId);
-    if (hasAnyAssignment) return false;
-
-    const target = await this.branchRepo.findOne({ where: { id: branchId, clinicId } });
-    return !!target;
+    return !!branch;
   }
 
   async getAccessibleBranchIds(clinicId: string, userId: string, role: string): Promise<string[]> {
@@ -636,13 +595,7 @@ export class BranchesService {
       .innerJoin('b.staff', 'u', 'u.id = :userId', { userId })
       .where('b.clinicId = :clinicId', { clinicId })
       .getMany();
-
-    if (branches.length > 0) return branches.map(b => b.id);
-
-    // No explicit assignment anywhere — clinic-wide fallback, consistent
-    // with getUserBranches() and canAccessBranch() above.
-    const all = await this.branchRepo.find({ where: { clinicId }, select: ['id'] });
-    return all.map(b => b.id);
+    return branches.map(b => b.id);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
