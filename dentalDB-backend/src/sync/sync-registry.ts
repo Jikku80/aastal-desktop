@@ -149,7 +149,15 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   { name: 'Shift', entity: Shift, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'ShiftAssignment', entity: ShiftAssignment, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }] },
   { name: 'ShiftPattern', entity: ShiftPattern, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }] },
-  { name: 'Leave', entity: Leave, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }] },
+  // Leave has TWO scalar FKs to User: userId (the person on leave) and
+  // approvedByUserId (who approved/rejected it, nullable until acted on).
+  // approvedByUserId was previously undeclared here, so applyRemap never
+  // rewrote it when the referenced User got reconciled onto a different
+  // local id via uniqueFields — the stale id survived into the insert and
+  // only surfaced as "FOREIGN KEY constraint failed" at commitTransaction
+  // (deferred FK check). Both must be listed or the same class of bug
+  // recurs for any entity with more than one FK to the same ref entity.
+  { name: 'Leave', entity: Leave, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'userId', refEntity: User }, { field: 'approvedByUserId', refEntity: User }] },
   { name: 'Holiday', entity: Holiday, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'Task', entity: Task, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'assignedToUserId', refEntity: User }, { field: 'createdByUserId', refEntity: User }] },
   { name: 'ConsentTemplate', entity: ConsentTemplate, timestampField: 'updatedAt', clinicScope: direct },
@@ -211,31 +219,31 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
 ];
 
 /**
- * Dependency-safe ordering of SYNC_REGISTRY for the PUSH direction.
+ * Dependency-safe ordering of SYNC_REGISTRY — a referenced entity
+ * (declared via clinicScope 'via', foreignKeys, or manyToManyFields) is
+ * always ordered before anything that points at it.
  *
- * SYNC_REGISTRY's declared order is fine for pullChanges — that applies
- * a whole pull as one DB transaction with FK checks deferred to COMMIT
- * (see the `PRAGMA defer_foreign_keys` comment in sync.service.ts), so it
- * doesn't matter that e.g. Appointment appears before User in the array.
+ * Originally added for pushPending only: each entity's pending rows go
+ * out in their own HTTP call / remote transaction, with FK checks
+ * enforced immediately (Postgres has no equivalent of deferring across
+ * separate requests). Pushing Appointment (which has a dentistId -> User
+ * foreign key) before User has ever been pushed threw "insert or update
+ * on table appointments violates foreign key constraint" on the remote —
+ * and because that's a distinct error class from the UNIQUE-violation
+ * safety net in applyIncoming, it wasn't caught: it propagated out of
+ * pushPending() and aborted every entity queued after it. Since the raw
+ * array order never changes, every retry failed on the exact same row,
+ * wedging that clinic's sync permanently.
  *
- * pushPending is different: each entity's pending rows go out in their
- * own HTTP call, applied as its own separate transaction on the remote,
- * with FK checks enforced immediately (Postgres has no equivalent of
- * deferring across separate requests). Pushing Appointment (which has a
- * dentistId -> User foreign key) before User has ever been pushed threw
- * "insert or update on table appointments violates foreign key
- * constraint" on the remote — and because that's a distinct error class
- * from the UNIQUE-violation safety net in applyIncoming, it wasn't
- * caught: it propagated out of pushPending() and aborted every entity
- * queued after it. Since the raw array order never changes, every retry
- * failed on the exact same row, wedging that clinic's sync permanently.
+ * Also used by pullChanges now, as the base ordering before its
+ * deferred-FK-checked transaction — see SyncService.pullChanges for why
+ * pull additionally needs a non-deferred retry path even with a correct
+ * order (a row whose FK target was skipped/reconciled elsewhere can't be
+ * fixed by ordering alone).
  *
- * This topologically sorts entries so a referenced entity (declared via
- * clinicScope 'via', foreignKeys, or manyToManyFields) is always pushed
- * — and therefore exists on the remote — before anything that points at
- * it. Computed once at module load and reused for every push.
+ * Computed once at module load and reused for every push and pull.
  */
-export function computeSyncPushOrder(registry: SyncRegistryEntry[] = SYNC_REGISTRY): SyncRegistryEntry[] {
+export function computeSyncApplyOrder(registry: SyncRegistryEntry[] = SYNC_REGISTRY): SyncRegistryEntry[] {
   const byEntity = new Map<Function, SyncRegistryEntry>();
   for (const entry of registry) byEntity.set(entry.entity, entry);
 
@@ -267,5 +275,5 @@ export function computeSyncPushOrder(registry: SyncRegistryEntry[] = SYNC_REGIST
   return ordered;
 }
 
-/** Precomputed once — pushPending() iterates this instead of raw SYNC_REGISTRY order. */
-export const SYNC_PUSH_ORDER: SyncRegistryEntry[] = computeSyncPushOrder();
+/** Precomputed once — pushPending() and pullChanges() both iterate this instead of raw SYNC_REGISTRY order. */
+export const SYNC_APPLY_ORDER: SyncRegistryEntry[] = computeSyncApplyOrder();

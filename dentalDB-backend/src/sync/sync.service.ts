@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import * as os from 'os';
 import { SyncMeta } from './entities/sync-meta.entity';
-import { SYNC_REGISTRY, SYNC_PUSH_ORDER, SyncRegistryEntry, ClinicScope } from './sync-registry';
+import { SYNC_REGISTRY, SYNC_APPLY_ORDER, SyncRegistryEntry, ClinicScope } from './sync-registry';
 import { runInsideSyncApply } from './sync-context';
 import { SyncConfigStore } from './sync-config-store';
 import { Clinic } from '../clinics/entities/clinic.entity';
@@ -625,52 +625,7 @@ export class SyncService {
       this.http.get<ChangesResponse>(url, { headers: this.syncDeviceHeaders() }),
     );
 
-    // SYNC_REGISTRY is a flat, mechanically-generated list of entities — not
-    // a dependency order — so on a first-time (or long-overdue) pull, rows
-    // for one entity (e.g. Patient) can easily arrive and be applied before
-    // rows for something it has a required FK to (e.g. Clinic, User), which
-    // fails locally with SqliteError: FOREIGN KEY constraint failed even
-    // though the referenced row *is* in this same pull, just later in the
-    // batch. Applying the whole batch as one transaction with FK checks
-    // deferred to COMMIT (rather than checked per-INSERT) fixes this
-    // regardless of registry order, as long as every referenced row is
-    // somewhere in this same changeset by commit time — which it always is,
-    // since the server sends the full changeset in one response. This only
-    // matters for better-sqlite3 (the offline instance) — Postgres never
-    // hits this because pushPending only ever pushes one entity's pending
-    // rows at a time, long after their parents were pushed/synced.
     const isSqlite = this.dataSource.options.type === 'better-sqlite3';
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    if (isSqlite) {
-      // Only takes effect for the transaction it's issued in, and only
-      // while `PRAGMA foreign_keys = ON` (the better-sqlite3 default set in
-      // data-source.sqlite.ts) — see
-      // https://www.sqlite.org/pragma.html#pragma_defer_foreign_keys
-      await queryRunner.query('PRAGMA defer_foreign_keys = ON');
-    }
-
-    // Reconciling a row onto a different existing local row (see
-    // findByAlternateUniqueField / uniqueFields) changes which id it lives
-    // under locally. Any other row in this same pull that references the
-    // OLD (incoming) id as a foreign key — e.g. a UserRole.userId pointing
-    // at a User that just got reconciled onto a different local id — needs
-    // that reference rewritten to the new local id, or it ends up
-    // referencing an id nothing local is ever saved under and throws
-    // FOREIGN KEY constraint failed at commit, even with FK checks
-    // deferred (deferral only helps with rows not inserted *yet*, not rows
-    // that reference an id that will never exist). So: (1) process entities
-    // declaring uniqueFields first, since those are the only ones that can
-    // reconcile onto a different id, recording old-id -> local-id in
-    // idRemaps as they do; (2) before applying any entity's rows, rewrite
-    // whichever of its columns are known foreign keys into an
-    // already-processed entity (its clinicId, if 'direct'-scoped, or its
-    // 'via' scope's localField) using the remap collected so far.
-    const idRemaps = new Map<string, Map<string, string>>();
-    const uniqueFieldEntries = SYNC_REGISTRY.filter((e) => e.uniqueFields?.length);
-    const otherEntries = SYNC_REGISTRY.filter((e) => !e.uniqueFields?.length);
-    const orderedEntries = [...uniqueFieldEntries, ...otherEntries];
 
     const applyRemap = (rows: any[], field: string, remap: Map<string, string> | undefined) => {
       if (!remap?.size) return;
@@ -680,66 +635,139 @@ export class SyncService {
       }
     };
 
-    let pulled = 0;
-    let conflicts = 0;
-    try {
-      for (const entry of orderedEntries) {
-        const rows = data.entities[entry.name];
-        if (!rows?.length) continue;
+    /**
+     * Applies the whole pulled changeset in one transaction.
+     *
+     * `deferForeignKeys` (SQLite only): with it ON, individual INSERT/UPDATE
+     * statements skip FK checking and everything is verified once at
+     * COMMIT — this is what lets SYNC_APPLY_ORDER not be a *perfect*
+     * topological order (a same-batch forward reference still resolves,
+     * since the referenced row exists by commit time regardless of which
+     * order the two were applied in). With it OFF, each statement checks
+     * FK immediately, so the outcome depends on SYNC_APPLY_ORDER actually
+     * being correct — but critically, an immediate violation is caught
+     * per-row by applyIncoming's own safety net (isRecoverableConstraintError,
+     * now covering FK errors too — see isForeignKeyConstraintError) instead
+     * of aborting the whole transaction, so one unresolvable row degrades
+     * to a single skipped conflict rather than sacrificing everything
+     * already reconciled in this same pull. See the retry below for when
+     * this path is used.
+     */
+    const runPull = async (deferForeignKeys: boolean): Promise<{ pulled: number; conflicts: number }> => {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      if (isSqlite && deferForeignKeys) {
+        // Only takes effect for the transaction it's issued in, and only
+        // while `PRAGMA foreign_keys = ON` (the better-sqlite3 default set
+        // in data-source.sqlite.ts) — see
+        // https://www.sqlite.org/pragma.html#pragma_defer_foreign_keys
+        await queryRunner.query('PRAGMA defer_foreign_keys = ON');
+      }
 
-        if (entry.clinicScope.type === 'direct') {
-          applyRemap(rows, entry.clinicScope.field ?? 'clinicId', idRemaps.get('Clinic'));
-        } else if (entry.clinicScope.type === 'via') {
-          const scope = entry.clinicScope;
-          const viaName = SYNC_REGISTRY.find((e) => e.entity === scope.viaEntity)?.name;
-          applyRemap(rows, scope.localField, viaName ? idRemaps.get(viaName) : undefined);
-        }
+      // Reconciling a row onto a different existing local row (see
+      // findByAlternateUniqueField / uniqueFields) changes which id it
+      // lives under locally. Any other row in this same pull that
+      // references the OLD (incoming) id as a foreign key — e.g. a
+      // UserRole.userId pointing at a User that just got reconciled onto
+      // a different local id — needs that reference rewritten to the new
+      // local id, or it ends up referencing an id nothing local is ever
+      // saved under. SYNC_APPLY_ORDER (see sync-registry.ts) puts a
+      // referenced entity before anything that points at it, so by the
+      // time an entry is applied, every entity it can legally reference
+      // has already contributed whatever id remaps it produced.
+      const idRemaps = new Map<string, Map<string, string>>();
+      let pulled = 0;
+      let conflicts = 0;
+      try {
+        for (const entry of SYNC_APPLY_ORDER) {
+          const rows = data.entities[entry.name];
+          if (!rows?.length) continue;
 
-        // Beyond the clinicScope's own field (handled above), an entity
-        // may hold arbitrary other FK columns pointing at entities whose
-        // ids get reconciled via uniqueFields (e.g. Task.assignedToUserId
-        // -> User, Appointment.dentistId -> User). This runs regardless
-        // of clinicScope type — 'global'-scoped entities like DoctorProfile
-        // still need their User FK remapped even though they have no
-        // clinic filtering. See foreignKeys docstring on SyncRegistryEntry.
-        for (const fk of entry.foreignKeys ?? []) {
-          const refName = SYNC_REGISTRY.find((e) => e.entity === fk.refEntity)?.name;
-          applyRemap(rows, fk.field, refName ? idRemaps.get(refName) : undefined);
-        }
+          if (entry.clinicScope.type === 'direct') {
+            applyRemap(rows, entry.clinicScope.field ?? 'clinicId', idRemaps.get('Clinic'));
+          } else if (entry.clinicScope.type === 'via') {
+            const scope = entry.clinicScope;
+            const viaName = SYNC_REGISTRY.find((e) => e.entity === scope.viaEntity)?.name;
+            applyRemap(rows, scope.localField, viaName ? idRemaps.get(viaName) : undefined);
+          }
 
-        // Same idea, but for an eager many-to-many relation embedded as a
-        // nested array of { id, ... } objects (e.g. Role.permissions via
-        // the role_permissions join table) rather than a scalar column.
-        for (const m2m of entry.manyToManyFields ?? []) {
-          const refName = SYNC_REGISTRY.find((e) => e.entity === m2m.refEntity)?.name;
-          const remap = refName ? idRemaps.get(refName) : undefined;
-          if (!remap?.size) continue;
-          for (const row of rows) {
-            const items = row[m2m.field];
-            if (!Array.isArray(items)) continue;
-            for (const item of items) {
-              const remapped = remap.get(item.id);
-              if (remapped) item.id = remapped;
+          // Beyond the clinicScope's own field (handled above), an entity
+          // may hold arbitrary other FK columns pointing at entities whose
+          // ids get reconciled via uniqueFields (e.g. Task.assignedToUserId
+          // -> User, Appointment.dentistId -> User). This runs regardless
+          // of clinicScope type — 'global'-scoped entities like DoctorProfile
+          // still need their User FK remapped even though they have no
+          // clinic filtering. See foreignKeys docstring on SyncRegistryEntry.
+          for (const fk of entry.foreignKeys ?? []) {
+            const refName = SYNC_REGISTRY.find((e) => e.entity === fk.refEntity)?.name;
+            applyRemap(rows, fk.field, refName ? idRemaps.get(refName) : undefined);
+          }
+
+          // Same idea, but for an eager many-to-many relation embedded as a
+          // nested array of { id, ... } objects (e.g. Role.permissions via
+          // the role_permissions join table) rather than a scalar column.
+          for (const m2m of entry.manyToManyFields ?? []) {
+            const refName = SYNC_REGISTRY.find((e) => e.entity === m2m.refEntity)?.name;
+            const remap = refName ? idRemaps.get(refName) : undefined;
+            if (!remap?.size) continue;
+            for (const row of rows) {
+              const items = row[m2m.field];
+              if (!Array.isArray(items)) continue;
+              for (const item of items) {
+                const remapped = remap.get(item.id);
+                if (remapped) item.id = remapped;
+              }
             }
           }
-        }
 
-        const entryRemap = new Map<string, string>();
-        const result = await this.applyIncoming(entry.name, rows, undefined, queryRunner.manager, entryRemap);
-        if (entryRemap.size) idRemaps.set(entry.name, entryRemap);
-        pulled += result.applied.length;
-        conflicts += result.conflicts.length;
+          const entryRemap = new Map<string, string>();
+          const result = await this.applyIncoming(entry.name, rows, undefined, queryRunner.manager, entryRemap);
+          if (entryRemap.size) idRemaps.set(entry.name, entryRemap);
+          pulled += result.applied.length;
+          conflicts += result.conflicts.length;
+        }
+        await queryRunner.commitTransaction();
+      } catch (err) {
+        await queryRunner.rollbackTransaction();
+        throw err;
+      } finally {
+        await queryRunner.release();
       }
-      await queryRunner.commitTransaction();
-    } catch (err) {
-      await queryRunner.rollbackTransaction();
-      throw err;
-    } finally {
-      await queryRunner.release();
+      return { pulled, conflicts };
+    };
+
+    let result: { pulled: number; conflicts: number };
+    try {
+      result = await runPull(true);
+    } catch (err: any) {
+      // A deferred check can only fail here, at COMMIT — by definition
+      // every individual applyIncoming() call already returned
+      // successfully, so this isn't a row applyIncoming's own per-row
+      // safety net could have caught. It means some row (its own column
+      // possibly outside SYNC_APPLY_ORDER's coverage, e.g. an entity that
+      // gained a new FK column without a matching `foreignKeys` entry)
+      // still points at an id that plain reconciliation left unresolved.
+      // Rolling back and just re-throwing here would discard the WHOLE
+      // pull's Clinic/Permission/User reconciliation and fail identically
+      // on every retry, since the same offending row is pulled again next
+      // time — see 1784700000000-AuditLogWalletEnumValue.ts for the exact
+      // same failure mode from a CHECK-constraint angle instead of FK.
+      // Retry once with immediate (non-deferred) checking instead:
+      // SYNC_APPLY_ORDER gets almost everything right up front, and
+      // whichever row is still genuinely unresolvable now fails at its own
+      // INSERT/UPDATE, caught by applyIncoming's per-row safety net
+      // (isRecoverableConstraintError) and logged as a single skipped
+      // conflict instead of sacrificing everything else in the batch.
+      if (!isSqlite || !this.isForeignKeyConstraintError(err)) throw err;
+      this.logger.warn(
+        `Deferred FK check failed at commit (${err?.message ?? err}) — retrying this pull with immediate per-row checking so one bad row doesn't roll back the whole batch`,
+      );
+      result = await runPull(false);
     }
 
     await this.setLastSyncAt(data.serverTime);
-    return { pulled, conflicts };
+    return result;
   }
 
   /** Push all locally-pending records to remote. */
@@ -805,11 +833,11 @@ export class SyncService {
 
     let pushed = 0;
     let conflicts = 0;
-    // SYNC_PUSH_ORDER, not raw SYNC_REGISTRY — see its docstring in
+    // SYNC_APPLY_ORDER, not raw SYNC_REGISTRY — see its docstring in
     // sync-registry.ts. Each entity here is a separate HTTP call/remote
     // transaction, so a row must never be pushed before whatever it has a
     // foreign key to has already landed remotely.
-    for (const entry of SYNC_PUSH_ORDER) {
+    for (const entry of SYNC_APPLY_ORDER) {
       const repo = this.getRepo(entry);
       const rows = await repo.find({ where: { syncStatus: 'pending' } as any });
       if (!rows.length) continue;
