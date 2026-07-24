@@ -12,6 +12,7 @@ import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { BillingService } from '../billing/billing.service';
 import { Clinic } from '../clinics/entities/clinic.entity';
+import { Invoice } from '../billing/entities/invoice.entity';
 
 @Injectable()
 export class AppointmentsService {
@@ -19,6 +20,7 @@ export class AppointmentsService {
     @InjectRepository(Appointment) private repo: Repository<Appointment>,
     @InjectRepository(Patient)     private patientRepo: Repository<Patient>,
     @InjectRepository(Clinic)      private clinicRepo: Repository<Clinic>,
+    @InjectRepository(Invoice)     private invoiceRepo: Repository<Invoice>,
     private notificationsService: NotificationsService,
     private notificationsGateway: NotificationsGateway,
     private billingService: BillingService,
@@ -304,7 +306,24 @@ export class AppointmentsService {
 
   async remove(clinicId: string, id: string): Promise<void> {
     await this.findOne(clinicId, id);
-    await this.repo.delete({ id, clinicId });
+
+    // invoices.appointmentId is a nullable FK with no cascade behavior
+    // (ON DELETE NO ACTION) — deleting an appointment that already has an
+    // invoice attached (e.g. via autoCreateInvoice, or billed manually)
+    // was throwing a raw QueryFailedError / 500 instead of either blocking
+    // cleanly or succeeding. An invoice is a financial record that should
+    // survive the appointment being deleted, so we detach it (set
+    // appointmentId to null) rather than deleting or blocking on it.
+    await this.repo.manager.transaction(async (manager) => {
+      await manager
+        .createQueryBuilder()
+        .update(Invoice)
+        .set({ appointmentId: null as any })
+        .where('appointmentId = :id', { id })
+        .execute();
+
+      await manager.delete(Appointment, { id, clinicId });
+    });
   }
 
   /**

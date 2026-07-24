@@ -86,10 +86,30 @@ export class UsersService {
       qb = qb.andWhere('u.role != :superAdmin', { superAdmin: UserRole.SUPER_ADMIN });
     }
 
-    // When a branch is selected, only show staff assigned to that branch
+    // When a branch is selected, show staff assigned to that branch —
+    // PLUS staff with NO branch assignment at all.
+    //
+    // This must be a LEFT JOIN, not an INNER JOIN. An INNER JOIN against
+    // user_branches requires a matching row to exist for the user to be
+    // returned at all, which silently erases every staff member who has
+    // zero rows in user_branches — e.g. staff created via the "— No
+    // specific branch —" option in the Add Staff form (see
+    // dashboard/staff/page.tsx), or staff created before per-branch
+    // assignment existed. Those staff are meant to be clinic-wide/floating
+    // (that's the whole point of the "no specific branch" option), so they
+    // should appear under every branch, not disappear from all of them.
+    // Staff who ARE explicitly assigned to one or more *other* branches
+    // (but not this one) are still correctly excluded via the NOT EXISTS
+    // guard below.
     if (branchId) {
       qb = qb
-        .innerJoin('user_branches', 'ub', 'ub.user_id = u.id AND ub.branch_id = :branchId', { branchId });
+        .leftJoin('user_branches', 'ub', 'ub.user_id = u.id')
+        .andWhere(
+          `(ub.branch_id = :branchId OR NOT EXISTS (
+             SELECT 1 FROM user_branches ub_any WHERE ub_any.user_id = u.id
+           ))`,
+          { branchId },
+        );
     }
  
     if (search) {

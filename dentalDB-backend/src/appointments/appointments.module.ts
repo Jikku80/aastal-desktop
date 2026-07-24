@@ -13,6 +13,7 @@ import { BillingModule } from '../billing/billing.module';
 import { ServicesModule } from '../services/services.module';
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { Branch } from '../branch/entities/branch.entity';
+import { Invoice } from '../billing/entities/invoice.entity';
 import { BranchLockGuard } from '../common/guards/branch-lock.guard';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
@@ -27,7 +28,7 @@ import { AppointmentsGateway } from './appointments.gateway';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Appointment, Vitals, Patient, User, Clinic, Branch]),
+    TypeOrmModule.forFeature([Appointment, Vitals, Patient, User, Clinic, Branch, Invoice]),
     NotificationsModule,
     BranchesModule,
     BillingModule,
