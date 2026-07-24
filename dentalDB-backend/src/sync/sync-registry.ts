@@ -57,7 +57,17 @@ import { Notice } from '../notices/entities/notice.entity';
 export interface SyncRegistryEntry {
   name: string;
   entity: Function;
-  timestampField: 'updatedAt' | 'createdAt';
+  // Not strictly 'updatedAt' | 'createdAt' — several entities record their
+  // conflict-resolution timestamp under a differently-named
+  // @CreateDateColumn/@UpdateDateColumn (e.g. ConsentSubmission.signedAt,
+  // IntakeFormSubmission.submittedAt, UserRole.assignedAt, Vitals.recordedAt).
+  // The narrower union previously here didn't stop those from being
+  // declared as 'createdAt' anyway (the literal type doesn't verify against
+  // the entity's real columns), which produced a property that doesn't
+  // exist on the entity — TypeORM throws EntityPropertyNotFoundError the
+  // first time it's queried against, in generateChangesSince's repo.find(),
+  // for EVERY clinic, aborting that entity's row entirely.
+  timestampField: string;
   /** How to scope this entity's rows to one clinicId — see ClinicScope below. */
   clinicScope: ClinicScope;
   /**
@@ -138,7 +148,17 @@ const direct: ClinicScope = { type: 'direct' };
 
 export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   { name: 'Patient', entity: Patient, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'branchId', refEntity: Branch }] },
-  { name: 'Vitals', entity: Vitals, timestampField: 'createdAt', clinicScope: direct, foreignKeys: [{ field: 'recordedBy', refEntity: User }, { field: 'patientId', refEntity: Patient }, { field: 'appointmentId', refEntity: Appointment }] },
+  // timestampField MUST be 'recordedAt' — that's Vitals' actual
+  // @CreateDateColumn (see vitals.entity.ts). This was wrongly declared as
+  // 'createdAt', a column Vitals doesn't have, which made
+  // generateChangesSince's repo.find({ where: { createdAt: MoreThan(since) } })
+  // throw EntityPropertyNotFoundError on every single GET /sync/changes
+  // call, for every clinic — since generateChangesSince iterates the whole
+  // registry inside one try-less loop, this one bad entry aborted the pull
+  // before ANY entity (including Branch, User, Clinic) ever got returned.
+  // That's why desktop clients never received branch/staff/etc. data no
+  // matter how many times they synced.
+  { name: 'Vitals', entity: Vitals, timestampField: 'recordedAt', clinicScope: direct, foreignKeys: [{ field: 'recordedBy', refEntity: User }, { field: 'patientId', refEntity: Patient }, { field: 'appointmentId', refEntity: Appointment }] },
   { name: 'Appointment', entity: Appointment, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'dentistId', refEntity: User }, { field: 'branchId', refEntity: Branch }, { field: 'patientId', refEntity: Patient }, { field: 'serviceId', refEntity: ClinicService }] },
   { name: 'ClinicalRecord', entity: ClinicalRecord, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'doctorId', refEntity: User }, { field: 'patientId', refEntity: Patient }] },
   // No clinicId column — scope indirectly via the clinical record it belongs to.
@@ -173,9 +193,17 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   { name: 'Task', entity: Task, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'assignedToUserId', refEntity: User }, { field: 'createdByUserId', refEntity: User }, { field: 'assignedToBranchId', refEntity: Branch }] },
   { name: 'ConsentTemplate', entity: ConsentTemplate, timestampField: 'updatedAt', clinicScope: direct },
   // No clinicId column — scope indirectly via the appointment it was signed against.
-  { name: 'ConsentSubmission', entity: ConsentSubmission, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: Appointment, localField: 'appointmentId' } },
+  // timestampField is 'signedAt' — that's ConsentSubmission's actual
+  // @CreateDateColumn (see consent-submission.entity.ts). Was wrongly
+  // declared 'createdAt', a column this entity doesn't have — see the
+  // Vitals fix above for the exact same failure mode (EntityPropertyNotFoundError
+  // aborting every GET /sync/changes call for every clinic).
+  { name: 'ConsentSubmission', entity: ConsentSubmission, timestampField: 'signedAt', clinicScope: { type: 'via', viaEntity: Appointment, localField: 'appointmentId' } },
   { name: 'IntakeFormTemplate', entity: IntakeFormTemplate, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'IntakeFormSubmission', entity: IntakeFormSubmission, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: Appointment, localField: 'appointmentId' } },
+  // timestampField is 'submittedAt' — IntakeFormSubmission's actual
+  // @CreateDateColumn (see intake-form-submission.entity.ts). Same wrong-
+  // 'createdAt' bug as ConsentSubmission above.
+  { name: 'IntakeFormSubmission', entity: IntakeFormSubmission, timestampField: 'submittedAt', clinicScope: { type: 'via', viaEntity: Appointment, localField: 'appointmentId' } },
   { name: 'WaitingQueue', entity: WaitingQueue, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'doctorId', refEntity: User }, { field: 'patientId', refEntity: Patient }, { field: 'appointmentId', refEntity: Appointment }] },
   { name: 'WalletTransaction', entity: WalletTransaction, timestampField: 'createdAt', clinicScope: direct, foreignKeys: [{ field: 'walletId', refEntity: PatientWallet }] },
   { name: 'PatientWallet', entity: PatientWallet, timestampField: 'updatedAt', clinicScope: direct },
@@ -200,7 +228,10 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   // slug does.
   { name: 'Permission', entity: Permission, timestampField: 'updatedAt', clinicScope: { type: 'global' }, uniqueFields: ['key'] },
   // No clinicId column — scope indirectly via the user the role assignment belongs to.
-  { name: 'UserRole', entity: UserRole, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: User, localField: 'userId' }, foreignKeys: [{ field: 'roleId', refEntity: Role }] },
+  // timestampField is 'assignedAt' — UserRole's actual @CreateDateColumn
+  // (see user-role.entity.ts). Same wrong-'createdAt' bug as
+  // ConsentSubmission/IntakeFormSubmission/Vitals above.
+  { name: 'UserRole', entity: UserRole, timestampField: 'assignedAt', clinicScope: { type: 'via', viaEntity: User, localField: 'userId' }, foreignKeys: [{ field: 'roleId', refEntity: Role }] },
   // uniqueFields: ['email'] — users.email has a DB-level UNIQUE index
   // (see User entity). Without this, a pulled User row whose id doesn't
   // exist locally but whose email already belongs to a different local
