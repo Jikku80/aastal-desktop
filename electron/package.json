@@ -1,6 +1,6 @@
 {
   "name": "aastal-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Aastal clinic management — offline-capable desktop app",
   "main": "main.js",
   "private": true,
@@ -26,7 +26,8 @@
     "publish": {
       "provider": "github",
       "owner": "jikku80",
-      "repo": "aastal-desktop"
+      "repo": "aastal-desktop",
+      "releaseType": "release"
     },
     "directories": {
       "output": "../dist-electron",
