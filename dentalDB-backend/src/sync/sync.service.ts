@@ -205,6 +205,7 @@ export class SyncService {
       // this, a clinic can get stuck never fully syncing to a new device
       // once it has more than one user.
       await this.attachSelectFalseFields(entry.name, repo, rows);
+      await this.attachManyToManyFields(entry.name, repo, rows);
       entities[entry.name] = rows;
     }
     return { serverTime: new Date().toISOString(), entities };
@@ -827,6 +828,41 @@ export class SyncService {
     }
   }
 
+  // Same problem as attachSelectFalseFields, but for `eager: false`
+  // many-to-many relations (e.g. Branch.staff via the user_branches join
+  // table) declared on a SyncRegistryEntry via `manyToManyFields`. A plain
+  // repo.find() never loads these, so without this the join-table data
+  // simply never travels in either sync direction — the row arrives with
+  // no `staff` field at all, applyIncoming has nothing to write into the
+  // local join table, and any query that depends on it locally (e.g.
+  // BranchesController.getUserBranches' INNER JOIN against user_branches)
+  // comes back empty on that device even though the assignment is real.
+  // Only the id is kept per related row — that's all applyIncoming's id
+  // remap step and repo.save()'s join-table sync need.
+  private async attachManyToManyFields(entityName: string, repo: Repository<any>, rows: any[]): Promise<void> {
+    const entry = SYNC_REGISTRY.find((e) => e.name === entityName);
+    const fields = entry?.manyToManyFields;
+    if (!fields?.length || !rows.length) return;
+
+    const ids = rows.map((r) => r.id).filter((id) => id != null);
+    if (!ids.length) return;
+
+    const withRelations = await repo.find({
+      where: { id: In(ids) } as any,
+      relations: fields.map((f) => f.field),
+    });
+    const byId = new Map(withRelations.map((r: any) => [r.id, r]));
+
+    for (const row of rows) {
+      const extra = byId.get(row.id);
+      if (!extra) continue;
+      for (const f of fields) {
+        const items = (extra as any)[f.field];
+        row[f.field] = Array.isArray(items) ? items.map((item: any) => ({ id: item.id })) : items;
+      }
+    }
+  }
+
   async pushPending(): Promise<{ pushed: number; conflicts: number }> {
     const remote = this.getRemoteBaseUrl();
     if (!remote) throw new Error('SYNC_REMOTE_BASE_URL not configured — cannot push');
@@ -842,6 +878,7 @@ export class SyncService {
       const rows = await repo.find({ where: { syncStatus: 'pending' } as any });
       if (!rows.length) continue;
       await this.attachSelectFalseFields(entry.name, repo, rows);
+      await this.attachManyToManyFields(entry.name, repo, rows);
       const outgoing = rows.map((row) => this.sanitizeOutgoingRow(entry.name, row as any));
       const { data } = await firstValueFrom(
         this.http.post<PushResult>(

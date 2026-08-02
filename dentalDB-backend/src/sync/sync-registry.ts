@@ -218,7 +218,17 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   { name: 'PatientWallet', entity: PatientWallet, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'ClinicService', entity: ClinicService, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'DowngradeSelection', entity: DowngradeSelection, timestampField: 'updatedAt', clinicScope: direct },
-  { name: 'Branch', entity: Branch, timestampField: 'updatedAt', clinicScope: direct },
+  // `staff` is a ManyToMany (owning side, join table `user_branches`) —
+  // eager: false, so it was never picked up by the sync engine's plain
+  // repo.find() calls. Without manyToManyFields declared here, the
+  // outgoing payload never carried branch-staff assignments to a device's
+  // local SQLite DB at all, so a non-admin's `/branches/my` query (an
+  // INNER JOIN against that same join table) always returned zero rows
+  // locally — even though the assignment existed and worked fine against
+  // the hosted Postgres DB the web app talks to directly. Owner/super_admin
+  // never hit this because their branch list comes from a plain
+  // `findAll(clinicId)`, not the staff join.
+  { name: 'Branch', entity: Branch, timestampField: 'updatedAt', clinicScope: direct, manyToManyFields: [{ field: 'staff', refEntity: User }] },
   { name: 'Clinic', entity: Clinic, timestampField: 'updatedAt', clinicScope: { type: 'self' }, uniqueFields: ['slug'] },
   // clinicId is nullable on Role (system-wide default roles) — those rows
   // simply never match a clinic filter and won't sync out, which is
