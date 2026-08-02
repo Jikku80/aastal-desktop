@@ -325,6 +325,21 @@ export default function PatientDetailPanel({
         </div>
       </div>
 
+      {/* Allergy alert — shown immediately on open, on every tab, so staff
+          can't miss it before treating this patient. */}
+      {patient.allergies?.length > 0 && (
+        <div className="mx-4 mt-3 px-3 py-2.5 rounded-xl flex items-start gap-2 shrink-0"
+          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+          <AlertTriangle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-amber-400">Allergy alert</p>
+            <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+              {patient.firstName} is allergic to <span className="font-medium text-amber-400">{patient.allergies.join(', ')}</span>
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Delete confirmation */}
       {confirmDelete && (
         <div className="mx-4 mt-3 p-4 rounded-xl shrink-0"

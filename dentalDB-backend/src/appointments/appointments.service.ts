@@ -13,6 +13,7 @@ import { NotificationType } from '../notifications/entities/notification.entity'
 import { BillingService } from '../billing/billing.service';
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { Invoice } from '../billing/entities/invoice.entity';
+import { PatientAccountLink, LinkVerificationStatus } from '../patient-auth/entities/patient-account-link.entity';
 
 @Injectable()
 export class AppointmentsService {
@@ -21,6 +22,7 @@ export class AppointmentsService {
     @InjectRepository(Patient)     private patientRepo: Repository<Patient>,
     @InjectRepository(Clinic)      private clinicRepo: Repository<Clinic>,
     @InjectRepository(Invoice)     private invoiceRepo: Repository<Invoice>,
+    @InjectRepository(PatientAccountLink) private linkRepo: Repository<PatientAccountLink>,
     private notificationsService: NotificationsService,
     private notificationsGateway: NotificationsGateway,
     private billingService: BillingService,
@@ -274,16 +276,33 @@ export class AppointmentsService {
     }
 
 
-    // Emit real-time to patient portal if status changed to confirmed
+    // Emit real-time to patient portal if status changed to confirmed.
+    //
+    // NOTE: `updated.patientId` is the clinic-side Patient row id, not the
+    // patient's portal login (PatientAccount) id. The patient's socket joins
+    // room `patient:{patientAccountId}` (see NotificationsGateway
+    // `join-patient-room`), so emitting with the clinicPatientId broadcast to
+    // a room nobody was ever in and the confirmation silently vanished. Look
+    // up the linked patientAccountId(s) via PatientAccountLink first.
     if (dto.status === AppointmentStatus.CONFIRMED || (dto as any).status === 'confirmed') {
-      const patientId = (updated as any).patientId || (updated as any).patient?.patientAccountId;
-      if (patientId) {
+      const clinicPatientId = (updated as any).patientId;
+      if (clinicPatientId) {
         try {
-          this.notificationsGateway.emitToPatient(patientId, 'appointment_confirmed', {
-            appointmentId: updated.id,
-            scheduledAt:   (updated as any).scheduledAt,
-            videoRoomUrl:  (updated as any).videoRoomUrl,
+          const links = await this.linkRepo.find({
+            where: { clinicPatientId },
           });
+          const verifiedLinks = links.filter(l =>
+            l.verificationStatus === LinkVerificationStatus.AUTO_MATCHED ||
+            l.verificationStatus === LinkVerificationStatus.VERIFIED ||
+            l.verificationStatus == null,
+          );
+          for (const link of verifiedLinks) {
+            this.notificationsGateway.emitToPatient(link.patientAccountId, 'appointment_confirmed', {
+              appointmentId: updated.id,
+              scheduledAt:   (updated as any).scheduledAt,
+              videoRoomUrl:  (updated as any).videoRoomUrl,
+            });
+          }
         } catch { /* non-critical */ }
       }
     }

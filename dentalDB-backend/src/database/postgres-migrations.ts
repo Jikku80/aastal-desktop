@@ -24,6 +24,8 @@ import { ClinicalRecordVisits1784300000000 } from '../migrations/1784300000000-C
 import { RecordsBranchScoping1784400000000 } from '../migrations/1784400000000-RecordsBranchScoping';
 import { IndependentDoctorRoleScope1784500000000 } from '../migrations/1784500000000-IndependentDoctorRoleScope';
 import { NotificationPatientId1784600000000 } from '../migrations/1784600000000-NotificationPatientId';
+import { AppointmentIndependentBookingNullable1784800000000 } from '../migrations/1784800000000-AppointmentIndependentBookingNullable';
+import { InvoiceNumberPerClinicUnique1784900000000 } from '../migrations/1784900000000-InvoiceNumberPerClinicUnique';
 
 export const POSTGRES_MIGRATIONS = [
   SeoInfrastructure1700000000001,
@@ -47,4 +49,6 @@ export const POSTGRES_MIGRATIONS = [
   RecordsBranchScoping1784400000000,
   IndependentDoctorRoleScope1784500000000,
   NotificationPatientId1784600000000,
+  AppointmentIndependentBookingNullable1784800000000,
+  InvoiceNumberPerClinicUnique1784900000000,
 ];

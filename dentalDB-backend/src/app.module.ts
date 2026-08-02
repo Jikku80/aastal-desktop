@@ -38,6 +38,7 @@ import { ClinicalRecordsModule } from './clinical-records/clinical-records.modul
 
 import { User }                 from './users/entities/user.entity';
 import { Clinic }               from './clinics/entities/clinic.entity';
+import { Branch }               from './branch/entities/branch.entity';
 import { Subscription }         from './subscriptions/entities/subscription.entity';
 import { SubscriptionRequest }  from './subscriptions/entities/subscription-request.entity';
 import { WaitingQueueModule } from './waiting-queue/waiting-queue.module';
@@ -100,7 +101,7 @@ import { DoctorPortalModule }    from './doctor-portal/doctor-portal.module';
       inject: [ConfigService],
     }),
     TypeOrmModule.forFeature([
-      User, Clinic, Subscription, SubscriptionRequest,
+      User, Clinic, Branch, Subscription, SubscriptionRequest,
       DoctorClinicAffiliation, DoctorProfile, DoctorLocation,
       IndependentAvailability, PatientAccount, PatientAccountLink,
     ]),

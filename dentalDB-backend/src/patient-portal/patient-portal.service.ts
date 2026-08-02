@@ -115,14 +115,28 @@ export class PatientPortalService {
     let allLinks = existingLinks;
 
     if (normalizedPhone || normalizedEmail) {
+      // `RIGHT(REGEXP_REPLACE(..., 'g'))` is Postgres-only syntax — SQLite
+      // (used by the offline Electron desktop backend) has no REGEXP_REPLACE
+      // or RIGHT function and throws on this query, which took down the
+      // entire /patient/appointments (and prescriptions/reports/invoices)
+      // response whenever it ran against SQLite. LOWER() for the email match
+      // is portable and stays in SQL; the phone match is now a cheap coarse
+      // SQL pre-filter (works on both drivers) followed by an exact
+      // normalized-digit comparison in JS, since raw phone formatting is too
+      // inconsistent to trust the SQL LIKE alone.
       const qb = this.patientRepo.createQueryBuilder('p');
       if (normalizedPhone) {
-        qb.orWhere(`RIGHT(REGEXP_REPLACE(p.phone, '\\D', '', 'g'), 10) = :normalizedPhone`, { normalizedPhone });
+        qb.orWhere(`p.phone LIKE :phoneLike`, { phoneLike: `%${normalizedPhone}%` });
       }
       if (normalizedEmail) {
         qb.orWhere('LOWER(p.email) = :normalizedEmail', { normalizedEmail });
       }
-      const matches = await qb.getMany();
+      const candidates = await qb.getMany();
+      const matches = candidates.filter(p => {
+        const emailMatch = !!normalizedEmail && !!p.email && p.email.trim().toLowerCase() === normalizedEmail;
+        const phoneMatch = !!normalizedPhone && !!p.phone && p.phone.replace(/\D/g, '').slice(-10) === normalizedPhone;
+        return emailMatch || phoneMatch;
+      });
       const newLinks = matches.filter(m => !linkedPatientIds.has(m.id));
       if (newLinks.length > 0) {
         await this.linkRepo.save(

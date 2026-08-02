@@ -101,6 +101,62 @@ export const SYSTEM_PERMISSIONS = [
   { key: 'doctor.reviews.respond',   label: 'Respond to Reviews (Doctor-scoped)', group: 'Doctor' },
 ];
 
+/**
+ * Default permission set granted to the auto-created "Doctor" and "Staff"
+ * roles every clinic gets at registration (see RbacService.seedDefaultRolesForClinic).
+ * Both roles start out identical — day-to-day clinical/front-desk operation
+ * without clinic-wide admin controls (no roles.manage, no branch.manage, no
+ * settings.manage, no destructive delete/merge actions, no finance beyond
+ * billing/invoices). The clinic owner can edit either role's permissions
+ * individually afterward from Dashboard → Roles, same as any custom role —
+ * these are starting points, not locked system roles (isSystem: false).
+ *
+ * Mapped from the requested feature areas:
+ *   queue, appointment, task, recall, billing, visualization/records,
+ *   patients, notices, holidays, services, inventory, records, labwork,
+ *   blood test, attendance (view + update only), shifts (view only)
+ *
+ * Notes on a few areas that don't have their own permission key:
+ *  - "recall" reuses appointment.* + patient.view — recalls.controller.ts
+ *    is gated entirely by those two groups, there's no separate recall.*
+ *    permission in SYSTEM_PERMISSIONS.
+ *  - "visualization" (imaging/dental-chart/anatomy/timeline/health-trends/
+ *    lab-results/dermatology) is gated by records.* — dental-chart.controller.ts
+ *    is the concrete example — so it's covered by the records.* keys below.
+ *  - attendance is intentionally view + manage (manage is the only mutate-
+ *    level key that exists — there's no separate attendance.update), which
+ *    is what "view, update" maps to.
+ *  - shifts is view-only on purpose — shift.manage is left out.
+ */
+export const DEFAULT_STAFF_PERMISSIONS: string[] = [
+  'dashboard.view',
+  // Queue
+  'queue.view', 'queue.manage',
+  // Appointments (covers recall scheduling too)
+  'appointment.view', 'appointment.create', 'appointment.update',
+  // Tasks
+  'tasks.view', 'tasks.manage',
+  // Billing
+  'billing.view', 'invoice.create', 'invoice.update',
+  // Patients (+ recall lookups)
+  'patient.view', 'patient.create', 'patient.update', 'patient.record',
+  // Notices & Holidays — view only, these are posted/managed by the owner
+  'notice.view',
+  'holiday.view',
+  // Services & Inventory — view only, catalog/stock config stays admin-only
+  'services.view',
+  'inventory.view',
+  // Clinical records (also covers the "visualization" pages)
+  'records.view', 'records.create', 'records.update',
+  // Lab work & blood tests — need to create/update results, not just view
+  'lab.view', 'lab.manage',
+  'blood_test.view', 'blood_test.manage',
+  // Attendance — view + update (no separate "update" key; manage covers it)
+  'attendance.view', 'attendance.manage',
+  // Shifts — view only, as requested
+  'shift.view',
+];
+
 @Injectable()
 export class RbacService {
   constructor(
@@ -299,6 +355,63 @@ export class RbacService {
       permissions: allPerms,
     });
     return this.roleRepo.save(owner);
+  }
+
+  /**
+   * Auto-create the default "Doctor" and "Staff" roles for a brand-new
+   * clinic, alongside the Owner role — so the owner has two ready-to-use
+   * roles to assign the moment they invite their first team members,
+   * instead of having to build permission sets from scratch on Day 1.
+   *
+   * Idempotent by (name, clinicId): if a role with that name already
+   * exists for this clinic, it's left completely alone — unlike
+   * seedOwnerRoleForClinic's self-heal behavior, these are meant to be
+   * edited/customized by the owner afterward via Dashboard → Roles, so
+   * re-running this must never clobber those edits.
+   */
+  async seedDefaultRolesForClinic(clinicId: string): Promise<Role[]> {
+    // Guarantee the permission catalog exists regardless of call order
+    // (this is also called from the offline first-run seeder, which can't
+    // rely on AppModule's own onApplicationBootstrap having already run).
+    await this.seedSystemPermissions();
+
+    const allPerms = await this.permRepo.find();
+    const defaultPerms = allPerms.filter((p) => DEFAULT_STAFF_PERMISSIONS.includes(p.key));
+
+    const roleDefs: { name: string; description: string }[] = [
+      {
+        name: 'Doctor',
+        description:
+          'Default role for dentists/doctors — appointments, patient records, ' +
+          'clinical charts, lab & blood work, billing, tasks, and queue. ' +
+          'Editable from Dashboard → Roles.',
+      },
+      {
+        name: 'Staff',
+        description:
+          'Default role for front-desk / support staff — queue, appointments, ' +
+          'patients, billing, tasks, and daily clinic operations. ' +
+          'Editable from Dashboard → Roles.',
+      },
+    ];
+
+    const results: Role[] = [];
+    for (const def of roleDefs) {
+      let role = await this.roleRepo.findOne({ where: { name: def.name, clinicId } });
+      if (!role) {
+        role = await this.roleRepo.save(
+          this.roleRepo.create({
+            name: def.name,
+            description: def.description,
+            clinicId,
+            isSystem: false, // owner can freely rename/edit/delete these — only Owner is locked
+            permissions: defaultPerms,
+          }),
+        );
+      }
+      results.push(role);
+    }
+    return results;
   }
 
   /**

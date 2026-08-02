@@ -220,10 +220,11 @@ export class DiscoveryService {
 
   async findNearbyDoctors(params: {
     lat?: number; lng?: number; radiusKm?: number; specialization?: string;
-    consultationType?: string; availableToday?: boolean; sort?: string;
+    search?: string; consultationType?: string; availableToday?: boolean;
+    availableForInstantConsult?: boolean; sort?: string;
     page?: number; limit?: number;
   }) {
-    const { lat, lng, radiusKm = 20, specialization, consultationType, sort = 'distance', page = 1, limit = 20 } = params;
+    const { lat, lng, radiusKm = 20, specialization, search, consultationType, availableForInstantConsult, sort = 'distance', page = 1, limit = 20 } = params;
 
     let profiles = await this.profileRepo.find({
       where: { isPubliclyListed: true },
@@ -232,6 +233,26 @@ export class DiscoveryService {
 
     if (specialization) {
       profiles = profiles.filter(p => p.specializations?.some(s => s.toLowerCase().includes(specialization.toLowerCase())));
+    }
+
+    // Free-text search by doctor name, specialization, or bio — mirrors the
+    // clinics endpoint's `search` filter. Previously the frontend sent this
+    // param but the backend never read it, so searching for a doctor by
+    // name silently returned every doctor instead of filtering.
+    if (search) {
+      const q = search.toLowerCase();
+      profiles = profiles.filter(p => {
+        const fullName = `${p.user?.firstName || ''} ${p.user?.lastName || ''}`.toLowerCase();
+        return (
+          fullName.includes(q) ||
+          p.specializations?.some(s => s.toLowerCase().includes(q)) ||
+          p.bio?.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    if (availableForInstantConsult) {
+      profiles = profiles.filter(p => p.isAvailableForInstantConsult);
     }
 
     // Enrich with locations

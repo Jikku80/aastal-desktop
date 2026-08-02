@@ -570,8 +570,8 @@ function UpdateSubModal({ clinic, onClose }: { clinic: any; onClose: () => void 
                 className="input w-full text-sm" />
               <p className="text-[10px] text-[var(--text-muted)] mt-1">
                 {plan === 'pro'
-                  ? `NPR 1,500 base + ${(Number(numBranches) || 1) - 1} × NPR 500 = NPR ${(1500 + ((Number(numBranches) || 1) - 1) * 500).toLocaleString()}/mo`
-                  : `NPR 2,500 base + ${(Number(numBranches) || 1) - 1} × NPR 500 = NPR ${(2500 + ((Number(numBranches) || 1) - 1) * 500).toLocaleString()}/mo`}
+                  ? `NPR 800 base + ${(Number(numBranches) || 1) - 1} × NPR 500 = NPR ${(800 + ((Number(numBranches) || 1) - 1) * 500).toLocaleString()}/mo`
+                  : `NPR 1,200 base + ${(Number(numBranches) || 1) - 1} × NPR 500 = NPR ${(1200 + ((Number(numBranches) || 1) - 1) * 500).toLocaleString()}/mo`}
                 {' '}· excess branches become read-only automatically.
               </p>
             </div>

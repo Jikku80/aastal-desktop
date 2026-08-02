@@ -22,7 +22,7 @@ const schema = z.object({
     { message: 'Phone number must be exactly 10 digits' },
   ),
   ageYears:              z.coerce.number().int().min(0).max(150).optional().or(z.literal('')),
-  gender:                z.enum(['male', 'female', 'other']).optional(),
+  gender:                z.enum(['male', 'female', 'other']).optional().or(z.literal('')),
   address:               z.string().optional(),
   emergencyContactName:  z.string().optional(),
   emergencyContactPhone: z.string().optional(),
@@ -44,6 +44,27 @@ function stripNepalPhonePrefix(val: string | undefined | null): string {
   return digits.slice(-10);
 }
 
+/**
+ * The API returns `null` for any unset optional patient field (email,
+ * address, gender, notes, ...), but the zod schema's `.optional()` only
+ * accepts a MISSING value (`undefined`) — `null` fails validation with
+ * "Expected string, received null". Loading `defaultValues` straight from
+ * `patient` therefore silently blocked submission on every existing patient
+ * that had any blank optional field (very common — e.g. no email on file),
+ * with no visible error since most fields here don't render one. Editing
+ * (or just clicking into/out of) each blank field replaced its `null` with
+ * `''`, which IS valid — which is why "touching every field" before Save
+ * appeared to fix it. Normalizing null -> '' up front here fixes it for
+ * every field at once, without needing to touch anything first.
+ */
+function nullsToEmptyStrings<T extends Record<string, any>>(obj: T): T {
+  const out: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    out[key] = value === null ? '' : value;
+  }
+  return out;
+}
+
 export default function PatientModal({
   onClose, onSuccess, patient,
 }: { onClose: () => void; onSuccess: () => void; patient?: any }) {
@@ -52,7 +73,7 @@ export default function PatientModal({
   const { register, handleSubmit, control, setValue, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: patient ? {
-      ...patient,
+      ...nullsToEmptyStrings(patient),
       ageYears:          patient.ageYears ?? patient.age ?? '',
       allergies:         patient.allergies?.join(', '),
       medicalConditions: patient.medicalConditions?.join(', '),

@@ -10,7 +10,6 @@ import { Appointment } from '../appointments/entities/appointment.entity';
 import { Invoice, InvoiceStatus } from '../billing/entities/invoice.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
-import { Subscription } from '../subscriptions/entities/subscription.entity';
 import { UserRole as UserRoleAssignment } from '../rbac/entities/user-role.entity';
 import { addDays } from 'date-fns';
 import { pendingSyncFields } from '../sync/pending-sync.util';
@@ -19,9 +18,9 @@ import { pendingSyncFields } from '../sync/pending-sync.util';
 export const DOWNGRADE_GRACE_PERIOD_DAYS = 7;
 
 // ── Branch quota helpers ───────────────────────────────────────────────────────
-export const PRO_BASE_MONTHLY         = 1500;
+export const PRO_BASE_MONTHLY         = 800;
 export const PRO_PER_BRANCH_MONTHLY   = 500;
-export const ENT_BASE_MONTHLY         = 2500;
+export const ENT_BASE_MONTHLY         = 1200;
 export const ENT_PER_BRANCH_MONTHLY   = 500;
 
 export function branchQuotaFromAmount(plan: string, monthlyAmount: number): number {
@@ -66,7 +65,6 @@ export class BranchesService {
     @InjectRepository(Invoice)            private invoiceRepo:     Repository<Invoice>,
     @InjectRepository(Patient)            private patientRepo:     Repository<Patient>,
     @InjectRepository(Clinic)             private clinicRepo:      Repository<Clinic>,
-    @InjectRepository(Subscription)       private subRepo:         Repository<Subscription>,
     @InjectRepository(UserRoleAssignment) private userRoleRepo:    Repository<UserRoleAssignment>,
   ) {}
 

@@ -695,9 +695,9 @@ function Pricing() {
     {
       name: "Pro",
       badge: "Most popular",
-      price: billing === "monthly" ? "NPR 1,500" : "NPR 16,500",
+      price: billing === "monthly" ? "NPR 800" : "NPR 8,800",
       priceNote: billing === "monthly" ? "per month · 1 branch" : "per year · 1 month free",
-      yearlyNote: billing === "yearly" ? "Save NPR 1,500/yr" : null,
+      yearlyNote: billing === "yearly" ? "Save NPR 800/yr" : null,
       description: "Everything a growing clinic needs, priced per branch as you scale.",
       featured: true,
       cta: "Get started",
@@ -714,9 +714,9 @@ function Pricing() {
     {
       name: "Enterprise",
       badge: "Full power",
-      price: billing === "monthly" ? "NPR 2,500" : "NPR 27,500",
+      price: billing === "monthly" ? "NPR 1,200" : "NPR 13,200",
       priceNote: billing === "monthly" ? "per month · 1 branch" : "per year · 1 month free",
-      yearlyNote: billing === "yearly" ? "Save NPR 2,500/yr" : null,
+      yearlyNote: billing === "yearly" ? "Save NPR 1,200/yr" : null,
       description: "For hospitals and multi-branch groups that need a public website and integrations.",
       featured: false,
       cta: "Get started",

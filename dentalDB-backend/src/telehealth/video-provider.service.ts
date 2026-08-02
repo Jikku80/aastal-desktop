@@ -29,9 +29,51 @@ export class VideoProviderService {
     return this.createStubRoom(appointmentId);
   }
 
+  /**
+   * Mint a fresh join token for an ALREADY-EXISTING room, instead of
+   * creating a brand-new room. Callers (getPatientToken/getStaffToken in
+   * TelehealthService) need this because every "Join" click re-requests a
+   * token — if that unconditionally called createRoom() again for the
+   * 'daily' provider, it would mint a *new* Daily room + tokens scoped to
+   * that new room on every click, while still returning the original
+   * (already-persisted) roomUrl. The doctor and patient would each be
+   * handed tokens for two different, unrelated Daily rooms and never
+   * actually reach each other, despite both looking at the same
+   * appointment. The stub provider doesn't have this problem (tokens are
+   * meaningless random bytes), so it's a no-op passthrough there.
+   */
+  async mintToken(roomId: string, isOwner: boolean): Promise<string> {
+    if (this.provider !== 'daily') {
+      return crypto.randomBytes(24).toString('hex');
+    }
+    const apiKey = process.env.DAILY_API_KEY;
+    if (!apiKey) throw new Error('DAILY_API_KEY not configured');
+    const r = await fetch('https://api.daily.co/v1/meeting-tokens', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        properties: {
+          room_name: roomId,
+          is_owner: isOwner,
+          exp: Math.floor(Date.now() / 1000) + 2 * 60 * 60,
+        },
+      }),
+    });
+    return ((await r.json()) as any).token;
+  }
+
   private createStubRoom(appointmentId: string): VideoRoom {
     const roomId = `room-${appointmentId.slice(0, 8)}`;
-    const base = process.env.APP_URL || 'https://app.dentalos.io';
+    // NOTE: this used to fall back to 'https://app.dentalos.io' — a
+    // placeholder domain baked into the original stub template, not a real
+    // server anyone owns. If APP_URL isn't set it silently sent every patient
+    // to that dead domain instead of failing loudly. Fall back to FRONTEND_URL
+    // (already set for CORS elsewhere) or localhost, and warn so this gets
+    // noticed in dev instead of surfacing as "server not found" in prod.
+    const base = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+    if (!process.env.APP_URL && !process.env.FRONTEND_URL) {
+      this.logger.warn('APP_URL/FRONTEND_URL not set — video room links will point to localhost:3000');
+    }
     const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 h
     const hostToken = crypto.randomBytes(24).toString('hex');
     const guestToken = crypto.randomBytes(24).toString('hex');

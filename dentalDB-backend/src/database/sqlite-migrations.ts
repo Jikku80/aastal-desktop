@@ -13,6 +13,8 @@ import { RecordsBranchScoping1784400000000 } from '../migrations/sqlite/17844000
 import { IndependentDoctorRoleScope1784500000000 } from '../migrations/sqlite/1784500000000-IndependentDoctorRoleScope';
 import { NotificationPatientId1784600000000 } from '../migrations/sqlite/1784600000000-NotificationPatientId';
 import { AuditLogWalletEnumValue1784700000000 } from '../migrations/sqlite/1784700000000-AuditLogWalletEnumValue';
+import { AppointmentIndependentBookingNullable1784800000000 } from '../migrations/sqlite/1784800000000-AppointmentIndependentBookingNullable';
+import { InvoiceNumberPerClinicUnique1784900000000 } from '../migrations/sqlite/1784900000000-InvoiceNumberPerClinicUnique.sqlite';
 
 export const SQLITE_MIGRATIONS = [
   Migration1782578519527,
@@ -27,4 +29,6 @@ export const SQLITE_MIGRATIONS = [
   IndependentDoctorRoleScope1784500000000,
   NotificationPatientId1784600000000,
   AuditLogWalletEnumValue1784700000000,
+  AppointmentIndependentBookingNullable1784800000000,
+  InvoiceNumberPerClinicUnique1784900000000,
 ];

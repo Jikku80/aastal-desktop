@@ -62,7 +62,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setBranches(accessible);
       if (accessible.length === 1) setActiveBranch(accessible[0]);
     } catch {
-      setBranches([]);
+      // BUG FIX: this used to unconditionally `setBranches([])` on ANY
+      // failure — including a transient network hiccup talking to the
+      // local Electron backend. That wipes out a perfectly good, already-
+      // persisted branch list (and, before the fast-path fix above, that
+      // empty list could persist forever). Only clear branches if we don't
+      // already have some cached locally; otherwise leave the existing
+      // (possibly stale but non-empty) list in place and let the next
+      // successful load correct it.
+      if (useAuthStore.getState().branches.length === 0) setBranches([]);
     }
   };
 
@@ -83,11 +91,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const verify = async () => {
       // If store already has authenticated user (fresh login/register via window.location.href),
-      // skip the /me round-trip and mark as initialized immediately
+      // skip the /me round-trip and mark as initialized immediately.
+      //
+      // BUG FIX: this used to `return` here without ever calling loadBranches().
+      // On every subsequent app launch (isAuthenticated is persisted to
+      // localStorage/zustand-persist), branches were taken ONLY from
+      // whatever got persisted at the moment of the original login — never
+      // re-verified against the backend. If that original login's
+      // `branchesApi.list()` call raced the local Electron backend still
+      // spinning up (very possible on a cold desktop start) and hit its
+      // `catch { setBranches([]) }` fallback, `branches: []` got persisted
+      // forever, and the navbar BranchSwitcher dropdown would never show
+      // anything again on any future launch — even after the backend was
+      // fully up — because this early-return path never asked again. We
+      // still skip the blocking /me round-trip (that's the whole point of
+      // this fast path), but branches are cheap and idempotent to re-fetch
+      // in the background so a bad first-run snapshot self-heals.
       if (isAuthenticated) {
         clearTimeout(timeout);
         if (!cancelled) { setLoading(false); setInit(true); }
         startRefreshTimer();
+        const currentUser = useAuthStore.getState().user;
+        if (currentUser) loadBranches(currentUser);
         return;
       }
       try {

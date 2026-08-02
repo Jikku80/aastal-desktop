@@ -6,6 +6,8 @@ import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Clinic, SubscriptionPlan } from '../clinics/entities/clinic.entity';
+import { Branch } from '../branch/entities/branch.entity';
+import { RbacService } from '../rbac/rbac.service';
 
 @Injectable()
 export class OfflineAdminSeeder implements OnApplicationBootstrap {
@@ -14,7 +16,9 @@ export class OfflineAdminSeeder implements OnApplicationBootstrap {
   constructor(
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Clinic) private clinicRepo: Repository<Clinic>,
+    @InjectRepository(Branch) private branchRepo: Repository<Branch>,
     private config: ConfigService,
+    private rbac: RbacService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -31,6 +35,20 @@ export class OfflineAdminSeeder implements OnApplicationBootstrap {
           { trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) },
         )
         .catch((err) => this.logger.warn(`Trial backfill skipped: ${err?.message ?? err}`));
+
+      // Backfill for installs that were created before this file started
+      // auto-provisioning a first branch (see below) — without at least one
+      // Branch row, the navbar branch switcher, the Branches admin page,
+      // and every branch-scoped feature (appointments, patients, billing,
+      // ...) have nothing to show or assign records to.
+      await this.ensureAtLeastOneBranch()
+        .catch((err) => this.logger.warn(`Default-branch backfill skipped: ${err?.message ?? err}`));
+
+      // Same idea for the default Doctor/Staff RBAC roles — installs from
+      // before this existed would otherwise never get them since this
+      // whole branch only runs once, at first launch, for a brand-new clinic.
+      await this.ensureDefaultRolesExist()
+        .catch((err) => this.logger.warn(`Default-role backfill skipped: ${err?.message ?? err}`));
       return;
     }
 
@@ -65,6 +83,27 @@ export class OfflineAdminSeeder implements OnApplicationBootstrap {
       }),
     );
 
+    // Every other piece of branch-scoped UI (navbar switcher, patients,
+    // appointments, billing, ...) assumes at least one Branch row exists.
+    // Without this, a fresh offline install has an owner account and a
+    // clinic but literally nothing to select in the branch switcher — it
+    // still renders (admins see "All Branches" / "Manage Branches" even at
+    // zero branches), but there's nothing to actually switch between until
+    // the owner manually visits Settings > Branches, which most people
+    // never discover on first run. Seed one "Main Branch" so the app is
+    // immediately usable, exactly like a fresh online signup would expect.
+    await this.branchRepo.save(
+      this.branchRepo.create({
+        clinicId: clinic.id,
+        name: 'Main Branch',
+      }),
+    );
+
+    // Same "Doctor" / "Staff" default roles a hosted online registration
+    // gets (see auth.service.ts register()) — so the offline owner has
+    // ready-to-use roles the moment they add their first team member.
+    await this.rbac.seedDefaultRolesForClinic(clinic.id);
+
     this.logger.warn('════════════════════════════════════════════════════════');
     this.logger.warn('  No clinic found locally — seeded a local offline owner account.');
     this.logger.warn(`  Email:    ${email}`);
@@ -73,6 +112,27 @@ export class OfflineAdminSeeder implements OnApplicationBootstrap {
     this.logger.warn('  The FIRST TIME you log in while online, this account and clinic');
     this.logger.warn('  are automatically created on the hosted Aastal backend too.');
     this.logger.warn('════════════════════════════════════════════════════════');
+  }
+
+  /** Idempotent: only inserts a branch if the clinic genuinely has zero. */
+  private async ensureAtLeastOneBranch(): Promise<void> {
+    const clinics = await this.clinicRepo.find();
+    for (const clinic of clinics) {
+      const count = await this.branchRepo.count({ where: { clinicId: clinic.id } });
+      if (count > 0) continue;
+      await this.branchRepo.save(
+        this.branchRepo.create({ clinicId: clinic.id, name: 'Main Branch' }),
+      );
+      this.logger.warn(`Seeded a default "Main Branch" for clinic ${clinic.id} (had zero branches).`);
+    }
+  }
+
+  /** Idempotent: RbacService.seedDefaultRolesForClinic only creates roles that don't already exist by name. */
+  private async ensureDefaultRolesExist(): Promise<void> {
+    const clinics = await this.clinicRepo.find();
+    for (const clinic of clinics) {
+      await this.rbac.seedDefaultRolesForClinic(clinic.id);
+    }
   }
 
   private generateCompliantPassword(): string {

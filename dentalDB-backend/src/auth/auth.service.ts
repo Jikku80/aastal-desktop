@@ -11,6 +11,7 @@ import * as crypto from 'crypto';
 import { v4 as uuid } from 'uuid';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Clinic, SubscriptionPlan } from '../clinics/entities/clinic.entity';
+import { Branch } from '../branch/entities/branch.entity';
 import { DoctorProfile } from '../doctor-profile/entities/doctor-profile.entity';
 import { RegisterDto } from './dto/register.dto';
 import { ClaimClinicDto } from './dto/claim-clinic.dto';
@@ -31,6 +32,7 @@ export class AuthService {
   constructor(
     @InjectRepository(User)          private userRepo:          Repository<User>,
     @InjectRepository(Clinic)        private clinicRepo:        Repository<Clinic>,
+    @InjectRepository(Branch)        private branchRepo:        Repository<Branch>,
     @InjectRepository(DoctorProfile) private doctorProfileRepo: Repository<DoctorProfile>,
     private jwtService:    JwtService,
     private config:        ConfigService,
@@ -113,6 +115,14 @@ export class AuthService {
         trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
       });
       clinic = await this.clinicRepo.save(clinic);
+      // A fresh clinic needs at least one branch to be usable — without
+      // this, the navbar branch switcher, the Branches admin page, and
+      // every branch-scoped feature (appointments, patients, billing, ...)
+      // have nothing to show until the owner manually creates one, which
+      // most people never discover on their own right after signing up.
+      await this.branchRepo.save(
+        this.branchRepo.create({ clinicId: clinic.id, name: 'Main Branch' }),
+      );
     }
 
     const user = this.userRepo.create({
@@ -135,6 +145,10 @@ export class AuthService {
         clinic.id,
         'super_admin', // bypass clinic check during registration
       );
+      // Auto-create the default "Doctor" and "Staff" roles too, so the
+      // owner has ready-to-use roles the moment they add their first team
+      // member instead of building permission sets from scratch.
+      await this.rbac.seedDefaultRolesForClinic(clinic.id);
     }
 
     const tokens = await this.generateTokens(user);
@@ -176,6 +190,9 @@ export class AuthService {
       isLocalPlaceholder: false,
     });
     await this.clinicRepo.save(clinic);
+    await this.branchRepo.save(
+      this.branchRepo.create({ clinicId: clinic.id, name: 'Main Branch' }),
+    );
 
     const user = this.userRepo.create({
       id:        dto.userId,
@@ -196,6 +213,8 @@ export class AuthService {
       clinic.id,
       'super_admin',
     );
+    // Same default roles a fresh online registration gets — see register().
+    await this.rbac.seedDefaultRolesForClinic(clinic.id);
 
     const tokens = await this.generateTokens(user);
     await this.saveRefreshToken(user.id, tokens.refreshToken);

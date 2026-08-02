@@ -222,10 +222,26 @@ export class SuperAdminService {
     }
     await this.subRepo.save(sub);
 
+    // Reactivating out of the free trial (unlimited branches, quota 999) into
+    // a branch-capped plan must never silently strand branches the clinic
+    // already has into 'pending_selection' — that's a forced downgrade the
+    // admin/owner never chose, and it blocks billing on those branches (see
+    // BranchLockGuard) plus a later RENEWAL_BLOCKED_PENDING_SELECTION 400 on
+    // renewal. If the approved request under-counts the clinic's actual
+    // active branches, raise the floor to match.
+    let numBranchesToApply = dto.numBranches;
+    if (numBranchesToApply != null && clinic.plan === 'free' && (dto.plan === 'pro' || dto.plan === 'enterprise')) {
+      const existingBranches = await this.branchesService.findAll(clinicId).catch(() => [] as any[]);
+      const activeBranchCount = existingBranches.filter((b: any) => b.status === 'active').length;
+      if (activeBranchCount > numBranchesToApply) {
+        numBranchesToApply = activeBranchCount;
+      }
+    }
+
     // For pro and enterprise plans, persist the purchased branch count in clinic settings
     const existingSettings = (clinic.settings as any) || {};
-    const newSettings = ((dto.plan === 'enterprise' || dto.plan === 'pro') && dto.numBranches != null)
-      ? { ...existingSettings, numBranches: Math.max(1, dto.numBranches) }
+    const newSettings = ((dto.plan === 'enterprise' || dto.plan === 'pro') && numBranchesToApply != null)
+      ? { ...existingSettings, numBranches: Math.max(1, numBranchesToApply) }
       : existingSettings;
 
     await this.clinicRepo.update(
@@ -235,8 +251,8 @@ export class SuperAdminService {
 
     // Apply branch quota lock/unlock after plan change.
     // Pass periodEnd so applyQuota can clear stale activationPeriodEnd locks on upgrade.
-    if (dto.numBranches != null) {
-      await this.branchesService.applyQuota(clinicId, dto.numBranches, periodEnd);
+    if (numBranchesToApply != null) {
+      await this.branchesService.applyQuota(clinicId, numBranchesToApply, periodEnd);
     }
 
     // Trigger SMS + Email notification

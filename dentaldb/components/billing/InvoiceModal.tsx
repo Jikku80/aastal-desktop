@@ -536,7 +536,10 @@ export default function InvoiceModal({
 
   return (
     <div className="fixed inset-0 z-[200] modal-clearance flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      {/* Backdrop is purely visual — no onClick here. An accidental click
+          outside the modal must never discard an in-progress invoice; the
+          header X and the Cancel button are the only ways to close. */}
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div className="relative w-full sm:max-w-xl max-h-[95vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl flex flex-col"
         style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
 

@@ -30,9 +30,9 @@ const PLAN_FEATURES: Record<string, string[]> = {
 };
 
 // ── Branch-based pricing ───────────────────────────────────────────────────────
-export const PRO_BASE_MONTHLY             = 1500;
+export const PRO_BASE_MONTHLY             = 800;
 export const PRO_PER_BRANCH_MONTHLY       = 500;
-export const ENTERPRISE_BASE_MONTHLY      = 2500;
+export const ENTERPRISE_BASE_MONTHLY      = 1200;
 export const ENTERPRISE_PER_BRANCH_MONTHLY = 500;
 
 export function calcProMonthly(numBranches: number): number {
@@ -244,13 +244,30 @@ export class SubscriptionsService {
       periodEnd = addMonths(now, 1);
     }
 
-    const numBranches = (dto.plan === SubscriptionPlan.PRO || dto.plan === SubscriptionPlan.ENTERPRISE)
+    let numBranches = (dto.plan === SubscriptionPlan.PRO || dto.plan === SubscriptionPlan.ENTERPRISE)
       ? Math.max(1, dto.numBranches ?? 1)
       : undefined;
 
     // Detect downgrade: current plan has more branches than new plan
     const currentNumBranches: number = (clinic.settings as any)?.numBranches ?? 1;
     const currentPlan = clinic.plan;
+
+    // Reactivating out of the free trial (which allows unlimited branches —
+    // quota 999) into a branch-capped plan must never silently strand
+    // branches the clinic already has into 'pending_selection'. That would
+    // be a forced downgrade the owner never asked for, and it blocks billing
+    // on those branches (see BranchLockGuard) and can later throw
+    // RENEWAL_BLOCKED_PENDING_SELECTION on the next renewal. If the request
+    // under-counts the clinic's actual active branches, raise the floor to
+    // match — a genuine downgrade is still possible afterwards from an
+    // already-paid plan, where this floor doesn't apply.
+    if (numBranches !== undefined && currentPlan === SubscriptionPlan.FREE) {
+      const existingBranches = await this.branches.findAll(clinicId).catch(() => [] as any[]);
+      const activeBranchCount = existingBranches.filter((b: any) => b.status === 'active').length;
+      if (activeBranchCount > numBranches) {
+        numBranches = activeBranchCount;
+      }
+    }
 
     const isDowngrade = this.isDowngrade(
       currentPlan,

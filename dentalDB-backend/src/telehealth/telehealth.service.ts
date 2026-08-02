@@ -38,14 +38,41 @@ export class TelehealthService {
     const appt = await this.apptRepo.findOne({ where: { id: appointmentId } });
     if (!appt) throw new NotFoundException('Appointment not found');
     // In production: verify patientAccountId matches appointment.patientId
+
+    // If a room already exists for this appointment, mint a fresh token for
+    // THAT room rather than calling createRoom() again — see the comment on
+    // VideoProviderService.mintToken() for why calling createRoom() here
+    // unconditionally used to hand out tokens for a brand-new, unrelated
+    // room on every join click.
+    const existingRoomId = (appt as any).videoRoomId;
+    if ((appt as any).videoRoomUrl && existingRoomId) {
+      const token = await this.videoProvider.mintToken(existingRoomId, false);
+      return { roomUrl: (appt as any).videoRoomUrl, token };
+    }
+
     const room = await this.videoProvider.createRoom(appointmentId);
-    return { roomUrl: (appt as any).videoRoomUrl || room.roomUrl, token: room.guestToken };
+    await this.apptRepo.update(appointmentId, {
+      videoRoomUrl: room.roomUrl,
+      videoRoomId: room.roomId,
+    } as any);
+    return { roomUrl: room.roomUrl, token: room.guestToken };
   }
 
   async getStaffToken(appointmentId: string, userId: string) {
     const appt = await this.apptRepo.findOne({ where: { id: appointmentId } });
     if (!appt) throw new NotFoundException('Appointment not found');
+
+    const existingRoomId = (appt as any).videoRoomId;
+    if ((appt as any).videoRoomUrl && existingRoomId) {
+      const token = await this.videoProvider.mintToken(existingRoomId, true);
+      return { roomUrl: (appt as any).videoRoomUrl, token };
+    }
+
     const room = await this.videoProvider.createRoom(appointmentId);
-    return { roomUrl: (appt as any).videoRoomUrl || room.roomUrl, token: room.hostToken };
+    await this.apptRepo.update(appointmentId, {
+      videoRoomUrl: room.roomUrl,
+      videoRoomId: room.roomId,
+    } as any);
+    return { roomUrl: room.roomUrl, token: room.hostToken };
   }
 }

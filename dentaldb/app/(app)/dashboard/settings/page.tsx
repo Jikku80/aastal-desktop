@@ -41,16 +41,16 @@ const PLANS = [
     color: 'border-gray-500/30', badgeColor: 'bg-gray-500/10 text-gray-400',
   },
   {
-    id: 'pro', name: 'Pro', priceMonthly: 1500, priceYearly: 16500,
+    id: 'pro', name: 'Pro', priceMonthly: 800, priceYearly: 8800,
     badge: 'Popular', yearlyNote: '1 month free', popular: true,
-    features: ['Dashboard & Appointments', 'Patients & Billing', 'Analytics & Staff', 'Attendance & Leave', 'Settings, SMS Reminders', 'Notifications', 'NPR 1,500/mo for 1 branch', '+ NPR 500/mo per extra branch'],
+    features: ['Dashboard & Appointments', 'Patients & Billing', 'Analytics & Staff', 'Attendance & Leave', 'Settings, SMS Reminders', 'Notifications', 'NPR 800/mo for 1 branch', '+ NPR 500/mo per extra branch'],
     restrictions: ['No Website Builder', 'No API Access'],
     color: 'border-brand-500/30', badgeColor: 'bg-brand-500/10 text-brand-400',
   },
   {
-    id: 'enterprise', name: 'Enterprise', priceMonthly: 2500, priceYearly: 27500,
+    id: 'enterprise', name: 'Enterprise', priceMonthly: 1200, priceYearly: 13200,
     badge: 'website-builder', yearlyNote: '1 month free',
-    features: ['Everything in Pro', 'NPR 2,500/mo for 1 branch', '+ NPR 500/mo per extra branch', 'Website builder', 'API Access', 'Priority support'],
+    features: ['Everything in Pro', 'NPR 1,200/mo for 1 branch', '+ NPR 500/mo per extra branch', 'Website builder', 'API Access', 'Priority support'],
     restrictions: [],
     color: 'border-amber-500/30', badgeColor: 'bg-amber-500/10 text-amber-400',
   },
@@ -68,8 +68,8 @@ const TAB_ICONS: Record<Tab, any> = {
 };
 
 // ── Subscription upgrade modal — eSewa / Khalti / Manual ─────────────────────
-const PRO_BASE = 1500;
-const ENTERPRISE_BASE = 2500;
+const PRO_BASE = 800;
+const ENTERPRISE_BASE = 1200;
 const PER_BR = 500;
 
 function calcProMonthly(n: number) { return PRO_BASE + (Math.max(1, n) - 1) * PER_BR; }

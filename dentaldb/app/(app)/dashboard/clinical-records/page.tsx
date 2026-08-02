@@ -19,6 +19,8 @@ import type { ClinicalRecord } from '@/types';
 import { BranchReadOnlyBanner, useBranchReadOnly } from '@/components/layout/BranchReadOnlyBanner';
 import PrescriptionPrintButton from '@/components/prescriptions/PrescriptionPrintButton';
 import PatientCombobox from '@/components/ui/PatientCombobox';
+import CategoryOptionPicker from '@/components/medical/CategoryOptionPicker';
+import { DIAGNOSIS_OPTIONS, TREATMENT_OPTIONS } from '@/lib/clinicalOptions';
 
 // This page is entirely client-data-driven (React Query, auth store, etc.) —
 // there's nothing useful to statically prerender at build time, and doing so
@@ -28,16 +30,10 @@ import PatientCombobox from '@/components/ui/PatientCombobox';
 // for this route entirely; the page is rendered on request instead.
 export const dynamic = 'force-dynamic';
 
-// ── Dental-clinic quick-pick vocabulary — trims typing for the most common entries ──
-const COMMON_DIAGNOSES = [
-  'Dental caries', 'Gingivitis', 'Periodontitis', 'Pulpitis',
-  'Tooth abscess', 'Impacted tooth', 'Malocclusion', 'Post-extraction check',
-];
-const COMMON_TREATMENTS = [
-  'Scaling & polishing', 'Composite filling', 'Root canal treatment',
-  'Tooth extraction', 'Crown placement', 'Fluoride application',
-  'Referral to specialist', 'Follow-up in 2 weeks',
-];
+// ── Quick-pick vocabulary — trims typing for the most common entries ──
+// Diagnosis / treatment quick-picks are grouped by clinic type (Dental / Eye
+// / Skin / Ortho / Other) — see lib/clinicalOptions.ts and
+// components/medical/CategoryOptionPicker.tsx.
 const COMMON_MEDICINES: { name: string; dosage: string }[] = [
   { name: 'Amoxicillin', dosage: '500mg' },
   { name: 'Metronidazole', dosage: '400mg' },
@@ -324,22 +320,24 @@ function RecordDialog({ record, onClose }: { record?: ClinicalRecord | null; onC
 
             {/* Step 2 — Diagnosis & treatment */}
             <div className="rounded-2xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-              <SectionHeading icon={Stethoscope} step={2} title="Diagnosis & treatment" hint="Tap a chip to add it" done={step2Done} />
+              <SectionHeading icon={Stethoscope} step={2} title="Diagnosis & treatment" hint="Pick a clinic type, then an option" done={step2Done} />
 
               <div className="mb-3">
                 <label className="label flex items-center gap-1.5"><Stethoscope size={12} /> Diagnosis notes</label>
-                <div className="flex gap-1.5 overflow-x-auto pb-1.5 mb-1.5">
-                  {COMMON_DIAGNOSES.map(d => <Chip key={d} onClick={() => appendText('diagnosisNotes', d)}>{d}</Chip>)}
-                </div>
+                <CategoryOptionPicker
+                  optionsByType={DIAGNOSIS_OPTIONS}
+                  onPick={text => appendText('diagnosisNotes', text)}
+                />
                 <textarea {...register('diagnosisNotes')} className="input w-full resize-none" rows={3}
                   placeholder="Chief complaint, examination findings, diagnosis…" />
               </div>
 
               <div>
                 <label className="label">Treatment plan</label>
-                <div className="flex gap-1.5 overflow-x-auto pb-1.5 mb-1.5">
-                  {COMMON_TREATMENTS.map(t => <Chip key={t} onClick={() => appendText('treatmentPlan', t)}>{t}</Chip>)}
-                </div>
+                <CategoryOptionPicker
+                  optionsByType={TREATMENT_OPTIONS}
+                  onPick={text => appendText('treatmentPlan', text)}
+                />
                 <textarea {...register('treatmentPlan')} className="input w-full resize-none" rows={3}
                   placeholder="Proposed treatment, procedures, follow-up…" />
               </div>

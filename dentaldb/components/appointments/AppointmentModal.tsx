@@ -7,7 +7,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Sparkles, Clock, Stethoscope, Building2, Loader2,
-  User, CalendarClock, CreditCard, ChevronDown, UserPlus,
+  User, CalendarClock, CreditCard, ChevronDown, UserPlus, AlertTriangle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -63,6 +63,11 @@ export default function AppointmentModal({
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [showPayment, setShowPayment]   = useState(false);
   const { activeBranch, branches, clinic } = useAuthStore();
+
+  // Allergy alert — populated whenever a patient is picked from the combobox
+  // below, so staff booking the appointment see it immediately rather than
+  // having to open the patient's record separately.
+  const [selectedPatientAllergies, setSelectedPatientAllergies] = useState<string[]>([]);
 
   // Inline "Add new patient" quick-form — lets staff create a patient right
   // from the appointment modal instead of leaving to the Patients page first.
@@ -139,7 +144,7 @@ export default function AppointmentModal({
   // Patient search is scoped to the selected branch — clear any previously
   // picked patient when the branch changes so we never submit a patient
   // that doesn't belong to the newly selected branch.
-  useEffect(() => { setValue('patientId', ''); }, [selectedBranchId, setValue]);
+  useEffect(() => { setValue('patientId', ''); setSelectedPatientAllergies([]); }, [selectedBranchId, setValue]);
 
   const feeNum    = Number(watchFee) || 0;
   const taxAmount = +(feeNum * vatPercent / 100).toFixed(2);
@@ -284,7 +289,10 @@ export default function AppointmentModal({
                     render={({ field }) => (
                       <PatientCombobox
                         value={field.value}
-                        onChange={field.onChange}
+                        onChange={(id, patient) => {
+                          field.onChange(id);
+                          setSelectedPatientAllergies(patient?.allergies?.length ? patient.allergies : []);
+                        }}
                         branchId={selectedBranchId || activeBranch?.id || undefined}
                         placeholder={
                           (selectedBranchId || activeBranch?.id)
@@ -294,6 +302,16 @@ export default function AppointmentModal({
                       />
                     )} />
                   {errors.patientId && <p className="mt-1 text-xs text-red-400">{errors.patientId.message}</p>}
+                  {selectedPatientAllergies.length > 0 && (
+                    <div className="mt-2 px-3 py-2 rounded-xl flex items-start gap-2"
+                      style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                      <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+                      <p className="text-xs text-[var(--text-secondary)]">
+                        <span className="font-semibold text-amber-400">Allergy alert:</span>{' '}
+                        allergic to <span className="font-medium text-amber-400">{selectedPatientAllergies.join(', ')}</span>
+                      </p>
+                    </div>
+                  )}
                 </>
               )}
 

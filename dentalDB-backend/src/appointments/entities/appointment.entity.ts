@@ -32,7 +32,15 @@ export class Appointment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  /**
+   * Nullable — a marketplace/independent booking (bookingContext:
+   * 'independent', used by Consult Now and direct doctor booking) is not
+   * tied to any clinic. PatientPortalService.bookAppointment already sets
+   * this to null for that case; the column previously stayed NOT NULL,
+   * which meant every independent booking failed at the DB with
+   * "null value in column clinicId... violates not-null constraint".
+   */
+  @Column({ nullable: true })
   clinicId: string;
 
   /** Branch where this appointment takes place */
@@ -43,10 +51,16 @@ export class Appointment {
   @JoinColumn({ name: 'branchId' })
   branch: Branch;
 
-  @Column()
+  /**
+   * Nullable for the same reason as clinicId above — an independent
+   * booking has no clinic-scoped Patient record to link to (the patient
+   * is only known via their PatientAccount / doctorUserId on this
+   * appointment), so this stays null rather than blocking the booking.
+   */
+  @Column({ nullable: true })
   patientId: string;
 
-  @ManyToOne(() => Patient, { eager: true })
+  @ManyToOne(() => Patient, { eager: true, nullable: true })
   @JoinColumn({ name: 'patientId' })
   patient: Patient;
 

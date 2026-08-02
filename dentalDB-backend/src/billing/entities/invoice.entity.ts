@@ -34,6 +34,20 @@ export enum PaymentMethod {
 @Entity('invoices')
 @Index(['clinicId', 'status'])
 @Index(['branchId', 'status'])
+// invoiceNumber only needs to be unique WITHIN a clinic (each clinic starts
+// its own "INV-{year}-00001" sequence — see BillingService.create()). It
+// used to carry a bare `unique: true` on the column itself, which made it
+// unique GLOBALLY across every clinic in the database. That meant any
+// clinic whose own invoice count for the year was low (a brand-new clinic,
+// or one reactivated after a trial with no invoices yet) could compute a
+// number like "INV-2026-00001" that a DIFFERENT clinic had already taken,
+// and every create-invoice attempt would fail on the DB's unique
+// constraint — see migration 1784900000000-InvoiceNumberPerClinicUnique
+// for the matching schema fix. Split into two partial unique indexes so
+// independent-doctor invoices (clinicId IS NULL) still get a uniqueness
+// guarantee among themselves.
+@Index(['clinicId', 'invoiceNumber'], { unique: true, where: '"clinicId" IS NOT NULL' })
+@Index(['invoiceNumber'], { unique: true, where: '"clinicId" IS NULL' })
 export class Invoice {
   @Column({ type: 'varchar', length: 20, default: 'synced' })
   syncStatus: 'synced' | 'pending' | 'conflict';
@@ -68,7 +82,7 @@ export class Invoice {
   @JoinColumn({ name: 'branchId' })
   branch: Branch;
 
-  @Column({ unique: true })
+  @Column()
   invoiceNumber: string;
 
   @Column()

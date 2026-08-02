@@ -41,12 +41,12 @@ const LOCK_MESSAGES: Record<string, { title: string; desc: string; icon: any; co
 };
 
 const PLANS = [
-  { id: 'pro',        name: 'Pro',        priceMonthly: 1500,  priceYearly: 16500  },
-  { id: 'enterprise', name: 'Enterprise', priceMonthly: 2500, priceYearly: 27500 },
+  { id: 'pro',        name: 'Pro',        priceMonthly: 800,  priceYearly: 8800  },
+  { id: 'enterprise', name: 'Enterprise', priceMonthly: 1200, priceYearly: 13200 },
 ];
 
-const PRO_BASE = 1500;  const PRO_PER = 500;
-const ENT_BASE = 2500; const ENT_PER = 500;
+const PRO_BASE = 800;  const PRO_PER = 500;
+const ENT_BASE = 1200; const ENT_PER = 500;
 
 function calcMonthlyTotal(planId: string, nb: number): number {
   if (planId === 'pro')        return PRO_BASE + (Math.max(1, nb) - 1) * PRO_PER;
@@ -56,11 +56,26 @@ function calcMonthlyTotal(planId: string, nb: number): number {
 
 // ── Upgrade Modal ────────────────────────────────────────────────────────────
 function UpgradeModal({ onClose, subData }: { onClose: () => void; subData?: any }) {
-  // Pre-populate plan + branch count from the existing subscription
+  // Pre-populate plan + branch count from the existing subscription.
+  //
+  // IMPORTANT: the free trial allows unlimited branches (quota 999), so a
+  // clinic reactivating from 'free' into Pro/Enterprise may already have
+  // more than 1 branch. Defaulting numBranches to a hardcoded 1 here used to
+  // silently understate that count — submitting numBranches:1 to the backend
+  // while the clinic actually had 2+ active branches. applyQuota() then sees
+  // activeBranches(2) > quota(1) and force the extra branch(es) into
+  // 'pending_selection' (see branch.service.ts / BRANCH_SEAT_ALLOCATION.md),
+  // which blocks billing/invoices on them and can later throw
+  // RENEWAL_BLOCKED_PENDING_SELECTION (400) on the next renewal — all without
+  // the owner ever having chosen to downgrade anything. Default to however
+  // many branches the clinic actually has today instead.
+  const { branches } = useAuthStore();
+  const actualBranchCount = Math.max(1, branches?.length ?? 1);
   const existingPlan = PLANS.find(p => p.id === subData?.plan) ?? PLANS[0];
   const existingBranches: number =
-    subData?.plan === 'pro'        ? (subData?.proPricing?.numBranches        ?? 1) :
-    subData?.plan === 'enterprise' ? (subData?.enterprisePricing?.numBranches ?? 1) : 1;
+    subData?.plan === 'pro'        ? (subData?.proPricing?.numBranches        ?? actualBranchCount) :
+    subData?.plan === 'enterprise' ? (subData?.enterprisePricing?.numBranches ?? actualBranchCount) :
+    actualBranchCount;
 
   const [selectedPlan, setSelectedPlan] = useState(existingPlan);
   const [cycle,        setCycle]        = useState<'monthly'|'yearly'>(subData?.billingCycle ?? 'monthly');
