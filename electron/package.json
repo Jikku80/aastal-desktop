@@ -1,6 +1,6 @@
 {
   "name": "aastal-desktop",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Aastal clinic management — offline-capable desktop app",
   "main": "main.js",
   "private": true,
