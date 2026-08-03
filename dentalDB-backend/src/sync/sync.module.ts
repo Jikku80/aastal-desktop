@@ -36,7 +36,10 @@ import { PendingSyncSubscriber } from './pending-sync.subscriber';
   // SyncDevicesService is exported so AuthModule can call
   // registerDevice() directly from AuthService's post-login hook without
   // an HTTP round-trip to itself; SyncConfigStore is exported for the same
-  // hook to persist the resulting token.
-  exports: [SyncService, SyncDevicesService, SyncConfigStore],
+  // hook to persist the resulting token. SyncDeviceGuard is exported so
+  // other online-only, device-authenticated endpoints (e.g. GalleryModule's
+  // POST /gallery/sync) can reuse the exact same per-device auth instead
+  // of duplicating it.
+  exports: [SyncService, SyncDevicesService, SyncConfigStore, SyncDeviceGuard],
 })
 export class SyncModule {}

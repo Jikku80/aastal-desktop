@@ -247,6 +247,20 @@ export const filesApi = {
   delete:      (id: string) => api.delete(`/files/${id}`),
 };
 
+// Web counterpart of the Electron desktop's local gallery (window.electronAPI's
+// listGalleryItems/readGalleryFile/etc.) — photos pushed up from a branch's
+// capture machine by electron/gallery-sync.js, visible here on the web/browser
+// build where there's no local filesystem to watch. Branch-scoped server-side
+// (see dentalDB-backend/src/gallery/gallery.controller.ts) to whichever
+// branches the logged-in user actually has access to.
+export const galleryApi = {
+  list:    (branchId?: string) => api.get<WebGalleryItem[]>('/gallery', { params: branchId ? { branchId } : undefined }),
+  // Fetch via axios so the HttpOnly auth cookie is included — direct <img src> won't send it
+  preview: (id: string) => api.get(`/gallery/${id}/preview`, { responseType: 'blob' }),
+  attach:  (id: string, patientId: string) => api.post(`/gallery/${id}/attach`, { patientId }),
+  remove:  (id: string) => api.delete(`/gallery/${id}`),
+};
+
 export const notificationsApi = {
   list:        (limit?: number, branchId?: string) => api.get('/notifications', { params: { limit, branchId } }),
   unreadCount: (branchId?: string) =>               api.get('/notifications/unread-count', { params: { branchId } }),

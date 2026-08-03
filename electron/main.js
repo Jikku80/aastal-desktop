@@ -10,6 +10,7 @@ const credentialStore = require('./credential-store');
 const watchedFolderStore = require('./watched-folder-store');
 const galleryStore = require('./gallery-store');
 const watchedFolderWatcher = require('./watched-folder');
+const gallerySync = require('./gallery-sync');
 
 const BACKEND_PORT = process.env.BACKEND_PORT || 4000;
 const FRONTEND_PORT = process.env.FRONTEND_PORT || 3100;
@@ -252,15 +253,22 @@ async function startup() {
   createWindow();
   setupAutoUpdates();
 
-  // Independent of whether anyone is logged in yet — if a watched folder
-  // is already configured (from a previous session), start watching it
-  // immediately, so an already-signed-in user sees new images picked up
-  // the instant they land rather than only after a manual refresh.
+  // Independent of whether anyone is logged in yet — if any watched
+  // folders are already configured (from a previous session), start
+  // watching them immediately, so an already-signed-in user sees new
+  // images picked up the instant they land rather than only after a
+  // manual refresh.
   watchedFolderWatcher.start(app, () => mainWindow);
+
+  // Periodically pushes any gallery items not yet on the hosted backend
+  // (e.g. captured while offline, or before this device's sync token was
+  // ready) — see gallery-sync.js.
+  gallerySync.start(app);
 }
 
 function shutdown() {
   watchedFolderWatcher.stop();
+  gallerySync.stop();
   for (const proc of [frontendProcess, backendProcess]) {
     if (proc && !proc.killed) {
       proc.kill('SIGTERM');
@@ -334,10 +342,9 @@ if (!gotLock) {
     ipcMain.handle('credentials:save', (_event, creds) => credentialStore.saveCredentials(app, creds));
     ipcMain.handle('credentials:clear', () => credentialStore.clearCredentials(app));
 
-    // ── Watched-folder auto-import ──────────────────────────────────────────
-    ipcMain.handle('watched-folder:get', () => {
-      const cfg = watchedFolderStore.readConfig(app);
-      return { ...cfg, isWatching: cfg.enabled && !!cfg.folderPath };
+    // ── Watched-folder auto-import (one entry per branch) ───────────────────
+    ipcMain.handle('watched-folder:list', () => {
+      return watchedFolderStore.readConfig(app).map((f) => ({ ...f, isWatching: f.enabled && !!f.folderPath }));
     });
 
     ipcMain.handle('watched-folder:pick-folder', async () => {
@@ -349,11 +356,32 @@ if (!gotLock) {
       return result.filePaths[0];
     });
 
-    ipcMain.handle('watched-folder:set', async (_event, config) => {
-      const clean = watchedFolderStore.writeConfig(app, config);
+    ipcMain.handle('watched-folder:add', async (_event, entry) => {
       try {
+        const added = watchedFolderStore.addEntry(app, entry);
         watchedFolderWatcher.start(app, () => mainWindow);
-        return { ok: true, config: clean };
+        return { ok: true, entry: added };
+      } catch (err) {
+        return { ok: false, error: err?.message ?? String(err) };
+      }
+    });
+
+    ipcMain.handle('watched-folder:update', async (_event, { id, patch }) => {
+      try {
+        const updated = watchedFolderStore.updateEntry(app, id, patch);
+        if (!updated) return { ok: false, error: 'Watched folder not found' };
+        watchedFolderWatcher.start(app, () => mainWindow);
+        return { ok: true, entry: updated };
+      } catch (err) {
+        return { ok: false, error: err?.message ?? String(err) };
+      }
+    });
+
+    ipcMain.handle('watched-folder:remove', async (_event, id) => {
+      try {
+        const removed = watchedFolderStore.removeEntry(app, id);
+        watchedFolderWatcher.start(app, () => mainWindow);
+        return { ok: removed };
       } catch (err) {
         return { ok: false, error: err?.message ?? String(err) };
       }

@@ -20,7 +20,9 @@ interface ElectronSavedCredentials {
   password: string;
 }
 
-interface ElectronWatchedFolderConfig {
+/** One watched folder = one branch's capture machine. A clinic with several branches can have one of these per branch, all watched at once. */
+interface ElectronWatchedFolderEntry {
+  id: string;
   folderPath: string;
   branchId: string;
   branchName: string;
@@ -29,7 +31,7 @@ interface ElectronWatchedFolderConfig {
   isWatching: boolean;
 }
 
-/** A local gallery entry — an image pulled in from the watched folder (or added another way in a future version). */
+/** A local gallery entry — an image pulled in from a watched folder (or added another way in a future version). */
 interface ElectronGalleryItem {
   id: string;
   fileName: string;
@@ -63,15 +65,20 @@ interface ElectronAPI {
   saveCredentials: (creds: ElectronSavedCredentials) => Promise<{ ok: boolean; error?: string }>;
   clearSavedCredentials: () => Promise<{ ok: boolean }>;
 
-  // Watched-folder auto-import
-  getWatchedFolderConfig: () => Promise<ElectronWatchedFolderConfig>;
+  // Watched-folder auto-import — one entry per branch, all watched at once
+  listWatchedFolders: () => Promise<ElectronWatchedFolderEntry[]>;
   pickWatchedFolder: () => Promise<string | null>;
-  setWatchedFolderConfig: (config: {
+  addWatchedFolder: (entry: {
     folderPath: string;
     branchId: string;
     branchName: string;
     enabled: boolean;
-  }) => Promise<{ ok: boolean; config?: ElectronWatchedFolderConfig; error?: string }>;
+  }) => Promise<{ ok: boolean; entry?: ElectronWatchedFolderEntry; error?: string }>;
+  updateWatchedFolder: (
+    id: string,
+    patch: Partial<{ folderPath: string; branchId: string; branchName: string; enabled: boolean }>,
+  ) => Promise<{ ok: boolean; entry?: ElectronWatchedFolderEntry; error?: string }>;
+  removeWatchedFolder: (id: string) => Promise<{ ok: boolean; error?: string }>;
 
   // "Open local folder" upload option
   pickLocalImages: () => Promise<ElectronFileWithData[]>;
@@ -86,4 +93,16 @@ interface ElectronAPI {
 
 interface Window {
   electronAPI?: ElectronAPI;
+}
+
+/** A branch photo as returned by the web gallery endpoints (GET /gallery) — see dentalDB-backend/src/gallery. */
+interface WebGalleryItem {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  branchId: string;
+  createdAt: string;
+  attachedPatientId: string | null;
+  attachedAt: string | null;
 }

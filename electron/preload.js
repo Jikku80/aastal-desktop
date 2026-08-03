@@ -36,12 +36,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveCredentials: (creds) => ipcRenderer.invoke('credentials:save', creds),
   clearSavedCredentials: () => ipcRenderer.invoke('credentials:clear'),
 
-  // ── Watched-folder auto-import ──────────────────────────────────────────
-  getWatchedFolderConfig: () => ipcRenderer.invoke('watched-folder:get'),
+  // ── Watched-folder auto-import (one entry per branch) ────────────────────
+  /** Every configured watch folder, one per branch. */
+  listWatchedFolders: () => ipcRenderer.invoke('watched-folder:list'),
   /** Opens a native "choose folder" dialog. Returns the chosen path, or null if cancelled. */
   pickWatchedFolder: () => ipcRenderer.invoke('watched-folder:pick-folder'),
-  /** @param {{ folderPath: string, branchId: string, branchName: string, enabled: boolean }} config */
-  setWatchedFolderConfig: (config) => ipcRenderer.invoke('watched-folder:set', config),
+  /** @param {{ folderPath: string, branchId: string, branchName: string, enabled: boolean }} entry */
+  addWatchedFolder: (entry) => ipcRenderer.invoke('watched-folder:add', entry),
+  /** @param {string} id @param {Partial<{ folderPath: string, branchId: string, branchName: string, enabled: boolean }>} patch */
+  updateWatchedFolder: (id, patch) => ipcRenderer.invoke('watched-folder:update', { id, patch }),
+  /** @param {string} id */
+  removeWatchedFolder: (id) => ipcRenderer.invoke('watched-folder:remove', id),
 
   // ── "Open local folder" upload option ───────────────────────────────────
   // Native multi-select image picker. Returns already-read file contents

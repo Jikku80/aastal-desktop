@@ -22,6 +22,7 @@ import { NotificationsModule }  from './notifications/notifications.module';
 import { AnalyticsModule }      from './analytics/analytics.module';
 import { WebsiteBuilderModule } from './website-builder/website-builder.module';
 import { FilesModule }          from './files/files.module';
+import { GalleryModule }        from './gallery/gallery.module';
 import { AttendanceModule }     from './attendance/attendance.module';
 import { LeaveModule }          from './leave/leave.module';
 import { ShiftsModule }         from './shifts/shifts.module';
@@ -119,6 +120,7 @@ import { DoctorPortalModule }    from './doctor-portal/doctor-portal.module';
     AnalyticsModule,
     WebsiteBuilderModule,
     FilesModule,
+    GalleryModule,
     AttendanceModule,
     LeaveModule,
     ShiftsModule,

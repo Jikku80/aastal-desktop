@@ -30,6 +30,7 @@ import { IndependentAvailability } from '../doctor-profile/entities/independent-
 import { Expense } from '../expenses/entities/expense.entity';
 import { Vendor } from '../expenses/entities/vendor.entity';
 import { PatientFile } from '../files/entities/patient-file.entity';
+import { GalleryItem } from '../gallery/entities/gallery-item.entity';
 import { Holiday } from '../holidays/entities/holiday.entity';
 import { IntakeFormSubmission } from '../intake-forms/entities/intake-form-submission.entity';
 import { IntakeFormTemplate } from '../intake-forms/entities/intake-form-template.entity';
@@ -99,6 +100,7 @@ export const ALL_ENTITIES = [
   Expense,
   Vendor,
   PatientFile,
+  GalleryItem,
   Holiday,
   IntakeFormSubmission,
   IntakeFormTemplate,

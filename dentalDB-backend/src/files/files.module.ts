@@ -8,10 +8,17 @@ import { v4 as uuid } from 'uuid';
 import { FilesController } from './files.controller';
 import { FilesService } from './files.service';
 import { PatientFile } from './entities/patient-file.entity';
+import { PatientsModule } from '../patients/patients.module';
+import { BranchesModule } from '../branch/branch.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([PatientFile]),
+    // Needed by FilesController.assertPatientBranchAccess to look up a
+    // patient's branchId and check it against the requesting user's
+    // accessible branches — see that method's docstring.
+    PatientsModule,
+    BranchesModule,
     MulterModule.register({
       storage: diskStorage({
         destination: UPLOADS_DIR,

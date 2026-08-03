@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, FileText, Image, File, Trash2, Download, Loader2, Eye, X, FileSpreadsheet, ImagePlus, FolderOpen } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { filesApi, BASE_URL } from '@/lib/api';
+import { filesApi, galleryApi, BASE_URL } from '@/lib/api';
 import { ActionIconButton, ActionIconGroup } from '@/components/ui/ActionIconButton';
 import { clsx } from 'clsx';
 import GalleryPickerModal from '@/components/files/GalleryPickerModal';
@@ -214,7 +214,11 @@ export default function PatientFilesPanel({ patientId }: Props) {
         const file = base64ToFile(gf.data, gf.fileName, gf.mimeType);
         await uploadFile(file);
       }
-      await Promise.all(galleryIds.map((id) => window.electronAPI!.markGalleryItemAttached(id, patientId)));
+      if (isElectron) {
+        await Promise.all(galleryIds.map((id) => window.electronAPI!.markGalleryItemAttached(id, patientId)));
+      } else {
+        await Promise.all(galleryIds.map((id) => galleryApi.attach(id, patientId)));
+      }
     } finally {
       setUploading(false);
     }
@@ -259,16 +263,14 @@ export default function PatientFilesPanel({ patientId }: Props) {
             works exactly as before for a single quick upload; these are
             additional entry points, not replacements. */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
-          {isElectron && (
-            <button
-              type="button"
-              onClick={() => setShowGallery(true)}
-              disabled={uploading || pickingLocal}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-secondary)] border border-[var(--border)] hover:bg-[var(--bg-elevated)] transition-colors disabled:opacity-50"
-            >
-              <ImagePlus size={13} /> Choose from Gallery
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setShowGallery(true)}
+            disabled={uploading || pickingLocal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-secondary)] border border-[var(--border)] hover:bg-[var(--bg-elevated)] transition-colors disabled:opacity-50"
+          >
+            <ImagePlus size={13} /> Choose from Gallery
+          </button>
           <button
             type="button"
             onClick={handleOpenLocalFolder}

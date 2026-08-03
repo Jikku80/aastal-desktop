@@ -97,6 +97,13 @@ function addItem(app, sourcePath, branchId, branchName) {
     addedAt: new Date().toISOString(),
     attachedPatientId: null,
     attachedAt: null,
+    // Whether this item has been pushed up to the hosted backend yet, so
+    // it also shows up in the web app's branch gallery — see
+    // gallery-sync.js. 'pending' until a push succeeds; deliberately not
+    // retried indefinitely inline here (gallery-sync.js's periodic sweep
+    // picks up anything still 'pending' whenever the app is online).
+    serverSyncStatus: 'pending',
+    serverId: null,
   };
 
   items.unshift(item);
@@ -135,6 +142,20 @@ function markAttached(app, id, patientId) {
   return items[idx];
 }
 
+/** Items not yet pushed to the hosted backend — used by gallery-sync.js's retry sweep. */
+function listUnpushed(app) {
+  return readManifest(app).filter((i) => i.serverSyncStatus !== 'synced');
+}
+
+function markPushed(app, id, serverId) {
+  const items = readManifest(app);
+  const idx = items.findIndex((i) => i.id === id);
+  if (idx === -1) return null;
+  items[idx] = { ...items[idx], serverSyncStatus: 'synced', serverId: serverId || items[idx].serverId };
+  writeManifest(app, items);
+  return items[idx];
+}
+
 function removeItem(app, id) {
   const items = readManifest(app);
   const idx = items.findIndex((i) => i.id === id);
@@ -147,5 +168,5 @@ function removeItem(app, id) {
 
 module.exports = {
   addItem, listItems, getItem, readItemFile, markAttached, removeItem,
-  isImageFile, galleryDir,
+  isImageFile, galleryDir, listUnpushed, markPushed,
 };
