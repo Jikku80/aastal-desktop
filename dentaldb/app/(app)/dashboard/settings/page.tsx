@@ -15,6 +15,7 @@ import {
   FileText,
   Receipt,
   CloudCog,
+  ImagePlus,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -22,13 +23,14 @@ import { clinicsApi, subscriptionsApi, paymentsApi, apiKeysApi, adminApi, api } 
 import PrescriptionTemplateTab from '@/components/prescriptions/PrescriptionTemplateTab';
 import BillingTemplateTab from '@/components/billing/BillingTemplateTab';
 import SyncSettingsTab from '@/components/system/SyncSettingsTab';
+import WatchedFolderSettingsTab from '@/components/system/WatchedFolderSettingsTab';
 import Header from '@/components/layout/Header';
 import { useAuthStore } from '@/store/auth.store';
 import { usePermissions } from '@/store/permissions.store';
 import type { WorkingHours } from '@/types';
 
 const ADMIN_ROLES = new Set(['super_admin', 'owner']);
-const TABS = ['Clinic Profile', 'Working Hours', 'VAT Settings', 'Subscription', 'API Access', 'Prescription', 'Billing', 'Sync'] as const;
+const TABS = ['Clinic Profile', 'Working Hours', 'VAT Settings', 'Subscription', 'API Access', 'Prescription', 'Billing', 'Sync', 'Photo Sync'] as const;
 type Tab = typeof TABS[number];
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -65,6 +67,7 @@ const TAB_ICONS: Record<Tab, any> = {
   'Prescription': FileText,
   'Billing': Receipt,
   'Sync': CloudCog,
+  'Photo Sync': ImagePlus,
 };
 
 // ── Subscription upgrade modal — eSewa / Khalti / Manual ─────────────────────
@@ -2060,6 +2063,7 @@ export default function SettingsPage() {
             )}
 
             {activeTab === 'Sync' && <SyncSettingsTab />}
+            {activeTab === 'Photo Sync' && <WatchedFolderSettingsTab />}
           </div>
         </div>
       </div>

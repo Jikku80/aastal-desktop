@@ -11,6 +11,7 @@ import { SyncDeviceGuard } from './guards/sync-device.guard';
 import { ConnectivityService } from './connectivity.service';
 import { HealthController } from './health.controller';
 import { OutboxModule } from '../outbox/outbox.module';
+import { FilesModule } from '../files/files.module';
 import { PendingSyncSubscriber } from './pending-sync.subscriber';
 
 @Module({
@@ -18,6 +19,10 @@ import { PendingSyncSubscriber } from './pending-sync.subscriber';
     TypeOrmModule.forFeature([SyncMeta, SyncDevice]),
     HttpModule,
     OutboxModule,
+    // Gives SyncService access to FilesService for the file-blob push/receive
+    // flow (pushPendingFileBlobs / receiveFileBlob) — see patient-file.entity.ts's
+    // blobSyncStatus doc comment for why this exists.
+    FilesModule,
   ],
   controllers: [SyncController, HealthController],
   providers: [

@@ -1,10 +1,15 @@
-const { app, BrowserWindow, Menu, shell, nativeImage, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, shell, nativeImage, ipcMain, dialog } = require('electron');
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const { readSyncConfig, writeSyncConfig, clearDeviceToken, resolveSyncConfig, configPath } = require('./sync-config');
 const { getOrCreateLocalJwtSecrets } = require('./local-jwt-secrets');
 const { setupAutoUpdates } = require('./auto-update');
+const credentialStore = require('./credential-store');
+const watchedFolderStore = require('./watched-folder-store');
+const galleryStore = require('./gallery-store');
+const watchedFolderWatcher = require('./watched-folder');
 
 const BACKEND_PORT = process.env.BACKEND_PORT || 4000;
 const FRONTEND_PORT = process.env.FRONTEND_PORT || 3100;
@@ -246,9 +251,16 @@ async function startup() {
 
   createWindow();
   setupAutoUpdates();
+
+  // Independent of whether anyone is logged in yet — if a watched folder
+  // is already configured (from a previous session), start watching it
+  // immediately, so an already-signed-in user sees new images picked up
+  // the instant they land rather than only after a manual refresh.
+  watchedFolderWatcher.start(app, () => mainWindow);
 }
 
 function shutdown() {
+  watchedFolderWatcher.stop();
   for (const proc of [frontendProcess, backendProcess]) {
     if (proc && !proc.killed) {
       proc.kill('SIGTERM');
@@ -316,6 +328,83 @@ if (!gotLock) {
         return { ok: false, error: err?.message ?? String(err) };
       }
     });
+
+    // ── Saved login credentials ("Remember me") ────────────────────────────
+    ipcMain.handle('credentials:get', () => credentialStore.getCredentials(app));
+    ipcMain.handle('credentials:save', (_event, creds) => credentialStore.saveCredentials(app, creds));
+    ipcMain.handle('credentials:clear', () => credentialStore.clearCredentials(app));
+
+    // ── Watched-folder auto-import ──────────────────────────────────────────
+    ipcMain.handle('watched-folder:get', () => {
+      const cfg = watchedFolderStore.readConfig(app);
+      return { ...cfg, isWatching: cfg.enabled && !!cfg.folderPath };
+    });
+
+    ipcMain.handle('watched-folder:pick-folder', async () => {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Choose a folder to watch for new images',
+        properties: ['openDirectory'],
+      });
+      if (result.canceled || !result.filePaths.length) return null;
+      return result.filePaths[0];
+    });
+
+    ipcMain.handle('watched-folder:set', async (_event, config) => {
+      const clean = watchedFolderStore.writeConfig(app, config);
+      try {
+        watchedFolderWatcher.start(app, () => mainWindow);
+        return { ok: true, config: clean };
+      } catch (err) {
+        return { ok: false, error: err?.message ?? String(err) };
+      }
+    });
+
+    // "Open local folder" upload option — a native multi-select file picker
+    // (nicer than a plain browser <input type=file>: remembers the last
+    // directory across the app, isn't sandboxed to a single click target).
+    // Reads the chosen files into base64 so the renderer can build File
+    // objects and push them through the existing upload API itself — this
+    // process never talks to the backend directly, so auth stays exactly
+    // as it already works (HttpOnly cookie on the renderer's own requests).
+    ipcMain.handle('local-files:pick-and-read', async () => {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Choose images to upload',
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic', 'heif'] }],
+      });
+      if (result.canceled || !result.filePaths.length) return [];
+
+      const MAX_SIZE = 20 * 1024 * 1024; // matches the existing 20MB cap in PatientFilesPanel
+      const MIME_BY_EXT = {
+        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif',
+        '.webp': 'image/webp', '.bmp': 'image/bmp', '.tif': 'image/tiff', '.tiff': 'image/tiff',
+        '.heic': 'image/heic', '.heif': 'image/heif',
+      };
+      const files = [];
+      for (const filePath of result.filePaths) {
+        try {
+          const stat = fs.statSync(filePath);
+          if (stat.size > MAX_SIZE) continue; // silently skip oversized files; renderer still gets the rest
+          const buffer = fs.readFileSync(filePath);
+          const ext = path.extname(filePath).toLowerCase();
+          files.push({
+            fileName: path.basename(filePath),
+            mimeType: MIME_BY_EXT[ext] || 'application/octet-stream',
+            size: stat.size,
+            data: buffer.toString('base64'),
+          });
+        } catch (err) {
+          console.error('[local-files] failed to read', filePath, err);
+        }
+      }
+      return files;
+    });
+
+    // ── Gallery (images pulled in from the watched folder) ─────────────────
+    ipcMain.handle('gallery:list', (_event, branchId) => galleryStore.listItems(app, branchId));
+    ipcMain.handle('gallery:read-file', (_event, id) => galleryStore.readItemFile(app, id));
+    ipcMain.handle('gallery:mark-attached', (_event, { id, patientId }) => galleryStore.markAttached(app, id, patientId));
+    ipcMain.handle('gallery:remove', (_event, id) => ({ ok: galleryStore.removeItem(app, id) }));
 
     startup();
   });

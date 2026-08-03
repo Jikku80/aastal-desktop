@@ -2,6 +2,7 @@ import { Toaster } from 'react-hot-toast';
 import Providers from '@/components/layout/Providers';
 import AuthGuard from '@/components/layout/AuthGuard';
 import OfflineBanner from '@/components/system/OfflineBanner';
+import WatchedFolderListener from '@/components/system/WatchedFolderListener';
 import type { ReactNode } from 'react';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -16,6 +17,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <Providers>
         <AuthGuard>
           <OfflineBanner />
+          <WatchedFolderListener />
           {children}
         </AuthGuard>
       </Providers>

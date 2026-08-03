@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -17,17 +17,42 @@ const schema = z.object({
 });
 type Form = z.infer<typeof schema>;
 
+// Only true inside the Electron desktop build (window.electronAPI is
+// undefined on the web) — the "Remember me" checkbox and its saved
+// credentials are a desktop-only feature. On the web, the browser's own
+// password manager already handles this via the standard autoComplete
+// attributes below, so nothing further is needed there.
+const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
+
 export default function LoginPage() {
   const [showPw, setShowPw]           = useState(false);
   const [loading, setLoading]         = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [rememberMe, setRememberMe]   = useState(false);
   const { setAuth, setBranches }      = useAuthStore();
   const { setPermissions }            = usePermissionsStore();
 
-  const { register, handleSubmit, formState: { errors } } = useForm<Form>({
+  const { register, handleSubmit, setValue, formState: { errors } } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: { email: '', password: '' },
   });
+
+  // Pre-fill from encrypted local storage on the desktop app, if the user
+  // previously checked "Remember me". Electron's BrowserWindow has no
+  // built-in password-manager prompt to hook into (that's Chrome-the-app,
+  // not the underlying Chromium engine), so this explicit opt-in is the
+  // desktop replacement for it.
+  useEffect(() => {
+    if (!isElectron) return;
+    window.electronAPI!.getSavedCredentials()
+      .then((creds) => {
+        if (!creds) return;
+        setValue('email', creds.email);
+        setValue('password', creds.password);
+        setRememberMe(true);
+      })
+      .catch(() => { /* nothing saved, or storage unavailable — leave the form blank */ });
+  }, [setValue]);
 
   const onSubmit = async (data: Form) => {
     setServerError(null);
@@ -44,6 +69,16 @@ export default function LoginPage() {
       } catch {
         setBranches([]);
       }
+
+      if (isElectron) {
+        // Fire-and-forget — never block/derail login on a storage hiccup.
+        if (rememberMe) {
+          window.electronAPI!.saveCredentials({ email: data.email, password: data.password }).catch(() => {});
+        } else {
+          window.electronAPI!.clearSavedCredentials().catch(() => {});
+        }
+      }
+
       toast.success(`Welcome back, ${user.firstName}!`);
       window.location.href = '/dashboard/profile';
       // NOTE: do NOT setLoading(false) here — we want the spinner to stay
@@ -198,7 +233,18 @@ export default function LoginPage() {
               )}
             </div>
 
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between">
+              {isElectron ? (
+                <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded accent-brand-500"
+                  />
+                  Remember me on this device
+                </label>
+              ) : <span />}
               <Link href="/auth/forgot-password" className="text-xs text-brand-400 hover:text-brand-300">
                 Forgot password?
               </Link>

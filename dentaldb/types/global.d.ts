@@ -15,11 +15,73 @@ interface ElectronSyncConfig {
   isDefault: boolean;
 }
 
+interface ElectronSavedCredentials {
+  email: string;
+  password: string;
+}
+
+interface ElectronWatchedFolderConfig {
+  folderPath: string;
+  branchId: string;
+  branchName: string;
+  enabled: boolean;
+  /** true when enabled AND a folder is actually set */
+  isWatching: boolean;
+}
+
+/** A local gallery entry — an image pulled in from the watched folder (or added another way in a future version). */
+interface ElectronGalleryItem {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  branchId: string;
+  branchName: string;
+  addedAt: string;
+  attachedPatientId: string | null;
+  attachedAt: string | null;
+}
+
+/** Same as ElectronGalleryItem, plus the actual file bytes (base64) — returned by readGalleryFile / pickLocalImages. */
+interface ElectronFileWithData {
+  fileName: string;
+  mimeType: string;
+  size: number;
+  data: string; // base64
+}
+
 interface ElectronAPI {
   isElectron: true;
+
+  // Sync
   getSyncConfig: () => Promise<ElectronSyncConfig>;
   setSyncConfig: (config: { remoteBaseUrl: string }) => Promise<{ ok: boolean; error?: string }>;
   reregisterSyncDevice: () => Promise<{ ok: boolean; error?: string }>;
+
+  // Saved login credentials ("Remember me")
+  getSavedCredentials: () => Promise<ElectronSavedCredentials | null>;
+  saveCredentials: (creds: ElectronSavedCredentials) => Promise<{ ok: boolean; error?: string }>;
+  clearSavedCredentials: () => Promise<{ ok: boolean }>;
+
+  // Watched-folder auto-import
+  getWatchedFolderConfig: () => Promise<ElectronWatchedFolderConfig>;
+  pickWatchedFolder: () => Promise<string | null>;
+  setWatchedFolderConfig: (config: {
+    folderPath: string;
+    branchId: string;
+    branchName: string;
+    enabled: boolean;
+  }) => Promise<{ ok: boolean; config?: ElectronWatchedFolderConfig; error?: string }>;
+
+  // "Open local folder" upload option
+  pickLocalImages: () => Promise<ElectronFileWithData[]>;
+
+  // Gallery
+  listGalleryItems: (branchId?: string) => Promise<ElectronGalleryItem[]>;
+  readGalleryFile: (id: string) => Promise<(ElectronGalleryItem & ElectronFileWithData) | null>;
+  markGalleryItemAttached: (id: string, patientId: string) => Promise<ElectronGalleryItem | null>;
+  removeGalleryItem: (id: string) => Promise<{ ok: boolean }>;
+  onNewGalleryImage: (callback: (item: ElectronGalleryItem) => void) => () => void;
 }
 
 interface Window {

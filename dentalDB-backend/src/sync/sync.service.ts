@@ -5,12 +5,16 @@ import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import * as os from 'os';
+import { existsSync } from 'fs';
+import { promises as fsPromises } from 'fs';
+import { dirname } from 'path';
 import { SyncMeta } from './entities/sync-meta.entity';
 import { SYNC_REGISTRY, SYNC_APPLY_ORDER, SyncRegistryEntry, ClinicScope } from './sync-registry';
 import { runInsideSyncApply } from './sync-context';
 import { SyncConfigStore } from './sync-config-store';
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { User } from '../users/entities/user.entity';
+import { FilesService } from '../files/files.service';
 import * as bcrypt from 'bcryptjs';
 
 const LAST_SYNC_KEY = 'lastSyncAt';
@@ -39,6 +43,7 @@ export class SyncService {
     private readonly http: HttpService,
     private readonly config: ConfigService,
     private readonly syncConfigStore: SyncConfigStore,
+    private readonly filesService: FilesService,
   ) {}
 
   private getRepo(entry: SyncRegistryEntry, manager?: EntityManager) {
@@ -909,6 +914,92 @@ export class SyncService {
   }
 
   /**
+   * Client-role: pushes the actual BYTES of PatientFile rows whose
+   * metadata has already synced (blobSyncStatus:'pending', syncStatus:
+   * 'synced') up to the remote. This is deliberately separate from
+   * pushPending() above — that method (and the whole generic sync engine)
+   * only ever moves database rows, never file content, which is exactly
+   * the gap this closes. Only proceeds against rows whose row is already
+   * confirmed 'synced' remotely, since pushing a blob for a row the
+   * remote doesn't have yet would just 404.
+   *
+   * Called from fullSync() right after pushPending(), so it runs on every
+   * normal sync cycle (reconnect, periodic poll, manual "sync now") — same
+   * triggers as everything else, no separate schedule to reason about.
+   */
+  async pushPendingFileBlobs(): Promise<{ pushed: number; failed: number }> {
+    const remote = this.getRemoteBaseUrl();
+    if (!remote) return { pushed: 0, failed: 0 };
+
+    const rows = await this.filesService.findPendingBlobSync();
+    let pushed = 0;
+    let failed = 0;
+
+    for (const row of rows) {
+      const absPath = this.filesService.getAbsolutePath(row);
+      if (!existsSync(absPath)) {
+        // The local file is missing (deleted independently of the DB row,
+        // or genuinely never finished writing) — nothing to push. Left
+        // 'pending' rather than silently dropped, but logged once per
+        // cycle so a permanently-missing file doesn't retry invisibly
+        // forever without any trace in the logs.
+        this.logger.warn(`PatientFile ${row.id}: local file missing at ${absPath} — cannot push blob`);
+        failed++;
+        continue;
+      }
+      try {
+        const buffer = await fsPromises.readFile(absPath);
+        const form = new FormData();
+        form.append('file', new Blob([buffer], { type: row.mimeType || 'application/octet-stream' }), row.originalName);
+        await firstValueFrom(
+          this.http.post(`${remote}/api/v1/sync/files/${row.id}/blob`, form, {
+            headers: this.syncDeviceHeaders(),
+          }),
+        );
+        await this.filesService.markBlobSynced(row.id);
+        pushed++;
+      } catch (err: any) {
+        this.logger.warn(`PatientFile ${row.id}: blob push failed (will retry next cycle): ${this.describeRemoteError(err)}`);
+        failed++;
+      }
+    }
+    return { pushed, failed };
+  }
+
+  /**
+   * Server-role counterpart, called from SyncController's
+   * POST /sync/files/:id/blob (SyncDeviceGuard-protected, same as
+   * /sync/push). Writes the incoming bytes to THIS instance's disk under
+   * the row's existing storedName — the row itself must already exist
+   * here (pushed via the ordinary pushPending() row sync, which always
+   * runs before pushPendingFileBlobs in the same cycle) so its
+   * storedName/mimeType are already correct and don't need re-deriving.
+   */
+  async receiveFileBlob(
+    clinicId: string,
+    id: string,
+    file: { buffer: Buffer } | undefined,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    if (!file?.buffer) return { ok: false, reason: 'No file received' };
+
+    const row = await this.filesService.findOneForClinic(clinicId, id);
+    if (!row) {
+      // The metadata row hasn't landed here yet — pushPending() and
+      // pushPendingFileBlobs() are two separate HTTP calls in the same
+      // cycle, so in principle a blob could arrive a beat before its row
+      // if requests interleave unexpectedly. Not an error: the device
+      // will simply retry the blob push next cycle once the row exists.
+      return { ok: false, reason: 'Row not found yet — will retry next sync cycle' };
+    }
+
+    const dest = this.filesService.getAbsolutePath(row);
+    await fsPromises.mkdir(dirname(dest), { recursive: true });
+    await fsPromises.writeFile(dest, file.buffer);
+    await this.filesService.markBlobSynced(id);
+    return { ok: true };
+  }
+
+  /**
    * Pull-then-push: pulling first means a remote update to a record we're
    * about to push gets seen before we push, so the push's LWW comparison
    * (done remotely, in applyIncoming) has the freshest local updatedAt to
@@ -1005,6 +1096,16 @@ export class SyncService {
         const detail = this.describeRemoteError(err);
         this.logger.warn(`Sync push failed (will retry next cycle): ${detail}`);
         push = { pushed: 0, conflicts: 0, error: detail };
+      }
+
+      // Separate, non-fatal step: even if this fails, the rows pushed above
+      // already synced their metadata, so the affected file(s) just show as
+      // "still syncing" on the remote side until this succeeds on a later
+      // cycle — never blocks or reverts the row sync that already happened.
+      try {
+        await this.pushPendingFileBlobs();
+      } catch (err: any) {
+        this.logger.warn(`File blob push failed (will retry next cycle): ${this.describeRemoteError(err)}`);
       }
 
       this.logger.log(

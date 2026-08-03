@@ -9,6 +9,7 @@
     "dist": "electron-builder"
   },
   "dependencies": {
+    "chokidar": "^3.6.0",
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {

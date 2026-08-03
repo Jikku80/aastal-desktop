@@ -19,6 +19,18 @@ export class PatientFile {
   @Column({ type: 'varchar', length: 20, default: 'synced' })
   syncStatus: 'synced' | 'pending' | 'conflict';
 
+  /**
+   * Tracks whether this file's actual BYTES (not just this row) have made
+   * it to this instance — separate from syncStatus above, which only ever
+   * tracks the row. See SyncService.pushPendingFileBlobs() /
+   * SyncController's POST /sync/files/:id/blob for why this exists: the
+   * generic sync engine only ever moved rows, never file content, so a row
+   * created offline could sync to the hosted backend while the actual
+   * image stayed stuck on one desktop's local disk forever.
+   */
+  @Column({ type: 'varchar', length: 20, default: 'synced' })
+  blobSyncStatus: 'synced' | 'pending';
+
   @PrimaryGeneratedColumn('uuid')
   id: string;
 

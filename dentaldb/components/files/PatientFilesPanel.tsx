@@ -2,11 +2,19 @@
 import { useRef, useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileText, Image, File, Trash2, Download, Loader2, Eye, X, FileSpreadsheet } from 'lucide-react';
+import { Upload, FileText, Image, File, Trash2, Download, Loader2, Eye, X, FileSpreadsheet, ImagePlus, FolderOpen } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { filesApi, BASE_URL } from '@/lib/api';
 import { ActionIconButton, ActionIconGroup } from '@/components/ui/ActionIconButton';
 import { clsx } from 'clsx';
+import GalleryPickerModal from '@/components/files/GalleryPickerModal';
+import { base64ToFile } from '@/lib/electronFiles';
+import { useAuthStore } from '@/store/auth.store';
+
+// Desktop-only extras (gallery + native folder picker). Both no-op /
+// gracefully fall back on the web build, where window.electronAPI is
+// undefined.
+const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
 const CATEGORIES = ['xray','report','document','image','other'] as const;
 type Category = typeof CATEGORIES[number];
@@ -134,7 +142,10 @@ export default function PatientFilesPanel({ patientId }: Props) {
   const [desc,        setDesc]        = useState('');
   const [previewFile, setPreviewFile] = useState<any>(null);
   const [filesPage, setFilesPage] = useState(1);
+  const [showGallery, setShowGallery] = useState(false);
+  const [pickingLocal, setPickingLocal] = useState(false);
   const FILES_PAGE_SIZE = 5;
+  const { activeBranch } = useAuthStore();
 
   const { data: files = [], isLoading } = useQuery({
     queryKey: ['patient-files', patientId],
@@ -187,6 +198,52 @@ export default function PatientFilesPanel({ patientId }: Props) {
     } catch { toast.error('Download failed'); }
   };
 
+  // "Choose from Gallery" — pick from images the watched-folder feature has
+  // already pulled in (see WatchedFolderSettingsTab / gallery-store.js).
+  // Uploads through the exact same filesApi.upload call as a manual
+  // drag-and-drop, then marks each gallery item as attached so it drops out
+  // of the picker next time (and out of any "attach this?" prompt still
+  // pending for it).
+  const handleGalleryAttach = async (
+    galleryFiles: { fileName: string; mimeType: string; data: string }[],
+    galleryIds: string[],
+  ) => {
+    setUploading(true);
+    try {
+      for (const gf of galleryFiles) {
+        const file = base64ToFile(gf.data, gf.fileName, gf.mimeType);
+        await uploadFile(file);
+      }
+      await Promise.all(galleryIds.map((id) => window.electronAPI!.markGalleryItemAttached(id, patientId)));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // "Open Local Folder" — on desktop, a native multi-select file dialog
+  // (remembers the last directory across the whole app, not just this
+  // panel). On the web build there's no filesystem to open a native dialog
+  // into, so this falls back to the same browser file picker the dropzone
+  // already uses.
+  const handleOpenLocalFolder = async () => {
+    if (!isElectron) {
+      fileInputRef.current?.click();
+      return;
+    }
+    setPickingLocal(true);
+    try {
+      const picked = await window.electronAPI!.pickLocalImages();
+      for (const f of picked) {
+        const file = base64ToFile(f.data, f.fileName, f.mimeType);
+        await uploadFile(file);
+      }
+    } catch {
+      toast.error('Could not open the file picker');
+    } finally {
+      setPickingLocal(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Upload zone */}
@@ -196,6 +253,31 @@ export default function PatientFilesPanel({ patientId }: Props) {
             {CATEGORIES.map(c => <option key={c} value={c} className="capitalize">{c}</option>)}
           </select>
           <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description…" className="input py-1.5 text-xs flex-1" />
+        </div>
+
+        {/* Gallery / local-folder shortcuts — the drop zone below still
+            works exactly as before for a single quick upload; these are
+            additional entry points, not replacements. */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {isElectron && (
+            <button
+              type="button"
+              onClick={() => setShowGallery(true)}
+              disabled={uploading || pickingLocal}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-secondary)] border border-[var(--border)] hover:bg-[var(--bg-elevated)] transition-colors disabled:opacity-50"
+            >
+              <ImagePlus size={13} /> Choose from Gallery
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleOpenLocalFolder}
+            disabled={uploading || pickingLocal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-secondary)] border border-[var(--border)] hover:bg-[var(--bg-elevated)] transition-colors disabled:opacity-50"
+          >
+            {pickingLocal ? <Loader2 size={13} className="animate-spin" /> : <FolderOpen size={13} />}
+            Open Local Folder
+          </button>
         </div>
 
         <div
@@ -225,6 +307,14 @@ export default function PatientFilesPanel({ patientId }: Props) {
           )}
         </div>
       </div>
+
+      {showGallery && (
+        <GalleryPickerModal
+          branchId={activeBranch?.id}
+          onClose={() => setShowGallery(false)}
+          onAttach={handleGalleryAttach}
+        />
+      )}
 
       {/* Files list */}
       {isLoading ? (

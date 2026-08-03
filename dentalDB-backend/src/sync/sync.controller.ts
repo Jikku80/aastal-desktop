@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, Query, Request, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { SyncService } from './sync.service';
 import { SyncDevicesService } from './sync-devices.service';
@@ -39,6 +40,28 @@ export class SyncController {
   @UseGuards(SyncDeviceGuard)
   async push(@Request() req, @Body() body: { entityName: string; records: any[] }) {
     return this.sync.applyIncoming(body.entityName, body.records, req.syncClinicId);
+  }
+
+  /**
+   * Server-role endpoint — the file-content counterpart of POST /sync/push.
+   * That endpoint only ever moves the PatientFile database row; this one
+   * receives the actual image/document bytes and writes them to disk under
+   * the row's already-synced storedName. Deliberately NOT using the shared
+   * FilesModule multer config (which mints a fresh random filename) — the
+   * filename here must match the row that already arrived via /sync/push,
+   * so this uses plain in-memory multer storage and writes the buffer to
+   * the exact existing path itself (see SyncService.receiveFileBlob).
+   */
+  @Post('files/:id/blob')
+  @ApiConsumes('multipart/form-data')
+  @UseGuards(SyncDeviceGuard)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  async pushFileBlob(
+    @Request() req,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.sync.receiveFileBlob(req.syncClinicId, id, file);
   }
 
   /** This instance's own sync health — used by Phase 5 UI banners. */

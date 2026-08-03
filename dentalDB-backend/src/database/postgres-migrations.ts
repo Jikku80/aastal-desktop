@@ -26,6 +26,7 @@ import { IndependentDoctorRoleScope1784500000000 } from '../migrations/178450000
 import { NotificationPatientId1784600000000 } from '../migrations/1784600000000-NotificationPatientId';
 import { AppointmentIndependentBookingNullable1784800000000 } from '../migrations/1784800000000-AppointmentIndependentBookingNullable';
 import { InvoiceNumberPerClinicUnique1784900000000 } from '../migrations/1784900000000-InvoiceNumberPerClinicUnique';
+import { PatientFileBlobSync1785000000000 } from '../migrations/1785000000000-PatientFileBlobSync';
 
 export const POSTGRES_MIGRATIONS = [
   SeoInfrastructure1700000000001,
@@ -51,4 +52,5 @@ export const POSTGRES_MIGRATIONS = [
   NotificationPatientId1784600000000,
   AppointmentIndependentBookingNullable1784800000000,
   InvoiceNumberPerClinicUnique1784900000000,
+  PatientFileBlobSync1785000000000,
 ];

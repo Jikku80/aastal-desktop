@@ -5,6 +5,7 @@ import { join } from 'path';
 import { UPLOADS_DIR } from '../common/utils/uploads-dir.util';
 import { unlinkSync, existsSync } from 'fs';
 import { PatientFile, FileCategory } from './entities/patient-file.entity';
+import { isOfflineSqlite } from '../sync/pending-sync.util';
 
 @Injectable()
 export class FilesService {
@@ -29,6 +30,12 @@ export class FilesService {
       category:     dto.category || FileCategory.OTHER,
       description:  dto.description,
       uploadedByUserId: dto.uploadedByUserId,
+      // Created on the offline/desktop instance -> the bytes only exist on
+      // THIS machine's disk right now and still need to make it to the
+      // hosted backend (see SyncService.pushPendingFileBlobs). Created
+      // directly on the hosted instance (web/mobile upload) -> the bytes
+      // are already exactly where they need to be, nothing to push.
+      blobSyncStatus: isOfflineSqlite() ? 'pending' : 'synced',
     });
     return this.repo.save(record);
   }
@@ -83,5 +90,27 @@ export class FilesService {
 
   getAbsolutePath(file: PatientFile): string {
     return join(UPLOADS_DIR, file.storedName);
+  }
+
+  // ── Used by SyncService's file-blob push (see pushPendingFileBlobs) ──────
+
+  /** Rows whose bytes still need to be pushed to the remote — only meaningful once the row itself has synced (a blob push before that would 404 remotely, since the row wouldn't exist there yet to attach it to). */
+  async findPendingBlobSync(): Promise<PatientFile[]> {
+    return this.repo.find({ where: { blobSyncStatus: 'pending', syncStatus: 'synced' } as any });
+  }
+
+  async markBlobSynced(id: string): Promise<void> {
+    await this.repo.update({ id }, { blobSyncStatus: 'synced' } as any);
+  }
+
+  /**
+   * Server-role counterpart of the above — called from
+   * SyncController's POST /sync/files/:id/blob once bytes have actually
+   * been written to THIS instance's disk under the row's existing
+   * storedName. clinicId-scoped so a device can only mark blobs synced for
+   * its own clinic's files (mirrors SyncDeviceGuard's req.syncClinicId).
+   */
+  async findOneForClinic(clinicId: string, id: string): Promise<PatientFile | null> {
+    return this.repo.findOne({ where: { id, clinicId } });
   }
 }
