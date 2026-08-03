@@ -60,6 +60,8 @@ const TYPE_META: Record<string, { icon: any; color: string }> = {
 
 const FALLBACK = { icon: AlertCircle, color: 'bg-gray-500/15 text-gray-400' };
 
+const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
+
 export default function NotificationBell() {
   const router = useRouter();
   const { user, activeBranch } = useAuthStore();
@@ -124,6 +126,21 @@ export default function NotificationBell() {
         return count + 1;
       });
       qc.invalidateQueries({ queryKey: ['notifications', branchId] });
+
+      // Desktop: also surface this as a real system notification (Windows
+      // Action Center / macOS Notification Center / Linux libnotify), not
+      // just the in-app bell — covers every notification type that flows
+      // through this socket (appointments, low inventory, leave requests,
+      // shift assignments, etc.) since they all arrive here the same way.
+      if (isElectron && payload?.title) {
+        window.electronAPI!.showSystemNotification({
+          title: payload.title,
+          body: payload.body,
+          type: payload.type,
+          link: payload.link,
+          entityId: payload.entityId,
+        });
+      }
     });
 
     return () => {
@@ -139,6 +156,18 @@ export default function NotificationBell() {
     document.addEventListener('mousedown', fn);
     return () => document.removeEventListener('mousedown', fn);
   }, []);
+
+  // Clicking a native OS notification (see socket handler above) should
+  // land the user in the same place clicking it in the in-app bell would —
+  // reuses the exact same fallback-link logic.
+  useEffect(() => {
+    if (!isElectron) return;
+    const unsubscribe = window.electronAPI!.onNotificationClick(({ type, link, entityId }) => {
+      const dest = link || (type ? FALLBACK_LINK[type] : undefined);
+      if (dest) router.push(entityId ? `${dest}?id=${entityId}` : dest);
+    });
+    return unsubscribe;
+  }, [router]);
 
   return (
     <div className="relative" ref={panelRef}>

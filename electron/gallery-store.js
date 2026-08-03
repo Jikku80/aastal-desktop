@@ -45,6 +45,12 @@ const MIME_BY_EXT = {
   '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
   '.tif': 'image/tiff', '.tiff': 'image/tiff',
   '.heic': 'image/heic', '.heif': 'image/heif',
+  // DICOM — the standard format for x-ray/imaging sensors. Not a browser-
+  // renderable image type (no native <img> support), but it still needs to
+  // be picked up by the watched-folder auto-import and stored/synced like
+  // any other capture — see GalleryPickerModal's canRenderInline() on the
+  // frontend for how the thumbnail grid falls back to a file icon for these.
+  '.dcm': 'application/dicom', '.dicom': 'application/dicom',
 };
 
 function isImageFile(filePath) {

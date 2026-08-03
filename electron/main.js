@@ -11,6 +11,7 @@ const watchedFolderStore = require('./watched-folder-store');
 const galleryStore = require('./gallery-store');
 const watchedFolderWatcher = require('./watched-folder');
 const gallerySync = require('./gallery-sync');
+const nativeNotify = require('./native-notify');
 
 const BACKEND_PORT = process.env.BACKEND_PORT || 4000;
 const FRONTEND_PORT = process.env.FRONTEND_PORT || 3100;
@@ -398,7 +399,7 @@ if (!gotLock) {
       const result = await dialog.showOpenDialog(mainWindow, {
         title: 'Choose images to upload',
         properties: ['openFile', 'multiSelections'],
-        filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic', 'heif'] }],
+        filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic', 'heif', 'dcm', 'dicom'] }],
       });
       if (result.canceled || !result.filePaths.length) return [];
 
@@ -407,6 +408,7 @@ if (!gotLock) {
         '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif',
         '.webp': 'image/webp', '.bmp': 'image/bmp', '.tif': 'image/tiff', '.tiff': 'image/tiff',
         '.heic': 'image/heic', '.heif': 'image/heif',
+        '.dcm': 'application/dicom', '.dicom': 'application/dicom',
       };
       const files = [];
       for (const filePath of result.filePaths) {
@@ -433,6 +435,17 @@ if (!gotLock) {
     ipcMain.handle('gallery:read-file', (_event, id) => galleryStore.readItemFile(app, id));
     ipcMain.handle('gallery:mark-attached', (_event, { id, patientId }) => galleryStore.markAttached(app, id, patientId));
     ipcMain.handle('gallery:remove', (_event, id) => ({ ok: galleryStore.removeItem(app, id) }));
+
+    // ── Native OS notifications ─────────────────────────────────────────────
+    // The renderer already receives every notification (appointments, low
+    // inventory, leave requests, etc.) over the Socket.IO '/notifications'
+    // namespace — see NotificationBell.tsx. It forwards each one here so it
+    // also shows as a real system notification, not just the in-app bell.
+    // Fire-and-forget (`.on`, not `.handle`) since the renderer doesn't need
+    // to await anything back.
+    ipcMain.on('notifications:show', (_event, payload) => {
+      nativeNotify.showNotification(payload, () => mainWindow);
+    });
 
     startup();
   });

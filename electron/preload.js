@@ -76,4 +76,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('watched-folder:new-image', listener);
     return () => ipcRenderer.removeListener('watched-folder:new-image', listener);
   },
+
+  // ── Native OS notifications ──────────────────────────────────────────────
+  // Lets the renderer mirror an in-app notification (appointment reminder,
+  // low inventory, etc. — anything received over the Socket.IO
+  // '/notifications' namespace, see NotificationBell.tsx) as a real system
+  // notification (Windows Action Center / macOS Notification Center / Linux
+  // libnotify), so it's visible even when the app isn't focused.
+  /** @param {{ title: string, body?: string, type?: string, link?: string, entityId?: string }} payload */
+  showSystemNotification: (payload) => ipcRenderer.send('notifications:show', payload),
+  /**
+   * Fires when the user clicks a native notification this app raised —
+   * lets the renderer route to the same destination the in-app bell would
+   * have gone to. Returns an unsubscribe function.
+   * @param {(data: { type?: string, link?: string, entityId?: string }) => void} callback
+   * @returns {() => void}
+   */
+  onNotificationClick: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('notification:clicked', listener);
+    return () => ipcRenderer.removeListener('notification:clicked', listener);
+  },
 });

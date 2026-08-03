@@ -89,6 +89,18 @@ interface ElectronAPI {
   markGalleryItemAttached: (id: string, patientId: string) => Promise<ElectronGalleryItem | null>;
   removeGalleryItem: (id: string) => Promise<{ ok: boolean }>;
   onNewGalleryImage: (callback: (item: ElectronGalleryItem) => void) => () => void;
+
+  // Native OS notifications (mirrors in-app notifications from the bell / socket)
+  showSystemNotification: (payload: {
+    title: string;
+    body?: string;
+    type?: string;
+    link?: string;
+    entityId?: string;
+  }) => void;
+  onNotificationClick: (
+    callback: (data: { type?: string; link?: string; entityId?: string }) => void,
+  ) => () => void;
 }
 
 interface Window {

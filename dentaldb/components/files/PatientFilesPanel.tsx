@@ -30,7 +30,7 @@ const CATEGORY_COLORS: Record<Category, string> = {
   other:    'text-gray-400 bg-gray-500/10',
 };
 
-const ACCEPTED_EXTENSIONS = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.svg,.pdf,.xlsx,.xls,.csv,.doc,.docx,.dcm,.dicom';
+const ACCEPTED_EXTENSIONS = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.svg,.pdf,.xlsx,.xls,.csv,.doc,.docx,.dcm,.dicom';
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
