@@ -12,6 +12,14 @@ permissions:
 jobs:
   build:
     timeout-minutes: 60
+    # Linux and Mac each get their own unique group (no change in behavior).
+    # Both Windows legs (x64, ia32) share one group so GitHub queues the
+    # second run instead of letting it publish latest.yml at the same time
+    # as the first — electron-builder merges that file by downloading,
+    # editing, and re-uploading it, which is racy if two jobs do it at once.
+    concurrency:
+      group: build-${{ matrix.platform }}-${{ matrix.platform == 'win' && 'shared' || matrix.electron_arch }}-${{ github.ref }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
@@ -32,6 +40,9 @@ jobs:
           - os: windows-latest
             platform: win
             electron_arch: x64
+          - os: windows-latest
+            platform: win
+            electron_arch: ia32
     runs-on: ${{ matrix.os }}
     env:
       # Force prebuilt binaries; never silently fall back to compiling from source.
@@ -264,7 +275,7 @@ jobs:
       - name: Package (Windows)
         if: matrix.platform == 'win'
         shell: bash
-        run: npx electron-builder --win --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        run: npx electron-builder --win --${{ matrix.electron_arch }} --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
         working-directory: electron
         timeout-minutes: 40
         env:
@@ -300,6 +311,6 @@ jobs:
         if: matrix.platform == 'win'
         uses: actions/upload-artifact@v4
         with:
-          name: dist-win
+          name: dist-win-${{ matrix.electron_arch }}
           path: dist-electron/*.exe
           retention-days: 30

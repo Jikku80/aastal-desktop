@@ -20,22 +20,53 @@ const { resolveSyncConfig } = require('./sync-config');
 
 const RETRY_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
+// Keep in step with the backend's own limit — see gallery.module.ts /
+// gallery.controller.ts's FileInterceptor `limits.fileSize`. PNG captures
+// (lossless) run much larger than JPEGs from the same sensor, so a photo
+// that's simply too big for the old 20MB cap was previously the single
+// most likely reason a PNG "never synced": it failed the same way on
+// every retry, forever, with nothing but a console.error no one ever saw.
+// Checking client-side first means that specific case is reported to the
+// user immediately instead of silently retried every 5 minutes forever.
+const MAX_PUSH_SIZE = 40 * 1024 * 1024; // 40 MB — matches backend's cap
+
 let timer = null;
 let pushing = false;
 
+// Items we've already surfaced a failure notice for THIS SESSION, so a
+// permanently-broken item (e.g. one that's simply too large) doesn't nag
+// the user again on every 5-minute retry — only once until it either
+// succeeds or the app restarts.
+const notifiedFailures = new Set();
+
+function notifyRenderer(getMainWindow, item, reason) {
+  if (!getMainWindow) return;
+  const win = getMainWindow();
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('gallery-sync:push-failed', { item, reason });
+  }
+}
+
 /**
  * Pushes a single gallery item's bytes + metadata to the hosted backend.
- * Returns true on success (and marks the item pushed), false otherwise —
- * never throws, since this runs in a background sweep that must keep
- * going even if one item fails.
+ * Returns { ok: true } on success (and marks the item pushed), or
+ * { ok: false, reason } otherwise — never throws, since this runs in a
+ * background sweep that must keep going even if one item fails.
  */
 async function pushItem(app, baseUrl, deviceToken, item) {
   let buffer;
   try {
     buffer = fs.readFileSync(item.storedPath);
   } catch (err) {
-    console.error(`[gallery-sync] could not read stored file for ${item.id}:`, err);
-    return false;
+    const reason = `Could not read the stored file (${err?.message || err})`;
+    console.error(`[gallery-sync] ${reason} for ${item.id}`);
+    return { ok: false, reason };
+  }
+
+  if (buffer.length > MAX_PUSH_SIZE) {
+    const reason = `File is ${Math.round(buffer.length / (1024 * 1024))}MB, which is over the ${Math.round(MAX_PUSH_SIZE / (1024 * 1024))}MB sync limit`;
+    console.error(`[gallery-sync] push skipped for ${item.id}: ${reason}`);
+    return { ok: false, reason };
   }
 
   try {
@@ -53,21 +84,28 @@ async function pushItem(app, baseUrl, deviceToken, item) {
     });
 
     if (!res.ok) {
-      console.error(`[gallery-sync] push failed for ${item.id}: HTTP ${res.status}`);
-      return false;
+      // Read the body for the actual reason (e.g. multer's 413/400 for an
+      // oversized or rejected file) — previously this was discarded, so
+      // every failure looked identical ("HTTP 400") no matter the cause.
+      let detail = '';
+      try { detail = (await res.text())?.slice(0, 300) || ''; } catch { /* ignore */ }
+      const reason = `HTTP ${res.status}${detail ? `: ${detail}` : ''}`;
+      console.error(`[gallery-sync] push failed for ${item.id}: ${reason}`);
+      return { ok: false, reason };
     }
 
     const body = await res.json();
     galleryStore.markPushed(app, item.id, body?.id || null);
-    return true;
+    return { ok: true };
   } catch (err) {
-    console.error(`[gallery-sync] push failed for ${item.id}:`, err?.message || err);
-    return false;
+    const reason = err?.message || String(err);
+    console.error(`[gallery-sync] push failed for ${item.id}:`, reason);
+    return { ok: false, reason };
   }
 }
 
 /** Pushes every not-yet-synced gallery item. Safe to call concurrently — re-entrant calls are skipped. */
-async function sweep(app) {
+async function sweep(app, getMainWindow) {
   if (pushing) return;
   const { remoteBaseUrl, deviceToken } = resolveSyncConfig(app);
   // Nothing to push to yet — either no remote configured, or this device
@@ -82,20 +120,34 @@ async function sweep(app) {
   pushing = true;
   try {
     for (const item of pending) {
-      await pushItem(app, remoteBaseUrl, deviceToken, item);
+      const result = await pushItem(app, remoteBaseUrl, deviceToken, item);
+      if (!result.ok && !notifiedFailures.has(item.id)) {
+        notifiedFailures.add(item.id);
+        notifyRenderer(getMainWindow, item, result.reason);
+      }
+      if (result.ok) {
+        notifiedFailures.delete(item.id);
+      }
     }
   } finally {
     pushing = false;
   }
 }
 
-/** Starts the periodic retry sweep. Call once at app startup. */
-function start(app) {
+/**
+ * Starts the periodic retry sweep. Call once at app startup.
+ * @param {import('electron').App} app
+ * @param {() => import('electron').BrowserWindow | null} [getMainWindow]
+ *   Optional — when provided, a permanently-failing item (e.g. one over
+ *   the size cap) is reported to the renderer once via
+ *   'gallery-sync:push-failed' instead of failing silently forever.
+ */
+function start(app, getMainWindow) {
   stop();
   // Fire once immediately (don't block startup on it) and then on an interval.
-  sweep(app).catch((err) => console.error('[gallery-sync] initial sweep failed:', err));
+  sweep(app, getMainWindow).catch((err) => console.error('[gallery-sync] initial sweep failed:', err));
   timer = setInterval(() => {
-    sweep(app).catch((err) => console.error('[gallery-sync] sweep failed:', err));
+    sweep(app, getMainWindow).catch((err) => console.error('[gallery-sync] sweep failed:', err));
   }, RETRY_INTERVAL_MS);
 }
 

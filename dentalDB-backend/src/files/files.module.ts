@@ -27,7 +27,13 @@ import { BranchesModule } from '../branch/branch.module';
           cb(null, `${unique}${extname(file.originalname)}`);
         },
       }),
-      limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+      // 40MB — matches the gallery-sync limit in gallery.module.ts. Photos
+      // attached here often came straight from the watched-folder gallery
+      // (large, lossless PNG x-ray/scan captures), so this needs to stay
+      // at least as generous as that path or an image could sync into the
+      // gallery fine and then fail right here on the "attach to patient"
+      // step instead.
+      limits: { fileSize: 40 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {
         const allowedExts = /\.(jpeg|jpg|png|gif|webp|bmp|tiff|svg|pdf|xlsx|xls|csv|doc|docx|dicom|dcm)$/i;
         const allowedMimes = [

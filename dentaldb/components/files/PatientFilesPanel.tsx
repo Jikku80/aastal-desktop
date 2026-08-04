@@ -159,7 +159,7 @@ export default function PatientFilesPanel({ patientId }: Props) {
   });
 
   const uploadFile = async (file: File) => {
-    if (file.size > 20 * 1024 * 1024) { toast.error('Max file size is 20 MB'); return; }
+    if (file.size > 40 * 1024 * 1024) { toast.error('Max file size is 40 MB'); return; }
     setUploading(true);
     try {
       const fd = new FormData();
@@ -304,7 +304,7 @@ export default function PatientFilesPanel({ patientId }: Props) {
             <>
               <Upload size={20} className="mx-auto mb-2 text-[var(--text-muted)]" />
               <p className="text-xs font-medium text-[var(--text-secondary)]">Drop file or click to upload</p>
-              <p className="text-[11px] text-[var(--text-muted)] mt-1">JPG, PNG, PDF, Excel, CSV, X-ray (DICOM) • Max 20MB</p>
+              <p className="text-[11px] text-[var(--text-muted)] mt-1">JPG, PNG, PDF, Excel, CSV, X-ray (DICOM) • Max 40MB</p>
             </>
           )}
         </div>

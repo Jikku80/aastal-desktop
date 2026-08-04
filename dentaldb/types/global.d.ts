@@ -52,6 +52,16 @@ interface ElectronFileWithData {
   data: string; // base64
 }
 
+/** Live app-update status pushed from electron/auto-update.js — see preload.js's onUpdateStatus/getUpdateStatus. */
+interface ElectronUpdateStatus {
+  state: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error' | 'unavailable';
+  info?: { version?: string; releaseDate?: string };
+  percent?: number;
+  error?: string;
+  reason?: string;
+  checkedAt?: string;
+}
+
 interface ElectronAPI {
   isElectron: true;
 
@@ -89,6 +99,15 @@ interface ElectronAPI {
   markGalleryItemAttached: (id: string, patientId: string) => Promise<ElectronGalleryItem | null>;
   removeGalleryItem: (id: string) => Promise<{ ok: boolean }>;
   onNewGalleryImage: (callback: (item: ElectronGalleryItem) => void) => () => void;
+  /** Fires when a gallery item permanently fails to push to the hosted backend (e.g. over the size cap) — see gallery-sync.js. */
+  onGallerySyncFailed: (callback: (payload: { item: ElectronGalleryItem; reason: string }) => void) => () => void;
+
+  // App updates
+  checkForUpdates: () => Promise<void>;
+  getUpdateStatus: () => Promise<ElectronUpdateStatus>;
+  installUpdate: () => Promise<{ ok: boolean }>;
+  getAppVersion: () => Promise<string>;
+  onUpdateStatus: (callback: (status: ElectronUpdateStatus) => void) => () => void;
 
   // Native OS notifications (mirrors in-app notifications from the bell / socket)
   showSystemNotification: (payload: {

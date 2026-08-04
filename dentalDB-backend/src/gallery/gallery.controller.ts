@@ -96,7 +96,11 @@ export class GalleryController {
   @ApiBearerAuth()
   @ApiConsumes('multipart/form-data')
   @UseGuards(SyncDeviceGuard)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  // Kept in sync with the MulterModule-level limit in gallery.module.ts and
+  // electron/gallery-sync.js's MAX_PUSH_SIZE — see the comment there for
+  // why this was raised from 20MB (large, lossless PNG captures were
+  // silently hitting the old cap on every retry).
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 40 * 1024 * 1024 } }))
   async syncPush(
     @Request() req,
     @UploadedFile() file: Express.Multer.File,

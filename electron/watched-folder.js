@@ -22,6 +22,16 @@ const folderStore = require('./watched-folder-store');
 /** @type {Map<string, import('chokidar').FSWatcher>} entry id -> watcher */
 let watchers = new Map();
 
+// How many levels deep to recurse below the watched folder itself.
+// Some capture setups drop every image flat into ONE folder (depth 0 would
+// have been enough for those); others create ONE SUBFOLDER PER PATIENT and
+// drop that patient's images inside it (depth 1). A few nest even one level
+// further (e.g. per-patient -> per-visit-date). 4 comfortably covers all of
+// these real layouts seen in the field without turning this into an
+// accidental recursive watch of someone's entire Pictures or Desktop folder
+// if they mis-point it at something huge.
+const WATCH_DEPTH = 4;
+
 /**
  * (Re)starts every watcher against whatever is currently saved in
  * watched-folder-store — one per enabled entry with a folder path. Safe to
@@ -43,10 +53,20 @@ function start(app, getMainWindow) {
       // including ones from a previous session — must NOT be re-imported
       // on every launch. Only genuinely new arrivals should fire 'add'.
       ignoreInitial: true,
-      // A flat folder: a phone sync tool or SD-card importer drops files
-      // directly here, not into dated subfolders. Keeps each watcher
-      // cheap and avoids accidentally recursing into something huge.
-      depth: 0,
+      // Recurse into subfolders too — some capture apps store everything
+      // flat in one folder, others create ONE SUBFOLDER PER PATIENT with
+      // that patient's images inside it. depth: 0 (the old setting) only
+      // ever saw the flat case; anything nested one or more folders deep
+      // was silently invisible to the watcher. See WATCH_DEPTH above.
+      depth: WATCH_DEPTH,
+      // Folder paths come straight from the native OS folder picker
+      // (dialog.showOpenDialog), not typed by hand — but chokidar treats
+      // the watch path as a glob pattern by default, so a path containing
+      // glob-special characters (parentheses, brackets, '+', '@', '!' —
+      // all legal and common in real Windows folder names, e.g.
+      // "X-Ray Photos (Room 2)") can silently fail to match anything.
+      // disableGlobbing makes chokidar treat it as a literal path instead.
+      disableGlobbing: true,
       awaitWriteFinish: {
         // A file copy can take a moment to finish writing (e.g. from an
         // SD card, or a phone sync tool streaming it over Wi-Fi). Without

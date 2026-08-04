@@ -1,6 +1,6 @@
 {
   "name": "aastal-desktop",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Aastal clinic management — offline-capable desktop app",
   "main": "main.js",
   "private": true,
@@ -82,8 +82,9 @@
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        { "target": "nsis", "arch": ["x64", "ia32"] }
       ],
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
       "icon": "build/icon.ico"
     },
     "nsis": {

@@ -77,6 +77,47 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('watched-folder:new-image', listener);
   },
 
+  /**
+   * Fires when a gallery item permanently fails to push to the hosted
+   * backend (e.g. it's over the size cap) — reported once per item per
+   * session rather than staying silent through every 5-minute retry. See
+   * gallery-sync.js.
+   * @param {(payload: { item: any, reason: string }) => void} callback
+   * @returns {() => void}
+   */
+  onGallerySyncFailed: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('gallery-sync:push-failed', listener);
+    return () => ipcRenderer.removeListener('gallery-sync:push-failed', listener);
+  },
+
+  // ── App updates ───────────────────────────────────────────────────────────
+  // Backs the "Check for updates" control in Settings. The background
+  // checker in auto-update.js already runs on its own timer regardless of
+  // whether anyone opens this screen — these just let the UI trigger a
+  // check on demand, read the last known status, and kick off the restart
+  // once an update has finished downloading.
+  /** Triggers an update check right now (same check the background timer runs periodically). */
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  /** Current update status: { state: 'idle'|'checking'|'available'|'not-available'|'downloading'|'downloaded'|'error'|'unavailable', info?, percent?, error? } */
+  getUpdateStatus: () => ipcRenderer.invoke('update:get-status'),
+  /** Restarts the app and installs an update that has already finished downloading (status.state === 'downloaded'). */
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  /** The currently-running app version, e.g. for an "About" screen. */
+  getAppVersion: () => ipcRenderer.invoke('update:get-version'),
+  /**
+   * Fires whenever the update status changes (checking, available,
+   * downloading with progress, downloaded, error, ...). Returns an
+   * unsubscribe function.
+   * @param {(status: { state: string, info?: any, percent?: number, error?: string }) => void} callback
+   * @returns {() => void}
+   */
+  onUpdateStatus: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on('update:status', listener);
+    return () => ipcRenderer.removeListener('update:status', listener);
+  },
+
   // ── Native OS notifications ──────────────────────────────────────────────
   // Lets the renderer mirror an in-app notification (appointment reminder,
   // low inventory, etc. — anything received over the Socket.IO

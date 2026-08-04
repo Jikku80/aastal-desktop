@@ -28,7 +28,17 @@ import { SyncModule } from '../sync/sync.module';
         destination: UPLOADS_DIR,
         filename: (_req, file, cb) => cb(null, `${uuid()}${extname(file.originalname)}`),
       }),
-      limits: { fileSize: 20 * 1024 * 1024 },
+      // 40MB, not 20MB — PNG captures from x-ray sensors/scanners are
+      // lossless and routinely much larger than an equivalent JPEG from the
+      // same device. At 20MB, a clinic whose capture software defaults to
+      // PNG could have every single photo silently rejected here (desktop
+      // gallery-sync.js's push would fail every time, forever, on every
+      // retry) while JPEG-based setups worked fine — looking exactly like
+      // "PNG images never sync" even though nothing was PNG-specific about
+      // the check itself. Keep in sync with the FileInterceptor limit on
+      // the /gallery/sync route in gallery.controller.ts, and with
+      // electron/gallery-sync.js's MAX_PUSH_SIZE.
+      limits: { fileSize: 40 * 1024 * 1024 },
     }),
   ],
   controllers: [GalleryController],

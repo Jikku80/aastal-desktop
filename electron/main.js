@@ -5,7 +5,7 @@ const path = require('path');
 const http = require('http');
 const { readSyncConfig, writeSyncConfig, clearDeviceToken, resolveSyncConfig, configPath } = require('./sync-config');
 const { getOrCreateLocalJwtSecrets } = require('./local-jwt-secrets');
-const { setupAutoUpdates } = require('./auto-update');
+const { setupAutoUpdates, checkForUpdatesNow, installUpdateNow, getStatus: getUpdateStatus } = require('./auto-update');
 const credentialStore = require('./credential-store');
 const watchedFolderStore = require('./watched-folder-store');
 const galleryStore = require('./gallery-store');
@@ -252,7 +252,11 @@ async function startup() {
   }
 
   createWindow();
-  setupAutoUpdates();
+  // Passing the window getter (not a captured reference) lets auto-update.js
+  // push live status ('checking' / 'available' / 'downloading' / etc) to
+  // whichever window is current, even if it's recreated later — same
+  // pattern used for watched-folder and gallery-sync below.
+  setupAutoUpdates(() => mainWindow);
 
   // Independent of whether anyone is logged in yet — if any watched
   // folders are already configured (from a previous session), start
@@ -263,8 +267,11 @@ async function startup() {
 
   // Periodically pushes any gallery items not yet on the hosted backend
   // (e.g. captured while offline, or before this device's sync token was
-  // ready) — see gallery-sync.js.
-  gallerySync.start(app);
+  // ready) — see gallery-sync.js. Passing the window getter lets it report
+  // a permanently-failing item (e.g. one over the size cap) to the
+  // renderer once instead of retrying forever with nothing but a console
+  // log — see gallery-sync.js's notifyRenderer.
+  gallerySync.start(app, () => mainWindow);
 }
 
 function shutdown() {
@@ -403,7 +410,7 @@ if (!gotLock) {
       });
       if (result.canceled || !result.filePaths.length) return [];
 
-      const MAX_SIZE = 20 * 1024 * 1024; // matches the existing 20MB cap in PatientFilesPanel
+      const MAX_SIZE = 40 * 1024 * 1024; // matches files.module.ts / gallery.module.ts's 40MB cap
       const MIME_BY_EXT = {
         '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif',
         '.webp': 'image/webp', '.bmp': 'image/bmp', '.tif': 'image/tiff', '.tiff': 'image/tiff',
@@ -435,6 +442,20 @@ if (!gotLock) {
     ipcMain.handle('gallery:read-file', (_event, id) => galleryStore.readItemFile(app, id));
     ipcMain.handle('gallery:mark-attached', (_event, { id, patientId }) => galleryStore.markAttached(app, id, patientId));
     ipcMain.handle('gallery:remove', (_event, id) => ({ ok: galleryStore.removeItem(app, id) }));
+
+    // ── App updates (manual "Check for updates" control in Settings) ───────
+    // The background check in auto-update.js already runs on its own timer
+    // and pushes 'update:status' events to the renderer as things change —
+    // these handlers just let the UI also trigger a check on demand and
+    // read the current status/kick off the install once one's ready,
+    // instead of updates only ever happening invisibly in the background.
+    ipcMain.handle('update:check', () => checkForUpdatesNow());
+    ipcMain.handle('update:get-status', () => getUpdateStatus());
+    ipcMain.handle('update:install', () => {
+      installUpdateNow();
+      return { ok: true };
+    });
+    ipcMain.handle('update:get-version', () => app.getVersion());
 
     // ── Native OS notifications ─────────────────────────────────────────────
     // The renderer already receives every notification (appointments, low

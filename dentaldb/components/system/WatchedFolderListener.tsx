@@ -112,5 +112,19 @@ export default function WatchedFolderListener() {
     return unsubscribe;
   }, [qc]);
 
+  // A gallery item that permanently fails to push to the hosted backend
+  // (most commonly: it's over the sync size cap — see gallery-sync.js's
+  // MAX_PUSH_SIZE) previously failed the exact same way on every 5-minute
+  // retry forever with nothing but a console.error no one ever saw. This
+  // surfaces it once per item per session so the reason is actually
+  // visible — the photo still stays safely in the local gallery either way.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.electronAPI?.onGallerySyncFailed) return;
+    const unsubscribe = window.electronAPI.onGallerySyncFailed(({ item, reason }) => {
+      toast.error(`Couldn't sync "${item.fileName}" to the web: ${reason}`, { duration: 8000 });
+    });
+    return unsubscribe;
+  }, []);
+
   return null;
 }
