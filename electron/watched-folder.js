@@ -15,6 +15,8 @@
 // watchers on the same folder, or a stale watcher for a folder/branch that
 // was just removed.
 
+const fs = require('fs');
+const path = require('path');
 const chokidar = require('chokidar');
 const galleryStore = require('./gallery-store');
 const folderStore = require('./watched-folder-store');
@@ -33,6 +35,82 @@ let watchers = new Map();
 const WATCH_DEPTH = 4;
 
 /**
+ * Recursively lists every file already sitting under `rootPath`, up to
+ * `maxDepth` levels of subfolders — mirrors chokidar's own `depth` option
+ * (see WATCH_DEPTH above) so the catch-up scan below sees exactly the same
+ * files the live watcher would. Missing/unreadable folders (not-yet-created
+ * watch target, permissions hiccup, a subfolder that vanished mid-scan,
+ * etc.) are logged and skipped rather than throwing, since one bad folder
+ * shouldn't stop the rest of the scan or block app startup.
+ *
+ * @param {string} rootPath
+ * @param {number} maxDepth
+ * @returns {string[]}
+ */
+function scanExistingFiles(rootPath, maxDepth) {
+  const found = [];
+
+  function walk(dir, depth) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (err) {
+      console.error(`[watched-folder] couldn't read "${dir}" during catch-up scan:`, err);
+      return;
+    }
+
+    for (const dirent of entries) {
+      const fullPath = path.join(dir, dirent.name);
+      if (dirent.isDirectory()) {
+        if (depth < maxDepth) walk(fullPath, depth + 1);
+      } else if (dirent.isFile()) {
+        found.push(fullPath);
+      }
+    }
+  }
+
+  walk(rootPath, 0);
+  return found;
+}
+
+/**
+ * Imports any image already sitting in `entry.folderPath` (flat, or nested
+ * inside per-patient/per-visit subfolders) that hasn't been imported yet.
+ *
+ * chokidar's `ignoreInitial: true` (below) is deliberate — it stops every
+ * app relaunch from re-importing the watcher's entire initial directory
+ * listing — but as a side effect it also means chokidar never fires 'add'
+ * for files that were ALREADY in the folder before the watcher started.
+ * Concretely: an x-ray app creates a new patient folder and drops images
+ * into it while this app is closed (or mid-startup, or before the user has
+ * logged in) — those files are sitting there the moment the watcher turns
+ * on, so ignoreInitial makes chokidar skip them, and they'd otherwise never
+ * get picked up. This runs once per (re)start to close that gap.
+ *
+ * Safe to run every time: addItem() is deduped on path + size + mtime, so
+ * re-scanning files that were already imported on a previous run is a
+ * no-op for them — only genuinely new files result in a gallery item.
+ *
+ * @param {import('electron').App} app
+ * @param {{ folderPath: string, branchId: string, branchName: string }} entry
+ * @param {() => import('electron').BrowserWindow | null} getMainWindow
+ */
+function catchUpExisting(app, entry, getMainWindow) {
+  const files = scanExistingFiles(entry.folderPath, WATCH_DEPTH);
+
+  for (const filePath of files) {
+    if (!galleryStore.isImageFile(filePath)) continue; // non-image files in the folder are ignored
+    const item = galleryStore.addItem(app, filePath, entry.branchId, entry.branchName);
+    if (!item) continue; // already imported, or vanished/unreadable by the time we got to it
+
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('watched-folder:new-image', item);
+    }
+  }
+}
+
+/**
  * (Re)starts every watcher against whatever is currently saved in
  * watched-folder-store — one per enabled entry with a folder path. Safe to
  * call repeatedly.
@@ -48,6 +126,11 @@ function start(app, getMainWindow) {
   const entries = folderStore.readConfig(app).filter((e) => e.enabled && e.folderPath);
 
   for (const entry of entries) {
+    // Pull in anything that landed while nobody was watching, BEFORE
+    // wiring up the live watcher below — see catchUpExisting() for why
+    // this is necessary despite (in fact, because of) ignoreInitial.
+    catchUpExisting(app, entry, getMainWindow);
+
     const watcher = chokidar.watch(entry.folderPath, {
       // Files already sitting in the folder when the watcher (re)starts —
       // including ones from a previous session — must NOT be re-imported
