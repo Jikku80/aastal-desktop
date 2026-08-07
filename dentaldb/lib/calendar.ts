@@ -1,4 +1,4 @@
-import NepaliDate from 'nepali-date-converter';
+import NepaliDate, { dateConfigMap } from 'nepali-date-converter';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
 export type CalendarType = 'BS' | 'AD';
@@ -8,29 +8,19 @@ export const BS_MONTHS = [
   'Kartik','Mangsir','Poush','Magh','Falgun','Chaitra',
 ];
 
-// Days-per-BS-month lookup (extend as needed)
-const BS_DAYS_IN_MONTH: Record<number, number[]> = {
-  2079: [31,31,32,32,31,30,30,29,30,29,30,31],
-  2080: [31,31,32,32,31,30,30,29,30,29,30,30],
-  2081: [31,31,32,32,31,31,30,29,30,29,30,30],
-  2082: [31,32,31,32,31,30,30,30,29,29,30,30],
-  2083: [31,31,32,32,31,30,30,30,29,29,30,30],
-  2084: [31,31,32,32,31,30,30,30,29,29,30,30],
-  2085: [31,31,32,32,31,30,30,29,30,29,30,30],
-
-  2086: [31,31,32,32,31,30,30,29,30,29,30,30],
-  2087: [31,31,32,32,31,30,30,29,30,29,30,30],
-  2088: [31,31,32,31,32,30,30,29,30,29,30,30],
-  2089: [31,31,32,32,31,30,30,29,30,29,30,30],
-  2090: [31,31,32,32,31,30,30,29,30,29,30,30],
-  2091: [31,32,31,32,31,30,30,30,29,29,30,30],
-  2092: [31,31,32,32,31,30,30,30,29,29,30,30],
-  2093: [31,31,32,32,31,30,30,30,29,29,30,30],
-  2094: [31,31,32,32,31,30,30,29,30,29,30,30],
-  2095: [31,31,32,32,31,30,30,29,30,29,30,30],
-};
+// Keys as used by nepali-date-converter's own dateConfigMap, in month-index (0-11) order.
+// Only the transliteration differs from BS_MONTHS above (Asar/Aswin vs Ashadh/Ashwin) —
+// same calendar, same order.
+const LIB_MONTH_KEYS = [
+  'Baisakh','Jestha','Asar','Shrawan','Bhadra','Aswin',
+  'Kartik','Mangsir','Poush','Magh','Falgun','Chaitra',
+] as const;
 
 // ── Low-level converters ──────────────────────────────────────────────────────
+// All BS↔AD math and day-count lookups are delegated to nepali-date-converter
+// (a maintained, tested library) rather than a hand-typed table — a hand-rolled
+// lookup table risks silently producing wrong dates in years nobody remembered
+// to add, which is worse than not converting at all.
 
 export function adToBS(ad: Date): { year: number; month: number; day: number } {
   try {
@@ -50,8 +40,17 @@ export function bsToAD(bsYear: number, bsMonth: number, bsDay: number): Date {
   }
 }
 
+/**
+ * Days in a given BS month, read straight from nepali-date-converter's own
+ * data table (the same table it uses internally for BS↔AD conversion), so
+ * this can never drift out of sync with adToBS/bsToAD. Covers BS 2000–2090
+ * (~AD 1943–2033); outside that range the library itself can't convert
+ * reliably either, so we fall back to 30 rather than guessing further.
+ */
 export function getDaysInBSMonth(bsYear: number, bsMonth: number): number {
-  return BS_DAYS_IN_MONTH[bsYear]?.[bsMonth] ?? 30;
+  const yearConfig = (dateConfigMap as Record<number, Record<string, number>>)[bsYear];
+  const key = LIB_MONTH_KEYS[bsMonth];
+  return yearConfig?.[key] ?? 30;
 }
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
@@ -77,6 +76,14 @@ export function toBSMonthShort(date: Date): string {
   try {
     const { year, month } = adToBS(date);
     return `${BS_MONTHS[month]} ${year}`;
+  } catch { return ''; }
+}
+
+/** Short day-level label for chart X-axes: "Baisakh 15" (no year, no "BS" suffix) */
+export function toBSDayShort(date: Date): string {
+  try {
+    const { month, day } = adToBS(date);
+    return `${BS_MONTHS[month]} ${day}`;
   } catch { return ''; }
 }
 
@@ -136,6 +143,16 @@ export function formatMonthYear(date: Date, calendarType: CalendarType): string 
 export function formatMonthLabel(date: Date, calendarType: CalendarType): string {
   if (calendarType === 'BS') return toBSMonthShort(date);
   return format(date, 'MMM yyyy');
+}
+
+/**
+ * Short day-level label for chart axes (no year).
+ * BS → "Baisakh 15"
+ * AD → "Apr 15"
+ */
+export function formatDayLabel(date: Date, calendarType: CalendarType): string {
+  if (calendarType === 'BS') return toBSDayShort(date);
+  return format(date, 'MMM d');
 }
 
 /**

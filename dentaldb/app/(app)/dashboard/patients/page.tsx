@@ -3,10 +3,11 @@ import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Plus, User, Phone, Mail, ChevronRight, X, Upload } from 'lucide-react';
-import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { patientsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
+import { useCalendarType } from '@/hooks/useCalendarType';
+import { formatDate } from '@/lib/calendar';
 import { usePermissions } from '@/store/permissions.store';
 import Header from '@/components/layout/Header';
 import NoBranchBanner from '@/components/layout/NoBranchBanner';
@@ -31,6 +32,7 @@ export default function PatientsPage() {
   useEffect(() => () => clearContext(), [clearContext]);
   const qc = useQueryClient();
   const { activeBranch } = useAuthStore();
+  const calendarType = useCalendarType();
   const { can } = usePermissions();
   const { isReadOnly: branchLocked } = useBranchReadOnly();
   const canManage = (can('patient.create') || can('patient.update')) && !branchLocked;
@@ -215,7 +217,7 @@ export default function PatientsPage() {
                           {(p.ageYears ?? p.age) ? `${p.ageYears ?? p.age} yrs` : '—'}{p.gender ? ` · ${p.gender}` : ''}
                         </td>
                         <td className="px-4 py-3.5 text-xs text-[var(--text-secondary)] whitespace-nowrap">
-                          {p.createdAt ? format(new Date(p.createdAt), 'MMM d, yyyy') : '—'}
+                          {p.createdAt ? formatDate(new Date(p.createdAt), calendarType) : '—'}
                         </td>
                         <td className="px-4 py-3.5">
                           <span className={`badge text-[10px] ${p.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}`}>

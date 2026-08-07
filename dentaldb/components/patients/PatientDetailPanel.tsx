@@ -6,8 +6,9 @@ import {
   Activity, Trash2, Loader2, Stethoscope, Pill, FileText, Bell,
   FlaskConical, Droplet,
 } from 'lucide-react';
-import { format } from 'date-fns';
 import { formatNepalDateTime } from '@/lib/timezone';
+import { formatDate } from '@/lib/calendar';
+import { useCalendarType } from '@/hooks/useCalendarType';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { patientsApi, recallsApi, labApi, bloodTestApi } from '@/lib/api';
@@ -74,6 +75,7 @@ function AppointmentHistoryItem({ item }: { item: any }) {
 
 function ClinicalRecordHistoryItem({ item }: { item: any }) {
   const [expanded, setExpanded] = useState(false);
+  const calendarType = useCalendarType();
   return (
     <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
       <button
@@ -96,7 +98,7 @@ function ClinicalRecordHistoryItem({ item }: { item: any }) {
           </div>
         </div>
         <p className="text-[11px] text-[var(--text-muted)]">
-          {format(new Date(item.createdAt), 'MMM d, yyyy')}
+          {formatDate(new Date(item.createdAt), calendarType)}
           {item.doctor && ` · Dr. ${item.doctor.firstName} ${item.doctor.lastName}`}
         </p>
         {item.diagnosisNotes && !expanded && (
@@ -225,6 +227,7 @@ export default function PatientDetailPanel({
   const { can } = usePermissions();
   const qc = useQueryClient();
   const canDelete = can('patient.delete');
+  const calendarType = useCalendarType();
 
   const { data: history, isLoading: historyLoading } = useQuery({
     queryKey: ['patient-history', patient.id],
@@ -381,7 +384,7 @@ export default function PatientDetailPanel({
               <div className="space-y-2">
                 {patient.phone && <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]"><Phone size={13} className="text-[var(--text-muted)] shrink-0" />{patient.phone}</div>}
                 {patient.email && <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]"><Mail size={13} className="text-[var(--text-muted)] shrink-0" />{patient.email}</div>}
-                {patient.dateOfBirth && <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]"><Calendar size={13} className="text-[var(--text-muted)] shrink-0" />{format(new Date(patient.dateOfBirth), 'MMM d, yyyy')}{age ? ` (${age} yrs)` : ''}</div>}
+                {patient.dateOfBirth && <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]"><Calendar size={13} className="text-[var(--text-muted)] shrink-0" />{formatDate(new Date(patient.dateOfBirth), calendarType)}{age ? ` (${age} yrs)` : ''}</div>}
                 {patient.address && <p className="text-sm text-[var(--text-secondary)] pl-5">{patient.address}</p>}
               </div>
             </div>
@@ -428,8 +431,8 @@ export default function PatientDetailPanel({
               </div>
             )}
             <p className="text-[10px] text-[var(--text-muted)] pt-2">
-              Added {format(new Date(patient.createdAt), 'MMM d, yyyy')}
-              {patient.lastVisitAt && ` · Last visit ${format(new Date(patient.lastVisitAt), 'MMM d, yyyy')}`}
+              Added {formatDate(new Date(patient.createdAt), calendarType)}
+              {patient.lastVisitAt && ` · Last visit ${formatDate(new Date(patient.lastVisitAt), calendarType)}`}
             </p>
           </div>
         )}
@@ -566,7 +569,7 @@ export default function PatientDetailPanel({
                       )}
 
                       <p className="text-[10px] text-[var(--text-muted)] mt-2">
-                        {format(new Date(lab.createdAt), 'MMM d, yyyy')}
+                        {formatDate(new Date(lab.createdAt), calendarType)}
                         {lab.orderedBy && ` · Dr. ${lab.orderedBy.firstName} ${lab.orderedBy.lastName}`}
                       </p>
                     </div>
@@ -615,7 +618,7 @@ export default function PatientDetailPanel({
                             <span className="shrink-0 text-[10px] text-[var(--text-muted)] capitalize">{lab.status?.replace(/_/g, ' ')}</span>
                           </div>
                           <p className="text-[10px] text-[var(--text-muted)] mt-1">
-                            {format(new Date(lab.createdAt), 'MMM d, yyyy')}
+                            {formatDate(new Date(lab.createdAt), calendarType)}
                             {lab.orderedBy && ` · Dr. ${lab.orderedBy.firstName} ${lab.orderedBy.lastName}`}
                           </p>
                         </div>
@@ -683,7 +686,7 @@ export default function PatientDetailPanel({
                       )}
 
                       <p className="text-[10px] text-[var(--text-muted)] mt-2">
-                        {format(new Date(bt.createdAt), 'MMM d, yyyy')}
+                        {formatDate(new Date(bt.createdAt), calendarType)}
                         {bt.fasting && ' · Fasting'}
                         {bt.orderedBy && ` · Dr. ${bt.orderedBy.firstName} ${bt.orderedBy.lastName}`}
                       </p>

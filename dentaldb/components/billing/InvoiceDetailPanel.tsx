@@ -4,11 +4,12 @@ import { motion } from 'framer-motion';
 import {
   X, Download, CreditCard, CheckCircle, Loader2, Hash, Trash2,
 } from 'lucide-react';
-import { format } from 'date-fns';
 import { useMutation } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { billingApi, walletApi, BASE_URL as API_BASE_URL } from '@/lib/api';
 import { usePermissions } from '@/store/permissions.store';
+import { useCalendarType } from '@/hooks/useCalendarType';
+import { formatDate } from '@/lib/calendar';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Invoice, PaymentMethod } from '@/types';
 import PatientWalletPanel from './PatientWalletPanel';
@@ -38,6 +39,7 @@ export default function InvoiceDetailPanel({
   const { can } = usePermissions();
   const qc = useQueryClient();
   const canDelete = can('invoice.delete');
+  const calendarType = useCalendarType();
 
   const { data: walletData } = useQuery({
     queryKey: ['wallet-balance-pay', invoice.patientId],
@@ -234,14 +236,14 @@ export default function InvoiceDetailPanel({
           <div className="p-3 rounded-xl" style={{ background: 'var(--bg-elevated)' }}>
             <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-0.5">Issued</p>
             <p className="text-sm text-[var(--text-primary)]">
-              {format(new Date(invoice.createdAt), 'MMM d, yyyy')}
+              {formatDate(new Date(invoice.createdAt), calendarType)}
             </p>
           </div>
           {invoice.dueDate && (
             <div className="p-3 rounded-xl" style={{ background: 'var(--bg-elevated)' }}>
               <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-0.5">Due Date</p>
               <p className={`text-sm ${new Date(invoice.dueDate) < new Date() && invoice.status !== 'paid' ? 'text-red-400' : 'text-[var(--text-primary)]'}`}>
-                {format(new Date(invoice.dueDate), 'MMM d, yyyy')}
+                {formatDate(new Date(invoice.dueDate), calendarType)}
               </p>
             </div>
           )}
@@ -257,7 +259,7 @@ export default function InvoiceDetailPanel({
             <div className="p-3 rounded-xl" style={{ background: 'var(--bg-elevated)' }}>
               <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-0.5">Paid On</p>
               <p className="text-sm text-emerald-400">
-                {format(new Date(invoice.paidAt), 'MMM d, yyyy')}
+                {formatDate(new Date(invoice.paidAt), calendarType)}
               </p>
             </div>
           )}

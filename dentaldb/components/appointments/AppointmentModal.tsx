@@ -460,10 +460,9 @@ export default function AppointmentModal({
             {/* Date & Time */}
             <div>
               <FieldLabel icon={CalendarClock}>Date &amp; Time *</FieldLabel>
-              <input
-                type="datetime-local"
-                {...register('scheduledAt')}
-                className="input w-full text-sm h-10"
+              <RegistrationDateField
+                value={watch('scheduledAt')}
+                onChange={v => setValue('scheduledAt', v, { shouldValidate: true })}
               />
               {errors.scheduledAt && <p className="mt-1 text-xs text-red-400">{errors.scheduledAt.message}</p>}
             </div>

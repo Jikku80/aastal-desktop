@@ -16,7 +16,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { usePermissions } from '@/store/permissions.store';
 import { useSelectedPatientStore } from '@/store/SelectedPatient.store';
 import { useCalendarType } from '@/hooks/useCalendarType';
-import { toBSFull } from '@/lib/calendar';
+import { toBSFull, formatDate } from '@/lib/calendar';
 import { RegistrationDateField, toDatetimeLocalString, parseDatetimeLocal } from '@/components/ui/RegistrationDateFIeld';
 import type { Appointment } from '@/types';
 import PrescriptionPrintButton from '@/components/prescriptions/PrescriptionPrintButton';
@@ -566,7 +566,7 @@ export default function AppointmentDetailPanel({
                         </div>
                         <p className="text-xs text-[var(--text-muted)] mt-1">
                           {lab.labName ? `${lab.labName} · ` : ''}{lab.priority?.toUpperCase() || 'ROUTINE'}
-                          {lab.createdAt && ` · ${format(new Date(lab.createdAt), 'MMM d, yyyy')}`}
+                          {lab.createdAt && ` · ${formatDate(new Date(lab.createdAt), calendarType)}`}
                         </p>
                         {lab.clinicalNotes && <p className="text-xs text-[var(--text-secondary)] mt-1.5">{lab.clinicalNotes}</p>}
                         {lab.resultSummary && (
@@ -596,7 +596,7 @@ export default function AppointmentDetailPanel({
                     rec.attachments?.length > 0 && (
                       <div key={rec.id} className="p-4 rounded-xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
                         <p className="text-xs text-[var(--text-muted)] mb-2">
-                          {rec.createdAt && format(new Date(rec.createdAt), 'MMM d, yyyy')}
+                          {rec.createdAt && formatDate(new Date(rec.createdAt), calendarType)}
                           {rec.doctor && ` · Dr. ${rec.doctor.firstName} ${rec.doctor.lastName}`}
                         </p>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">

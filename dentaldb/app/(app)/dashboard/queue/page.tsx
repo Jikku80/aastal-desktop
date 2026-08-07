@@ -8,6 +8,7 @@ import { patientsApi, queueApi, usersApi, appointmentsApi, BASE_URL } from '@/li
 import InvoiceModal from '@/components/billing/InvoiceModal';
 import { formatNepalClockTime, nepalLocalInputToUTCISOString, utcToNepalLocalInputValue } from '@/lib/timezone';
 import Header from '@/components/layout/Header';
+import { RegistrationDateField } from '@/components/ui/RegistrationDateFIeld';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import {
@@ -114,20 +115,16 @@ function CreateAppointmentModal({ entry, onClose }: { entry: any; onClose: () =>
         <form onSubmit={handleSubmit} className="p-5 space-y-3">
           <div>
             <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Start Time *</label>
-            <input
-              type="datetime-local"
+            <RegistrationDateField
               value={form.scheduledAt}
-              onChange={e => setForm(f => ({ ...f, scheduledAt: e.target.value }))}
-              className={inp}
+              onChange={v => setForm(f => ({ ...f, scheduledAt: v }))}
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">End Time *</label>
-            <input
-              type="datetime-local"
+            <RegistrationDateField
               value={form.endsAt}
-              onChange={e => setForm(f => ({ ...f, endsAt: e.target.value }))}
-              className={inp}
+              onChange={v => setForm(f => ({ ...f, endsAt: v }))}
             />
           </div>
           <div>

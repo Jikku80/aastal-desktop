@@ -212,8 +212,8 @@ export default function BillingTemplateTab() {
           onChange={setShowRegistrationNumber}
         />
         <ToggleRow
-          label="Show VAT number"
-          description="Prints clinic VAT number under the clinic name and in the footer"
+          label="Show PAN/VAT number"
+          description="Prints clinic PAN/VAT number (from Clinic Profile) under the clinic name and in the footer — labeled 'PAN/VAT No' since IRD issues one number for both"
           checked={showVatNumber}
           onChange={setShowVatNumber}
         />

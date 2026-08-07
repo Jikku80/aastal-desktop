@@ -22,22 +22,9 @@ import type { Appointment } from '@/types';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import 'react-big-calendar/lib/addons/dragAndDrop/styles.css';
 import toast from 'react-hot-toast';
-import NepaliDate from 'nepali-date-converter';
 import { BranchReadOnlyBanner, useBranchReadOnly } from '@/components/layout/BranchReadOnlyBanner';
 import GenericImportModal from '@/components/layout/GenericImportModal';
-
-// ── BS date helpers ───────────────────────────────────────────────────────────
-const BS_MONTHS = ['Baisakh','Jestha','Ashadh','Shrawan','Bhadra','Ashwin','Kartik','Mangsir','Poush','Magh','Falgun','Chaitra'];
-
-// Days-in-month lookup for BS years (extendable)
-const BS_DAYS_IN_MONTH: Record<number, number[]> = {
-  2079: [31,31,32,32,31,30,30,29,30,29,30,31],
-  2080: [31,31,32,32,31,30,30,29,30,29,30,30],
-  2081: [31,31,32,32,31,31,30,29,30,29,30,30],
-  2082: [31,32,31,32,31,30,30,30,29,29,30,30],
-  2083: [31,31,32,32,31,30,30,30,29,29,30,30],
-  2084: [31,31,32,32,31,30,30,30,29,29,30,30],
-};
+import { BS_MONTHS, adToBS, bsToAD, getDaysInBSMonth, toBSFull } from '@/lib/calendar';
 
 /**
  * Resolve a patientId for an imported appointment row.
@@ -74,41 +61,6 @@ async function resolvePatientIdForImport(data: {
   const newId = created?.data?.id ?? created?.data?.data?.id;
   if (!newId) throw new Error('Failed to create patient record for this row.');
   return newId;
-}
-
-function adToBS(ad: Date): { year: number; month: number; day: number } {
-  try {
-    const nd = new NepaliDate(ad);
-    return { year: nd.getYear(), month: nd.getMonth(), day: nd.getDate() };
-  } catch {
-    return { year: 2081, month: 0, day: 1 };
-  }
-}
-
-function bsToAD(bsYear: number, bsMonth: number, bsDay: number): Date {
-  try {
-    const nd = new NepaliDate(bsYear, bsMonth, bsDay);
-    return nd.toJsDate();
-  } catch {
-    return new Date();
-  }
-}
-
-function getDaysInBSMonth(bsYear: number, bsMonth: number): number {
-  return BS_DAYS_IN_MONTH[bsYear]?.[bsMonth] ?? 30;
-}
-
-function toBSFull(date: Date): string {
-  try {
-    const { year, month, day } = adToBS(date);
-    return `${BS_MONTHS[month]} ${day}, ${year} BS`;
-  } catch { return ''; }
-}
-function toBSMonthYear(date: Date): string {
-  try {
-    const { year, month } = adToBS(date);
-    return `${BS_MONTHS[month]} ${year} BS`;
-  } catch { return ''; }
 }
 
 // Returns the AD date range actually shown on screen for the current view.

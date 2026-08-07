@@ -6,6 +6,7 @@ import { X, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { expenseApi, usersApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
+import { BSDateField } from '@/components/ui/BSDateField';
 
 const CATEGORIES = [
   'salaries','rent','utilities','medical_supplies','equipment',
@@ -245,10 +246,9 @@ export default function ExpenseModal({ editing, onClose, onSuccess }: Props) {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="Expense Date" required>
-              <FocusInput
-                type="date"
+              <BSDateField
                 value={form.expenseDate}
-                onChange={e => set('expenseDate', e.target.value)}
+                onChange={v => set('expenseDate', v)}
               />
             </Field>
             <Field label="Vendor">

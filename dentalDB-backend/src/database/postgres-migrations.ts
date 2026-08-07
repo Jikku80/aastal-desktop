@@ -28,6 +28,7 @@ import { AppointmentIndependentBookingNullable1784800000000 } from '../migration
 import { InvoiceNumberPerClinicUnique1784900000000 } from '../migrations/1784900000000-InvoiceNumberPerClinicUnique';
 import { PatientFileBlobSync1785000000000 } from '../migrations/1785000000000-PatientFileBlobSync';
 import { GalleryItems1785100000000 } from '../migrations/1785100000000-GalleryItems';
+import { RecallBranchScoping1785200000000 } from '../migrations/1785200000000-RecallBranchScoping';
 
 export const POSTGRES_MIGRATIONS = [
   SeoInfrastructure1700000000001,
@@ -55,4 +56,5 @@ export const POSTGRES_MIGRATIONS = [
   InvoiceNumberPerClinicUnique1784900000000,
   PatientFileBlobSync1785000000000,
   GalleryItems1785100000000,
+  RecallBranchScoping1785200000000,
 ];

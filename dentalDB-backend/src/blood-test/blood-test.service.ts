@@ -125,13 +125,21 @@ export class BloodTestService {
     await this.repo.remove(test);
   }
 
-  async getStats(clinicId: string) {
+  async getStats(clinicId: string, opts: { branchId?: string; branchIds?: string[] } = {}) {
+    // Stats used to always be clinic-wide, so the counters on this page kept
+    // showing every branch's numbers even while the list below was already
+    // correctly scoped to the active branch. Apply the same branchId/branchIds
+    // precedence used by findAll() so the two stay in sync.
+    const baseWhere: any = { clinicId };
+    if (opts.branchId) baseWhere.branchId = opts.branchId;
+    else if (opts.branchIds && opts.branchIds.length > 0) baseWhere.branchId = In(opts.branchIds);
+
     const [total, pending, inProgress, completed, urgent] = await Promise.all([
-      this.repo.count({ where: { clinicId } }),
-      this.repo.count({ where: { clinicId, status: BloodTestStatus.PENDING } }),
-      this.repo.count({ where: { clinicId, status: BloodTestStatus.IN_PROGRESS } }),
-      this.repo.count({ where: { clinicId, status: BloodTestStatus.COMPLETED } }),
-      this.repo.count({ where: { clinicId, priority: BloodTestPriority.URGENT } }),
+      this.repo.count({ where: { ...baseWhere } }),
+      this.repo.count({ where: { ...baseWhere, status: BloodTestStatus.PENDING } }),
+      this.repo.count({ where: { ...baseWhere, status: BloodTestStatus.IN_PROGRESS } }),
+      this.repo.count({ where: { ...baseWhere, status: BloodTestStatus.COMPLETED } }),
+      this.repo.count({ where: { ...baseWhere, priority: BloodTestPriority.URGENT } }),
     ]);
     return { total, pending, inProgress, completed, urgent };
   }

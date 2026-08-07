@@ -4,9 +4,10 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Legend,
 } from 'recharts';
-import { format } from 'date-fns';
 import { Loader2, Activity, Heart, Wind, Weight } from 'lucide-react';
 import { vitalsApi } from '@/lib/api';
+import { useCalendarType } from '@/hooks/useCalendarType';
+import { formatDayLabel } from '@/lib/calendar';
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 function CustomTooltip({ active, payload, label }: any) {
@@ -45,6 +46,7 @@ function ChartCard({
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function VitalsTrendCharts({ patientId }: { patientId: string }) {
+  const calendarType = useCalendarType();
   const { data: records = [], isLoading } = useQuery({
     queryKey: ['vitals-history', patientId],
     queryFn:  () => vitalsApi.getPatientHistory(patientId).then(r => r.data),
@@ -73,7 +75,7 @@ export default function VitalsTrendCharts({ patientId }: { patientId: string }) 
 
   // Prepare data oldest→newest (charts read left→right)
   const chartData = [...records].reverse().map((v: any, i: number) => ({
-    label:       format(new Date(v.recordedAt), 'MMM d'),
+    label:       formatDayLabel(new Date(v.recordedAt), calendarType),
     visit:       `Visit ${i + 1}`,
     systolic:    v.systolic    ?? null,
     diastolic:   v.diastolic   ?? null,

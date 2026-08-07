@@ -12,6 +12,8 @@ import {
 import { format, isPast } from 'date-fns';
 import { formatNepalDateTime, nepalLocalInputToUTCISOString } from '@/lib/timezone';
 import PatientCombobox from '@/components/ui/PatientCombobox';
+import { RegistrationDateField } from '@/components/ui/RegistrationDateFIeld';
+import { BSDateField } from '@/components/ui/BSDateField';
 import Header from '@/components/layout/Header';
 import OutboxStatusBadge from '@/components/system/OutboxStatusBadge';
 
@@ -153,7 +155,7 @@ function AddRecallModal({ onClose }: { onClose: () => void }) {
             </div>
             <div>
               <FieldLabel required>Due date</FieldLabel>
-              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="input w-full text-sm" />
+              <BSDateField value={dueDate} onChange={setDueDate} className="input w-full text-sm" />
             </div>
           </div>
 
@@ -281,7 +283,7 @@ function BookAppointmentDrawer({ recall, onClose }: { recall: Recall; onClose: (
 
           <div>
             <FieldLabel required>Date & time</FieldLabel>
-            <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} className="input w-full text-sm" />
+            <RegistrationDateField value={scheduledAt} onChange={setScheduledAt} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -515,15 +517,15 @@ export default function RecallsPage() {
   const { activeBranch } = useAuthStore();
 
   const { data: groupsData, isLoading } = useQuery({
-    queryKey: ['recalls'],
-    queryFn: () => recallsApi.list().then(r => r.data),
+    queryKey: ['recalls', activeBranch?.id],
+    queryFn: () => recallsApi.list({ branchId: activeBranch?.id }).then(r => r.data),
     refetchInterval: 60_000,
     enabled: !!activeBranch?.isActive,
   });
 
   const { data: stats } = useQuery({
-    queryKey: ['recall-stats'],
-    queryFn: () => recallsApi.stats().then(r => r.data),
+    queryKey: ['recall-stats', activeBranch?.id],
+    queryFn: () => recallsApi.stats({ branchId: activeBranch?.id }).then(r => r.data),
     refetchInterval: 60_000,
     enabled: !!activeBranch?.isActive,
   });

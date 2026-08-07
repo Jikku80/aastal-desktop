@@ -7,6 +7,7 @@ const isSQLite = process.env.DB_DRIVER === 'sqlite';
 import { Patient } from '../../patients/entities/patient.entity';
 import { User }    from '../../users/entities/user.entity';
 import { Appointment } from '../../appointments/entities/appointment.entity';
+import { Branch } from '../../branch/entities/branch.entity';
 
 export enum RecallType {
   CHECKUP           = 'checkup',
@@ -38,6 +39,16 @@ export class Recall {
   @ManyToOne(() => Patient, { eager: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'patientId' })
   patient: Patient;
+
+  /** Branch this recall belongs to, so the Recalls page can be scoped to a
+   *  branch the same way Appointments/Blood Tests/Lab Work already are.
+   *  Nullable because a recall isn't required to have a branch. */
+  @Column({ nullable: true })
+  branchId: string;
+
+  @ManyToOne(() => Branch, { eager: false, nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'branchId' })
+  branch: Branch;
 
   @Column({ nullable: true })
   createdByUserId: string;

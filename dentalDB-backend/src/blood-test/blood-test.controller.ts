@@ -40,8 +40,17 @@ export class BloodTestController {
 
   @Get('stats')
   @RequirePermissions('blood_test.view')
-  getStats(@Request() req) {
-    return this.svc.getStats(req.user.clinicId);
+  async getStats(@Request() req, @Query('branchId') branchId?: string) {
+    const { id: userId, clinicId } = req.user;
+    const perms: Set<string> = req.user._permissions;
+    const isOwner = perms.has('*') || perms.has('branch.manage');
+
+    let branchIds: string[] | undefined;
+    if (!isOwner && !branchId) {
+      const ids = await this.branchesService.getAccessibleBranchIds(clinicId, userId, req.user.role);
+      if (ids.length > 0) branchIds = ids;
+    }
+    return this.svc.getStats(clinicId, { branchId, branchIds });
   }
 
   @Get()

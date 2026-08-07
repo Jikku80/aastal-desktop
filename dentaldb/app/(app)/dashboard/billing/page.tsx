@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search, Plus, FileText, TrendingUp, AlertCircle, CheckCircle, X, Lock, Loader2, Upload,
 } from 'lucide-react';
-import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { billingApi, reportsApi, patientsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
@@ -20,6 +19,9 @@ import InvoiceDetailPanel from '@/components/billing/InvoiceDetailPanel';
 import type { Invoice } from '@/types';
 import { BranchReadOnlyBanner, useBranchReadOnly } from '@/components/layout/BranchReadOnlyBanner';
 import GenericImportModal from '@/components/layout/GenericImportModal';
+import { BSDateField } from '@/components/ui/BSDateField';
+import { useCalendarType } from '@/hooks/useCalendarType';
+import { formatDate } from '@/lib/calendar';
 
 const STATUS_BADGE: Record<string, string> = {
   draft:          'bg-gray-500/10 text-gray-400',
@@ -96,6 +98,7 @@ export default function BillingPage() {
   const [page, setPage]                 = useState(1);
   const qc = useQueryClient();
   const { activeBranch } = useAuthStore();
+  const calendarType = useCalendarType();
   const { can } = usePermissions();
   const { isReadOnly: branchLocked } = useBranchReadOnly();
 
@@ -265,21 +268,21 @@ export default function BillingPage() {
                 </button>
               )}
             </div>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={e => { setDateFrom(e.target.value); setPage(1); }}
-              className="input h-9 text-sm shrink-0"
-              style={{ width: 'auto' }}
-            />
+            <div className="shrink-0" style={{ width: 'auto' }}>
+              <BSDateField
+                value={dateFrom}
+                onChange={v => { setDateFrom(v); setPage(1); }}
+                className="input h-9 text-sm"
+              />
+            </div>
             <span className="text-xs text-[var(--text-muted)] shrink-0">to</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={e => { setDateTo(e.target.value); setPage(1); }}
-              className="input h-9 text-sm shrink-0"
-              style={{ width: 'auto' }}
-            />
+            <div className="shrink-0" style={{ width: 'auto' }}>
+              <BSDateField
+                value={dateTo}
+                onChange={v => { setDateTo(v); setPage(1); }}
+                className="input h-9 text-sm"
+              />
+            </div>
             {(dateFrom || dateTo) && (
               <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(1); }} className="btn-ghost text-xs px-2 py-1 shrink-0">Clear</button>
             )}
@@ -364,7 +367,7 @@ export default function BillingPage() {
                         </td>
                         <td className="px-3 lg:px-4 py-3 whitespace-nowrap">
                           <p className="text-xs text-[var(--text-secondary)]">
-                            {format(new Date(inv.createdAt), 'MMM d, yyyy')}
+                            {formatDate(new Date(inv.createdAt), calendarType)}
                           </p>
                         </td>
                         <td className="px-3 lg:px-4 py-3 whitespace-nowrap">
@@ -426,7 +429,7 @@ export default function BillingPage() {
                   </p>
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-[var(--text-muted)]">
-                      {format(new Date(inv.createdAt), 'MMM d, yyyy')}
+                      {formatDate(new Date(inv.createdAt), calendarType)}
                     </p>
                     <p className="text-sm font-bold text-[var(--text-primary)]">{fmtNPR(inv.total)}</p>
                   </div>

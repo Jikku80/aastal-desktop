@@ -10,7 +10,7 @@ import { analyticsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { usePermissions } from '@/store/permissions.store';
 import { useCalendarType } from '@/hooks/useCalendarType';
-import { formatMonthYear } from '@/lib/calendar';
+import { formatMonthYear, formatDayLabel } from '@/lib/calendar';
 import Header from '@/components/layout/Header';
 
 const COLORS = ['#0e9de8','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899'];
@@ -60,7 +60,7 @@ export default function AnalyticsPage() {
 
   const revenueChart = dashboard?.revenueChart || [];
   const forecastData = forecast?.dates?.slice(0,14).map((d: string, i: number) => ({
-    date:      new Date(d).toLocaleDateString('en', { month:'short', day:'numeric' }),
+    date:      formatDayLabel(new Date(d), calendarType),
     predicted: forecast.predicted_revenue[i],
     lower:     forecast.lower_bound[i],
     upper:     forecast.upper_bound[i],

@@ -12,6 +12,7 @@ import {
 import { useAuthStore } from '@/store/auth.store';
 import PermissionGate from '@/components/rbac/PermissionGate';
 import PatientCombobox from '@/components/ui/PatientCombobox';
+import { BSDateField } from '@/components/ui/BSDateField';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type BloodTestStatus   = 'pending' | 'sample_collected' | 'in_progress' | 'completed' | 'cancelled';
@@ -283,7 +284,7 @@ function OrderModal({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="label">Sample Date</label>
-                <input type="date" {...field('sampleCollectedAt')} className="input w-full" />
+                <BSDateField value={form.sampleCollectedAt || ''} onChange={v => setForm(f => ({ ...f, sampleCollectedAt: v }))} className="input w-full" />
               </div>
               <div>
                 <label className="label">Lab Ref / Accession</label>
@@ -385,8 +386,7 @@ function ResultsModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label">Results Received Date</label>
-                <input type="date" value={receivedAt}
-                  onChange={e => setReceivedAt(e.target.value)} className="input w-full" />
+                <BSDateField value={receivedAt} onChange={setReceivedAt} className="input w-full" />
               </div>
             </div>
 

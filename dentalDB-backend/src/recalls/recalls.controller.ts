@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Patch, Delete,
-  Body, Param, Query, Request, UseGuards,
+  Body, Param, Query, Request, UseGuards, ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RecallsService } from './recalls.service';
@@ -8,13 +8,31 @@ import { CreateRecallDto, UpdateRecallDto, BulkCreateRecallDto } from './dto/rec
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../rbac/guards/permissions.guard';
 import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
+import { BranchesService } from '../branch/branch.service';
+import { BranchLockGuard } from '../common/guards/branch-lock.guard';
 
 @ApiTags('Recalls')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchLockGuard)
 @Controller('recalls')
 export class RecallsController {
-  constructor(private service: RecallsService) {}
+  constructor(
+    private service: RecallsService,
+    private branchesService: BranchesService,
+  ) {}
+
+  /** Same "explicit branchId wins, otherwise fall back to the caller's
+   *  RBAC-accessible branches" resolution used by AppointmentsController,
+   *  so a non-owner never sees recalls outside branches they're assigned to. */
+  private async resolveBranchIds(req: any, explicitBranchId?: string): Promise<string[] | undefined> {
+    if (explicitBranchId) return undefined; // single branchId takes priority in the service
+    const { id: userId, clinicId } = req.user;
+    const perms: Set<string> = req.user._permissions;
+    const isOwner = perms.has('*') || perms.has('branch.manage');
+    if (isOwner) return undefined;
+    const ids = await this.branchesService.getAccessibleBranchIds(clinicId, userId, req.user.role);
+    return ids;
+  }
 
   @Post()
   @RequirePermissions('appointment.create')
@@ -30,14 +48,16 @@ export class RecallsController {
 
   @Get()
   @RequirePermissions('appointment.view')
-  findAll(@Request() req) {
-    return this.service.findAll(req.user.clinicId);
+  async findAll(@Request() req, @Query('branchId') branchId?: string) {
+    const branchIds = await this.resolveBranchIds(req, branchId);
+    return this.service.findAll(req.user.clinicId, { branchId, branchIds });
   }
 
   @Get('stats')
   @RequirePermissions('appointment.view')
-  stats(@Request() req) {
-    return this.service.getStats(req.user.clinicId);
+  async stats(@Request() req, @Query('branchId') branchId?: string) {
+    const branchIds = await this.resolveBranchIds(req, branchId);
+    return this.service.getStats(req.user.clinicId, { branchId, branchIds });
   }
 
   @Get('patient/:patientId')

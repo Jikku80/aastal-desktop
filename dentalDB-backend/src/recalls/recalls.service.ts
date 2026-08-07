@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, Between, MoreThan, IsNull, Not } from 'typeorm';
+import { Repository, LessThan, Between, MoreThan, IsNull, Not, In } from 'typeorm';
 import { addDays, addWeeks, startOfDay, endOfDay, addMonths } from 'date-fns';
 import { parseAsNepalTime, nepalStartOfTodayUTC, nepalWallClockToUTC } from '../common/utils/timezone.util';
 import { Recall, RecallStatus, RecallType } from './entities/recall.entity';
@@ -26,6 +26,7 @@ export class RecallsService {
       clinicId,
       createdByUserId: userId,
       patientId: dto.patientId,
+      branchId:  dto.branchId ?? null,
       dueDate:   new Date(dto.dueDate),
       reason:    dto.reason,
       recallType: dto.recallType ?? RecallType.CHECKUP,
@@ -125,7 +126,17 @@ export class RecallsService {
     return savedApt;
   }
 
-  async findAll(clinicId: string) {
+  /** Builds the branch clause for a where-filter, matching the pattern used by
+   *  Appointments/Blood Tests/Lab Work: an explicit single branchId takes
+   *  priority (the "active branch" selector), otherwise a caller can be
+   *  restricted to their RBAC-accessible branch set via branchIds. */
+  private branchWhere(branchId?: string, branchIds?: string[]) {
+    if (branchId) return branchId;
+    if (branchIds && branchIds.length > 0) return In(branchIds);
+    return undefined;
+  }
+
+  async findAll(clinicId: string, opts: { branchId?: string; branchIds?: string[] } = {}) {
     const today = nepalStartOfTodayUTC();
     const weekEnd = endOfDay(addDays(new Date(), 7));
 
@@ -137,20 +148,23 @@ export class RecallsService {
     // render booked recalls (see the "Appointment Linked" card + status
     // badge in RecallCard), so we just need to keep sending them.
     const activeStatuses = Not(RecallStatus.CANCELLED);
+    const branchWhere = this.branchWhere(opts.branchId, opts.branchIds);
+    const baseWhere: any = { clinicId, status: activeStatuses };
+    if (branchWhere !== undefined) baseWhere.branchId = branchWhere;
 
     const [overdue, thisWeek, upcoming] = await Promise.all([
       this.recallRepo.find({
-        where: { clinicId, status: activeStatuses, dueDate: LessThan(today) },
+        where: { ...baseWhere, dueDate: LessThan(today) },
         order: { dueDate: 'ASC' },
         relations: ['appointment'],
       }),
       this.recallRepo.find({
-        where: { clinicId, status: activeStatuses, dueDate: Between(today, weekEnd) },
+        where: { ...baseWhere, dueDate: Between(today, weekEnd) },
         order: { dueDate: 'ASC' },
         relations: ['appointment'],
       }),
       this.recallRepo.find({
-        where: { clinicId, status: activeStatuses, dueDate: MoreThan(weekEnd) },
+        where: { ...baseWhere, dueDate: MoreThan(weekEnd) },
         order: { dueDate: 'ASC' },
         relations: ['appointment'],
       }),
@@ -159,18 +173,21 @@ export class RecallsService {
     return { overdue, thisWeek, upcoming };
   }
 
-  async getStats(clinicId: string) {
+  async getStats(clinicId: string, opts: { branchId?: string; branchIds?: string[] } = {}) {
     const now = new Date();
     const monthStart = startOfDay(new Date(now.getFullYear(), now.getMonth(), 1));
     const monthEnd = endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+    const branchWhere = this.branchWhere(opts.branchId, opts.branchIds);
+    const baseWhere: any = { clinicId };
+    if (branchWhere !== undefined) baseWhere.branchId = branchWhere;
 
     const [totalPending, overdueCount, bookedThisMonth] = await Promise.all([
-      this.recallRepo.count({ where: { clinicId, status: RecallStatus.PENDING } }),
+      this.recallRepo.count({ where: { ...baseWhere, status: RecallStatus.PENDING } }),
       this.recallRepo.count({
-        where: { clinicId, status: RecallStatus.PENDING, dueDate: LessThan(startOfDay(now)) },
+        where: { ...baseWhere, status: RecallStatus.PENDING, dueDate: LessThan(startOfDay(now)) },
       }),
       this.recallRepo.count({
-        where: { clinicId, status: RecallStatus.BOOKED, updatedAt: Between(monthStart, monthEnd) },
+        where: { ...baseWhere, status: RecallStatus.BOOKED, updatedAt: Between(monthStart, monthEnd) },
       }),
     ]);
 

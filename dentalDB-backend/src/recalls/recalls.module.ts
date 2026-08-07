@@ -8,14 +8,17 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { Clinic } from 'src/clinics/entities/clinic.entity';
 import { Branch } from 'src/branch/entities/branch.entity';
 import { Appointment } from '../appointments/entities/appointment.entity';
+import { BranchesModule } from '../branch/branch.module';
+import { BranchLockGuard } from '../common/guards/branch-lock.guard';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Recall, Clinic, Branch, Appointment]),
     NotificationsModule,
+    BranchesModule,
   ],
   controllers: [RecallsController],
-  providers: [RecallsService, RecallsScheduler],
+  providers: [RecallsService, RecallsScheduler, BranchLockGuard],
   exports: [RecallsService],
 })
 export class RecallsModule {}

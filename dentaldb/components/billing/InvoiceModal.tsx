@@ -6,8 +6,8 @@ import toast from 'react-hot-toast';
 import { billingApi, patientsApi, appointmentsApi, servicesApi, inventoryApi, usersApi, bloodTestApi, labApi, walletApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
-import { format } from 'date-fns';
 import { formatNepalDateTime } from '@/lib/timezone';
+import { BSDateField } from '@/components/ui/BSDateField';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 // `_uid` is a stable client-only identity for each line, independent of its
@@ -751,10 +751,27 @@ export default function InvoiceModal({
             </div>
             <div className="flex items-center justify-between text-sm text-[var(--text-secondary)]">
               <div className="flex items-center gap-2">
-                <span>VAT (%)</span>
-                <input type="number" value={taxPercent} onChange={e => setTaxPercent(e.target.value === '' ? '' : Number(e.target.value))} min={0} max={100}
-                  className="w-14 px-2 py-0.5 text-xs rounded-lg text-center"
-                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }} />
+                <span>VAT</span>
+                {/* Nepal's IRD only recognizes two VAT states for a bill: not
+                    VAT-charged (0%) or the single statutory standard rate
+                    (13%) — there is no such thing as a 5%/8%/20% "VAT" in
+                    Nepal, so this is intentionally a 2-way toggle rather than
+                    a free-text percentage box. A clinic issuing a bill that
+                    says e.g. "VAT (10%)" would be printing a rate the IRD
+                    doesn't recognize, which isn't a valid tax invoice. */}
+                <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border)' }}>
+                  {[{ v: 0, label: 'No VAT' }, { v: 13, label: '13% VAT' }].map(opt => (
+                    <button key={opt.v} type="button" onClick={() => setTaxPercent(opt.v)}
+                      className={`px-2.5 py-1 text-xs font-medium transition-colors ${
+                        Number(taxPercent) === opt.v
+                          ? 'bg-[var(--accent)] text-white'
+                          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]'
+                      }`}
+                      style={{ background: Number(taxPercent) === opt.v ? undefined : 'var(--bg-elevated)' }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
               <span>NPR {taxAmount.toFixed(0)}</span>
             </div>
@@ -849,7 +866,7 @@ export default function InvoiceModal({
             </div>
             <div>
               <label className="label">Due Date</label>
-              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="input w-full text-sm" />
+              <BSDateField value={dueDate} onChange={setDueDate} />
             </div>
             <div>
               <label className="label">Notes</label>

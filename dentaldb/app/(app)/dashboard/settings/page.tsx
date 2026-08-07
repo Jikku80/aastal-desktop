@@ -679,7 +679,14 @@ function VatSettingsTab({ isAdmin }: { isAdmin: boolean }) {
   const qc = useQueryClient();
   const { clinic, setClinic } = useAuthStore();
   const currentVat = (clinic as any)?.settings?.vatPercent ?? 0;
-  const [vatValue, setVatValue] = useState<string>(String(currentVat));
+  // Nepal's IRD recognizes exactly two valid states for VAT on a bill: not
+  // VAT-charged (0%) or the single statutory standard rate (13%) — there is
+  // no other valid "VAT %" in Nepal. This used to be a free-text 0–100 box,
+  // which let a clinic accidentally save a default like 10% or 18% that
+  // would then print on every invoice as e.g. "VAT (10%)" — a rate the IRD
+  // doesn't recognize, making that a non-compliant tax invoice. Constrained
+  // to a 2-way toggle so an invalid default can no longer be saved.
+  const [vatValue, setVatValue] = useState<0 | 13>(Number(currentVat) === 13 ? 13 : 0);
 
   const vatMutation = useMutation({
     mutationFn: (vatPercent: number) =>
@@ -692,11 +699,7 @@ function VatSettingsTab({ isAdmin }: { isAdmin: boolean }) {
     onError: () => toast.error('Failed to save VAT setting'),
   });
 
-  const handleSave = () => {
-    const num = parseFloat(vatValue);
-    if (isNaN(num) || num < 0 || num > 100) { toast.error('VAT must be between 0 and 100'); return; }
-    vatMutation.mutate(num);
-  };
+  const handleSave = () => vatMutation.mutate(vatValue);
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
@@ -708,18 +711,25 @@ function VatSettingsTab({ isAdmin }: { isAdmin: boolean }) {
         style={{ background: 'rgba(14,157,232,0.05)', border: '1px solid rgba(14,157,232,0.15)' }}>
         <Info size={13} className="text-brand-400 shrink-0 mt-0.5" />
         <p className="text-[var(--text-secondary)]">
-          This VAT % will be automatically applied when creating new invoices in the <span className="text-brand-400 font-medium">Billing</span> section. You can still override it per invoice.
+          This VAT % will be automatically applied when creating new invoices in the <span className="text-brand-400 font-medium">Billing</span> section. You can still override it per invoice. Only 0% (not VAT-registered / exempt service) and Nepal's standard 13% rate are valid on an IRD tax invoice.
         </p>
       </div>
       <div className="card p-5 space-y-4">
         <div>
           <label className="label mb-2">Global VAT Percentage</label>
           <div className="flex items-center gap-3">
-            <div className="relative flex-1 max-w-[200px]">
-              <input type="number" min={0} max={100} step={0.01} value={vatValue}
-                onChange={e => setVatValue(e.target.value)} disabled={!isAdmin}
-                className="input w-full pr-8" placeholder="e.g. 13" />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-[var(--text-muted)]">%</span>
+            <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border)' }}>
+              {([{ v: 0, label: 'No VAT (0%)' }, { v: 13, label: '13% — Standard Rate' }] as const).map(opt => (
+                <button key={opt.v} type="button" disabled={!isAdmin} onClick={() => setVatValue(opt.v)}
+                  className={`px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    vatValue === opt.v
+                      ? 'bg-[var(--accent)] text-white'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]'
+                  }`}
+                  style={{ background: vatValue === opt.v ? undefined : 'var(--bg-elevated)' }}>
+                  {opt.label}
+                </button>
+              ))}
             </div>
             {isAdmin && (
               <button onClick={handleSave} disabled={vatMutation.isPending} className="btn-primary gap-2">
@@ -742,18 +752,6 @@ function VatSettingsTab({ isAdmin }: { isAdmin: boolean }) {
               On NPR 10,000 invoice → VAT: NPR {(10000 * currentVat / 100).toLocaleString()} → Total: NPR {(10000 * (1 + currentVat / 100)).toLocaleString()}
             </p>
           )}
-        </div>
-        <div>
-          <p className="text-xs text-[var(--text-muted)] font-medium mb-2">Common rates in Nepal</p>
-          <div className="flex flex-wrap gap-2">
-            {[{ v: 0, label: '0% (Exempt)' }, { v: 13, label: '13% (Standard)' }, { v: 15, label: '15% (Medical)' }].map(({ v, label }) => (
-              <button key={v} onClick={() => { if (isAdmin) setVatValue(String(v)); }} disabled={!isAdmin}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${parseFloat(vatValue) === v ? 'bg-brand-600 text-white' : 'text-[var(--text-secondary)] hover:bg-white/5'}`}
-                style={{ border: '1px solid var(--border)' }}>
-                {label}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
     </motion.div>

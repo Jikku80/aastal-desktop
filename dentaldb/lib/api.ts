@@ -507,8 +507,8 @@ export const queueApi = {
 };
 // ── Recalls ───────────────────────────────────────────────────────────────────
 export const recallsApi = {
-  list:        ()               => api.get('/recalls'),
-  stats:       ()               => api.get('/recalls/stats'),
+  list:        (p?: { branchId?: string }) => api.get('/recalls', { params: p }),
+  stats:       (p?: { branchId?: string }) => api.get('/recalls/stats', { params: p }),
   byPatient:   (patientId: string) => api.get(`/recalls/patient/${patientId}`),
   create:      (d: any)         => api.post('/recalls', d),
   bulkCreate:  (d: any)         => api.post('/recalls/bulk', d),
