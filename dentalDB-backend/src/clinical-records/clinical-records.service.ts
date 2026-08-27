@@ -3,8 +3,8 @@ import { randomUUID } from 'crypto';
 import { ilike } from '../database/sql-helpers';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ClinicalRecord, Prescription } from './entities/clinical-record.entity';
-import { CreateClinicalRecordDto, UpdateClinicalRecordDto, UpsertClinicalRecordFromBillingDto } from './dto/clinical-record.dto';
+import { ClinicalRecord, Prescription, PrescriptionDispensingStatus } from './entities/clinical-record.entity';
+import { CreateClinicalRecordDto, UpdateClinicalRecordDto, UpsertClinicalRecordFromBillingDto, PrescriptionDto } from './dto/clinical-record.dto';
 
 @Injectable()
 export class ClinicalRecordsService {
@@ -162,7 +162,7 @@ export class ClinicalRecordsService {
   }
 
   async update(clinicId: string, id: string, dto: UpdateClinicalRecordDto): Promise<ClinicalRecord> {
-    await this.findOne(clinicId, id);
+    const existing = await this.findOne(clinicId, id);
 
     const { prescriptions, ...rest } = dto;
     if (Object.keys(rest).length) {
@@ -170,18 +170,111 @@ export class ClinicalRecordsService {
     }
 
     if (prescriptions !== undefined) {
-      await this.rxRepo.delete({ clinicalRecordId: id });
-      if (prescriptions.length) {
-        const rxs = this.rxRepo.create(prescriptions.map(rx => ({ ...rx, clinicalRecordId: id })));
-        await this.rxRepo.save(rxs);
-      }
+      await this.syncPrescriptions(id, existing.prescriptions || [], prescriptions);
     }
 
     return this.findOne(clinicId, id);
   }
 
+  /**
+   * Merges incoming prescription lines with what's already stored instead
+   * of the old blind delete-all/recreate. That approach was harmless while
+   * prescriptions were pure free text, but Phase 11 adds pharmacy dispensing
+   * linkage (productId/quantityPrescribed/dispensedQuantity/dispensingStatus)
+   * — a delete+recreate would silently wipe dispensing history the moment a
+   * doctor edited any other field on the record, and stock has already moved
+   * against a dispensed line's specific productId/quantity, so those two
+   * must not change once dispensing has started.
+   */
+  private async syncPrescriptions(
+    clinicalRecordId: string,
+    existingRxs: Prescription[],
+    incoming: PrescriptionDto[],
+  ): Promise<void> {
+    const existingById = new Map(existingRxs.map(rx => [rx.id, rx]));
+    const keepIds = new Set<string>();
+
+    for (const rx of incoming) {
+      const prior = rx.id ? existingById.get(rx.id) : undefined;
+
+      if (prior) {
+        keepIds.add(prior.id);
+        const dispensingStarted = prior.dispensingStatus !== PrescriptionDispensingStatus.NOT_DISPENSED;
+        await this.rxRepo.update(prior.id, {
+          medicineName: rx.medicineName,
+          dosage:       rx.dosage,
+          frequency:    rx.frequency,
+          duration:     rx.duration,
+          instructions: rx.instructions,
+          // Pharmacy link is locked once dispensing has started (mirrors
+          // the frontend disabling this line's picker) — ignore any
+          // incoming change rather than desyncing the Dispense Queue/stock.
+          ...(dispensingStarted ? {} : { productId: rx.productId, quantityPrescribed: rx.quantityPrescribed }),
+        });
+      } else {
+        const created = this.rxRepo.create({ ...rx, id: undefined, clinicalRecordId });
+        const saved = await this.rxRepo.save(created);
+        keepIds.add(saved.id);
+      }
+    }
+
+    // Lines dropped from the incoming array are only safe to delete if
+    // dispensing never started; otherwise keep the row (and its audit
+    // trail) rather than orphaning dispensed stock history.
+    const toDelete = existingRxs.filter(
+      rx => !keepIds.has(rx.id) && rx.dispensingStatus === PrescriptionDispensingStatus.NOT_DISPENSED,
+    );
+    if (toDelete.length) {
+      await this.rxRepo.delete(toDelete.map(rx => rx.id));
+    }
+  }
+
   async remove(clinicId: string, id: string): Promise<void> {
     await this.findOne(clinicId, id);
     await this.repo.delete({ id, clinicId });
+  }
+
+  // ── Pharmacy dispensing linkage (Phase 3, section 13) ────────────────────
+
+  /**
+   * Prescriptions linked to a pharmacy Product (productId set) that still
+   * have quantity outstanding — the pharmacy fulfillment queue. Reuses the
+   * existing clinical-record → patient/doctor relations rather than a
+   * separate pharmacy-side prescription list.
+   */
+  async findPendingDispensing(clinicId: string, branchIds?: string[]): Promise<Prescription[]> {
+    const qb = this.rxRepo.createQueryBuilder('rx')
+      .leftJoinAndSelect('rx.clinicalRecord', 'record')
+      .leftJoinAndSelect('record.patient', 'patient')
+      .leftJoinAndSelect('record.doctor', 'doctor')
+      .where('record.clinicId = :clinicId', { clinicId })
+      .andWhere('rx.productId IS NOT NULL')
+      .andWhere('rx.dispensingStatus != :dispensed', { dispensed: PrescriptionDispensingStatus.DISPENSED });
+    if (branchIds?.length) qb.andWhere('record.branchId IN (:...branchIds)', { branchIds });
+    return qb.orderBy('rx.createdAt', 'ASC').getMany();
+  }
+
+  /**
+   * Called by BillingService after a pharma line item on an invoice has
+   * actually been dispensed via PharmacyService (FEFO-allocated, stock
+   * already deducted) — this only updates the prescription's own progress
+   * bookkeeping, it never touches inventory itself.
+   */
+  async markPrescriptionDispensed(clinicId: string, prescriptionId: string, quantity: number): Promise<Prescription> {
+    const rx = await this.rxRepo.findOne({ where: { id: prescriptionId }, relations: ['clinicalRecord'] });
+    if (!rx || rx.clinicalRecord?.clinicId !== clinicId) {
+      throw new NotFoundException('Prescription not found');
+    }
+
+    rx.dispensedQuantity = Number(rx.dispensedQuantity || 0) + Number(quantity);
+    const prescribed = rx.quantityPrescribed != null ? Number(rx.quantityPrescribed) : null;
+    rx.dispensingStatus =
+      prescribed != null && rx.dispensedQuantity >= prescribed
+        ? PrescriptionDispensingStatus.DISPENSED
+        : rx.dispensedQuantity > 0
+          ? PrescriptionDispensingStatus.PARTIALLY_DISPENSED
+          : PrescriptionDispensingStatus.NOT_DISPENSED;
+
+    return this.rxRepo.save(rx);
   }
 }

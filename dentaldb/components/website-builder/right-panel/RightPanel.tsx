@@ -8,6 +8,7 @@ import { GlobalSettingsEditor } from './GlobalSettingsEditor';
 import { ThemeEditor } from './ThemeEditor';
 import { SeoEditor } from './SeoEditor';
 import { DomainSettings } from './DomainSettings';
+import { tokens } from './design-tokens';
 
 interface Props { clinicId: string; }
 type Panel = 'section' | 'global' | 'theme' | 'seo' | 'domain';
@@ -53,24 +54,25 @@ export function RightPanel({ clinicId }: Props) {
         display: 'flex', flexShrink: 0,
         borderBottom: '1px solid rgba(255,255,255,0.06)',
         background: 'rgba(255,255,255,0.02)',
-        padding: '6px 8px 0',
-        gap: 2,
+        padding: '8px 8px 0',
+        gap: 3,
       }}>
         {tabs.map(({ id, label, Icon }) => {
           const active = !selectedSectionId && rightPanel === id;
           return (
             <button key={id} onClick={() => handleTabClick(id)} style={{
-              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-              padding: '7px 4px 8px', border: 'none', cursor: 'pointer', borderRadius: '7px 7px 0 0',
-              background: active ? 'rgba(99,102,241,0.12)' : 'transparent',
-              color: active ? '#818cf8' : '#4b5060',
-              fontSize: 10.5, fontWeight: active ? 600 : 500,
-              borderBottom: active ? '2px solid #6366f1' : '2px solid transparent',
-              transition: 'all .15s', fontFamily: font,
+              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+              padding: '10px 4px 11px', border: 'none', cursor: 'pointer', borderRadius: '7px 7px 0 0',
+              minHeight: 44,
+              background: active ? tokens.accentLight : 'transparent',
+              color: active ? '#818cf8' : tokens.muted,
+              fontSize: tokens.fontSize.label, fontWeight: active ? 600 : 500,
+              borderBottom: active ? `2px solid ${tokens.accent}` : '2px solid transparent',
+              transition: 'all .15s', fontFamily: tokens.font,
               letterSpacing: '0.02em',
             }}
-              onMouseEnter={e => { if(!active) { e.currentTarget.style.color='#8b8fa8'; e.currentTarget.style.background='rgba(255,255,255,0.03)'; } }}
-              onMouseLeave={e => { if(!active) { e.currentTarget.style.color='#4b5060'; e.currentTarget.style.background='transparent'; } }}>
+              onMouseEnter={e => { if(!active) { e.currentTarget.style.color=tokens.label; e.currentTarget.style.background=tokens.surfaceHover; } }}
+              onMouseLeave={e => { if(!active) { e.currentTarget.style.color=tokens.muted; e.currentTarget.style.background='transparent'; } }}>
               <Icon />
               {label}
             </button>

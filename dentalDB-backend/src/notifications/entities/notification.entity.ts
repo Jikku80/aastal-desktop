@@ -32,6 +32,11 @@ export enum NotificationType {
   HOLIDAY_CREATED       = 'holiday_created',
   NOTICE_POSTED         = 'notice_posted',
   NOTICE_UPDATED        = 'notice_updated',
+  // Pharmacy — batch lifecycle events (section 6 of the pharma spec)
+  MEDICINE_BATCH_EXPIRING          = 'medicine_batch_expiring',
+  MEDICINE_BATCH_EXPIRED           = 'medicine_batch_expired',
+  MEDICINE_BATCH_AVAILABLE         = 'medicine_batch_available',
+  MEDICINE_BATCH_START_DATE_REACHED = 'medicine_batch_start_date_reached',
   // System
   SYSTEM                = 'system',
 }

@@ -33,6 +33,22 @@ const productSchema = z.object({
   reorderPoint:  z.coerce.number().min(0).default(10),
   supplierName:  z.string().optional(),
   supplierPhone: z.string().optional(),
+  // ── Pharmaceutical classification (Phase 1/4) — optional, defaults to
+  // 'general' so every existing product/flow is unaffected. Only items
+  // marked 'pharmaceutical' become eligible for batch/expiry tracking on
+  // the Pharmacy page.
+  itemType:      z.enum(['general', 'pharmaceutical', 'medical_supply', 'consumable']).default('general'),
+  genericName:   z.string().optional(),
+  brandName:     z.string().optional(),
+  medicineCategory: z.string().optional(),
+  dosageForm:    z.enum(['tablet', 'capsule', 'syrup', 'injection', 'cream', 'ointment', 'drops', 'other']).optional(),
+  strength:      z.string().optional(),
+  dosageUnit:    z.string().optional(),
+  manufacturer:  z.string().optional(),
+  storageInstructions: z.string().optional(),
+  prescriptionRequired: z.coerce.boolean().default(false),
+  isControlled:  z.coerce.boolean().default(false),
+  barcode:       z.string().optional(),
 });
 type ProductForm = z.infer<typeof productSchema>;
 
@@ -82,8 +98,16 @@ function ProductDialog({ product, branchId, onClose }: { product?: Product | nul
       purchaseUnit: product.purchaseUnit, unitsPerPurchase: product.unitsPerPurchase ?? 1,
       reorderPoint: product.reorderPoint ?? 10,
       supplierName: product.supplierName, supplierPhone: product.supplierPhone,
-    } : { price: 0, stockQuantity: 0, reorderPoint: 10 },
+      itemType: product.itemType ?? 'general',
+      genericName: product.genericName, brandName: product.brandName,
+      medicineCategory: product.medicineCategory, dosageForm: product.dosageForm,
+      strength: product.strength, dosageUnit: product.dosageUnit,
+      manufacturer: product.manufacturer, storageInstructions: product.storageInstructions,
+      prescriptionRequired: product.prescriptionRequired ?? false,
+      isControlled: product.isControlled ?? false, barcode: product.barcode,
+    } : { price: 0, stockQuantity: 0, reorderPoint: 10, itemType: 'general' },
   });
+  const itemType = watch('itemType');
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -223,6 +247,81 @@ function ProductDialog({ product, branchId, onClose }: { product?: Product | nul
             <p className="text-xs text-[var(--text-muted)] mb-1">Alert fires when stock drops to or below this number</p>
             <input {...register('reorderPoint')} type="number" min="0" className="input w-full" />
           </div>
+          {/* Item classification — pharmaceutical items unlock batch/expiry tracking on the Pharmacy page */}
+          <div>
+            <label className="label">Item Type</label>
+            <select {...register('itemType')} className="input w-full">
+              <option value="general">General</option>
+              <option value="pharmaceutical">Pharmaceutical / Medicine</option>
+              <option value="medical_supply">Medical Supply</option>
+              <option value="consumable">Consumable</option>
+            </select>
+          </div>
+          {itemType === 'pharmaceutical' && (
+            <div className="rounded-xl p-3 space-y-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+              <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Medicine Details</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Generic Name</label>
+                  <input {...register('genericName')} className="input w-full" placeholder="Paracetamol" />
+                </div>
+                <div>
+                  <label className="label">Brand Name</label>
+                  <input {...register('brandName')} className="input w-full" placeholder="Napa" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Dosage Form</label>
+                  <select {...register('dosageForm')} className="input w-full">
+                    <option value="">—</option>
+                    <option value="tablet">Tablet</option>
+                    <option value="capsule">Capsule</option>
+                    <option value="syrup">Syrup</option>
+                    <option value="injection">Injection</option>
+                    <option value="cream">Cream</option>
+                    <option value="ointment">Ointment</option>
+                    <option value="drops">Drops</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Strength</label>
+                  <input {...register('strength')} className="input w-full" placeholder="500mg" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Dosage Unit</label>
+                  <input {...register('dosageUnit')} className="input w-full" placeholder="mg, ml" />
+                </div>
+                <div>
+                  <label className="label">Medicine Category</label>
+                  <input {...register('medicineCategory')} className="input w-full" placeholder="Analgesic" />
+                </div>
+              </div>
+              <div>
+                <label className="label">Manufacturer</label>
+                <input {...register('manufacturer')} className="input w-full" />
+              </div>
+              <div>
+                <label className="label">Storage Instructions</label>
+                <input {...register('storageInstructions')} className="input w-full" placeholder="Store below 25°C" />
+              </div>
+              <div>
+                <label className="label">Barcode</label>
+                <input {...register('barcode')} className="input w-full" />
+              </div>
+              <div className="flex gap-4 pt-1">
+                <label className="flex items-center gap-2 text-sm text-[var(--text-primary)]">
+                  <input type="checkbox" {...register('prescriptionRequired')} className="rounded" /> Prescription required
+                </label>
+                <label className="flex items-center gap-2 text-sm text-[var(--text-primary)]">
+                  <input type="checkbox" {...register('isControlled')} className="rounded" /> Controlled substance
+                </label>
+              </div>
+            </div>
+          )}
           {/* Supplier */}
           <div className="rounded-xl p-3 space-y-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
             <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Supplier (optional)</p>

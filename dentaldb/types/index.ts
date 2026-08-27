@@ -288,6 +288,9 @@ export interface ClinicService {
 }
 
 // ─── Product / Inventory ──────────────────────────────────────────────────────
+export type InventoryItemType = 'general' | 'pharmaceutical' | 'medical_supply' | 'consumable';
+export type DosageForm = 'tablet' | 'capsule' | 'syrup' | 'injection' | 'cream' | 'ointment' | 'drops' | 'other';
+
 export interface Product {
   id: string;
   clinicId: string;
@@ -306,6 +309,67 @@ export interface Product {
   imageUrl?: string;
   createdAt: string;
   updatedAt: string;
+  // ── Pharmaceutical classification & attributes (Phase 1) ─────────────
+  itemType?: InventoryItemType;
+  genericName?: string;
+  brandName?: string;
+  medicineCategory?: string;
+  dosageForm?: DosageForm;
+  strength?: string;
+  dosageUnit?: string;
+  manufacturer?: string;
+  storageInstructions?: string;
+  prescriptionRequired?: boolean;
+  isControlled?: boolean;
+  barcode?: string;
+}
+
+export type BatchStatus = 'not_available' | 'active' | 'expiring_soon' | 'expired' | 'depleted';
+
+export interface MedicineBatch {
+  id: string;
+  clinicId: string;
+  branchId?: string;
+  productId: string;
+  product?: Product;
+  batchNumber: string;
+  manufacturingDate?: string;
+  startDate: string;
+  expiryDate: string;
+  quantityReceived: number;
+  quantityAvailable: number;
+  purchaseOrderId?: string;
+  supplierName?: string;
+  vendorId?: string;
+  purchaseCost?: number;
+  sellingPrice?: number;
+  status: BatchStatus;
+  createdByUserId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PrescriptionDispensingStatus = 'not_dispensed' | 'partially_dispensed' | 'dispensed';
+
+export interface PendingPrescription {
+  id: string;
+  clinicalRecordId: string;
+  medicineName: string;
+  dosage?: string;
+  frequency?: string;
+  duration?: string;
+  instructions?: string;
+  productId?: string;
+  quantityPrescribed?: number;
+  dispensedQuantity: number;
+  dispensingStatus: PrescriptionDispensingStatus;
+  createdAt: string;
+  clinicalRecord?: {
+    id: string;
+    branchId?: string;
+    patient?: { id: string; name?: string; fullName?: string };
+    doctor?: { id: string; name?: string; fullName?: string };
+  };
 }
 
 export interface POItem {
@@ -376,6 +440,14 @@ export interface Prescription {
   duration?: string;
   instructions?: string;
   createdAt: string;
+  // ── Pharmacy dispensing linkage (Phase 3 backend / Phase 11 UI) ────────
+  // Optional — a prescription can still be pure free-text (medicineName
+  // only). When productId is set, the line is picked up by the pharmacy
+  // Dispense Queue (see dashboard/pharmacy/page.tsx, PendingPrescription).
+  productId?: string;
+  quantityPrescribed?: number;
+  dispensedQuantity?: number;
+  dispensingStatus?: PrescriptionDispensingStatus;
 }
 
 export interface ClinicalRecordVisit {
@@ -401,6 +473,34 @@ export interface ClinicalRecord {
   visits?: ClinicalRecordVisit[];
   attachments?: { name: string; url: string; type: string }[];
   prescriptions: Prescription[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TreatmentPlanStatus = 'proposed' | 'accepted' | 'declined';
+
+// A structured treatment proposal — separate from ClinicalRecord's
+// free-text `treatmentPlan` field above. One row per proposal, with a
+// real status a doctor/front-desk can move through
+// proposed -> accepted/declined. Synced to jwantra for Treatment
+// Acceptance Prediction (see backend's treatment-plans module).
+export interface TreatmentPlanItem {
+  id: string;
+  clinicId: string;
+  branchId?: string;
+  patientId: string;
+  patient?: Patient;
+  serviceId?: string;
+  serviceName: string;
+  doctorId?: string;
+  doctor?: User;
+  appointmentId?: string;
+  proposedAt: string;
+  priceQuoted?: number;
+  status: TreatmentPlanStatus;
+  decidedAt?: string;
+  note?: string;
+  createdByUserId?: string;
   createdAt: string;
   updatedAt: string;
 }

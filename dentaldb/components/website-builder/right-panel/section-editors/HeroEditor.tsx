@@ -3,7 +3,7 @@
 import React from 'react';
 import {
   EditorField, EditorSelect, EditorToggle, EditorColorPicker,
-  EditorSection, EditorTabs, EditorImageUpload,
+  EditorSection, EditorTabs, EditorImageUpload, useThemeSwatches,
 } from './EditorComponents';
 
 interface Props {
@@ -14,6 +14,7 @@ interface Props {
 export function HeroEditor({ settings, onChange }: Props) {
   const s: Record<string, any> = settings ?? {};
   const set = (key: string, val: any) => onChange({ [key]: val });
+  const swatches = useThemeSwatches();
 
   return (
     <EditorTabs tabs={[
@@ -153,7 +154,7 @@ export function HeroEditor({ settings, onChange }: Props) {
                 { value: 'gradient', label: 'Gradient' },
               ]} />
               {(!s.backgroundType || s.backgroundType === 'color') && (
-                <EditorColorPicker label="Colour" value={s.backgroundValue} onChange={v => set('backgroundValue', v)} />
+                <EditorColorPicker swatches={swatches} label="Colour" value={s.backgroundValue} onChange={v => set('backgroundValue', v)} />
               )}
               {s.backgroundType === 'gradient' && (
                 <EditorField label="CSS Gradient" value={s.backgroundValue} onChange={v => set('backgroundValue', v)} placeholder="linear-gradient(135deg,#0ea5e9,#6366f1)" />
@@ -187,7 +188,7 @@ export function HeroEditor({ settings, onChange }: Props) {
         content: (
           <div className="space-y-1">
             <EditorSection title="Headline">
-              <EditorColorPicker label="Text Color"   value={s.headlineColor ?? '#ffffff'} onChange={v => set('headlineColor', v)} />
+              <EditorColorPicker swatches={swatches} label="Text Color"   value={s.headlineColor ?? '#ffffff'} onChange={v => set('headlineColor', v)} />
               <EditorSelect label="Font Size" value={s.headlineFontSize ?? 'xl'} onChange={v => set('headlineFontSize', v)} options={[
                 { value: 'sm',  label: 'Small  (1.5rem)' },
                 { value: 'md',  label: 'Medium (2rem)' },
@@ -211,7 +212,7 @@ export function HeroEditor({ settings, onChange }: Props) {
             </EditorSection>
 
             <EditorSection title="Subheadline">
-              <EditorColorPicker label="Text Color" value={s.subheadlineColor ?? 'rgba(255,255,255,0.9)'} onChange={v => set('subheadlineColor', v)} />
+              <EditorColorPicker swatches={swatches} label="Text Color" value={s.subheadlineColor ?? 'rgba(255,255,255,0.9)'} onChange={v => set('subheadlineColor', v)} />
               <EditorSelect label="Font Size" value={s.subheadlineFontSize ?? 'lg'} onChange={v => set('subheadlineFontSize', v)} options={[
                 { value: 'sm',  label: 'Small  (0.875rem)' },
                 { value: 'md',  label: 'Medium (1rem)' },
@@ -233,9 +234,9 @@ export function HeroEditor({ settings, onChange }: Props) {
                 { value: 'glass',   label: 'Glass / Frosted' },
                 { value: 'ghost',   label: 'Ghost' },
               ]} />
-              <EditorColorPicker label="Background"   value={s.ctaBg     ?? '#ffffff'}     onChange={v => set('ctaBg', v)} />
-              <EditorColorPicker label="Text Color"   value={s.ctaColor  ?? '#111827'}     onChange={v => set('ctaColor', v)} />
-              <EditorColorPicker label="Border Color" value={s.ctaBorder ?? 'transparent'} onChange={v => set('ctaBorder', v)} />
+              <EditorColorPicker swatches={swatches} label="Background"   value={s.ctaBg     ?? '#ffffff'}     onChange={v => set('ctaBg', v)} />
+              <EditorColorPicker swatches={swatches} label="Text Color"   value={s.ctaColor  ?? '#111827'}     onChange={v => set('ctaColor', v)} />
+              <EditorColorPicker swatches={swatches} label="Border Color" value={s.ctaBorder ?? 'transparent'} onChange={v => set('ctaBorder', v)} />
               <EditorSelect label="Border Radius" value={s.ctaRadius ?? 'md'} onChange={v => set('ctaRadius', v)} options={[
                 { value: 'none', label: 'Square' },
                 { value: 'sm',   label: 'Small' },
@@ -258,9 +259,9 @@ export function HeroEditor({ settings, onChange }: Props) {
                 { value: 'glass',   label: 'Glass / Frosted' },
                 { value: 'ghost',   label: 'Ghost' },
               ]} />
-              <EditorColorPicker label="Background"   value={s.secondaryCtaBg     ?? 'transparent'} onChange={v => set('secondaryCtaBg', v)} />
-              <EditorColorPicker label="Text Color"   value={s.secondaryCtaColor  ?? '#ffffff'}     onChange={v => set('secondaryCtaColor', v)} />
-              <EditorColorPicker label="Border Color" value={s.secondaryCtaBorder ?? '#ffffff'}     onChange={v => set('secondaryCtaBorder', v)} />
+              <EditorColorPicker swatches={swatches} label="Background"   value={s.secondaryCtaBg     ?? 'transparent'} onChange={v => set('secondaryCtaBg', v)} />
+              <EditorColorPicker swatches={swatches} label="Text Color"   value={s.secondaryCtaColor  ?? '#ffffff'}     onChange={v => set('secondaryCtaColor', v)} />
+              <EditorColorPicker swatches={swatches} label="Border Color" value={s.secondaryCtaBorder ?? '#ffffff'}     onChange={v => set('secondaryCtaBorder', v)} />
             </EditorSection>
           </div>
         ),

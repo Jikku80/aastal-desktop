@@ -10,6 +10,10 @@ const RESULT_FLAGS = ['normal', 'low', 'high', 'critical'] as const;
 // Explicit, validated shape for a single result row. Nothing here strips
 // or defaults `flag` -- @IsIn only rejects values outside the known set.
 export class ResultRowDto {
+  @IsOptional()
+  @IsString()
+  panelName?: string;
+
   @IsString()
   parameter: string;
 
@@ -23,6 +27,10 @@ export class ResultRowDto {
   @IsOptional()
   @IsString()
   referenceRange?: string;
+
+  @IsOptional()
+  @IsString()
+  method?: string;
 
   @IsOptional()
   @IsIn(RESULT_FLAGS)
@@ -54,6 +62,18 @@ export class CreateLabWorkDto {
   @IsOptional()
   @IsString()
   testDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  testType?: string;
+
+  @IsOptional()
+  fasting?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  serviceIds?: string[];
 
   @IsOptional()
   @IsEnum(LabWorkPriority)
@@ -88,6 +108,18 @@ export class UpdateLabWorkDto {
   @IsOptional()
   @IsString()
   testDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  testType?: string;
+
+  @IsOptional()
+  fasting?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  serviceIds?: string[];
 
   @IsOptional()
   @IsEnum(LabWorkStatus)

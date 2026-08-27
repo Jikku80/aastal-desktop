@@ -32,7 +32,7 @@ export class OfflineAdminSeeder implements OnApplicationBootstrap {
       await this.clinicRepo
         .update(
           { plan: SubscriptionPlan.FREE, trialEndsAt: IsNull() },
-          { trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) },
+          { trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
         )
         .catch((err) => this.logger.warn(`Trial backfill skipped: ${err?.message ?? err}`));
 
@@ -63,11 +63,11 @@ export class OfflineAdminSeeder implements OnApplicationBootstrap {
         plan: SubscriptionPlan.FREE,
         isActive: true,
         isLocalPlaceholder: true,
-        // Starts the 14-day free trial clock from the moment the app is
+        // Starts the 30-day free trial clock from the moment the app is
         // first installed and run — enforced offline by the license check
         // in jwt.strategy.ts / offline-license.util.ts, independent of
         // whether this device ever goes online before the trial ends.
-        trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       }),
     );
 

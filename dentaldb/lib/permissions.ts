@@ -25,8 +25,12 @@ export type Permission =
   | 'holiday.view'   | 'holiday.manage'
   | 'notice.view'    | 'notice.manage'
   | 'tasks.view'     | 'tasks.manage'
-  | 'lab.view'       | 'lab.manage'
-  | 'blood_test.view' | 'blood_test.manage'
+  | 'lab.view'       | 'lab.manage'       | 'lab.manage_services'
+  | 'pharmacy.view' | 'pharmacy.manage_medicines' | 'pharmacy.manage_batches'
+  | 'pharmacy.view_expiry' | 'pharmacy.manage_expired_stock' | 'pharmacy.dispense'
+  | 'pharmacy.manual_batch_selection' | 'pharmacy.override_batch_restrictions' | 'pharmacy.view_all_branches'
+  | 'finance.view_ledger' | 'finance.manage_accounts' | 'finance.post_journal_entry'
+  | 'finance.view_statements' | 'finance.close_period'
   | (string & {});
 
 /** Check a flat permissions array (from the store) for a single key. A null/undefined permission means "always allowed" (no gate). */
@@ -65,7 +69,9 @@ export const NAV_ITEMS = [
   { label: 'Payroll',      href: '/dashboard/payroll',         icon: 'DollarSign',      permission: 'payroll.view'      as Permission },
   { label: 'Commissions',  href: '/dashboard/commissions',     icon: 'DollarSign',      permission: 'analytics.view'    as Permission },
   { label: 'Reports',      href: '/dashboard/reports',         icon: 'BarChart3',       permission: 'reports.view'      as Permission },
+  { label: 'Finance',      href: '/dashboard/finance',         icon: 'Landmark',        permission: 'finance.view_ledger' as Permission },
   { label: 'Analytics',    href: '/dashboard/analytics',       icon: 'BarChart3',       permission: 'analytics.view'    as Permission },
+  { label: 'Jwantra AI',   href: '/dashboard/jwantra-ai',      icon: 'Sparkles',        permission: 'analytics.view'    as Permission },
   { label: 'Staff',        href: '/dashboard/staff',           icon: 'Stethoscope',     permission: 'staff.view'        as Permission },
   // { label: 'Staff Performance', href: '/dashboard/staff-performance', icon: 'Award',     permission: 'analytics.view'    as Permission },
   { label: 'Branches',     href: '/dashboard/branches',        icon: 'GitBranch',       permission: 'branch.view'       as Permission },
@@ -79,10 +85,10 @@ export const NAV_ITEMS = [
   { label: 'Roles',        href: '/dashboard/roles',           icon: 'Shield',          permission: 'roles.view'        as Permission },
   { label: 'Services',     href: '/dashboard/services',        icon: 'Package',         permission: 'services.view'     as Permission },
   { label: 'Inventory',    href: '/dashboard/inventory',       icon: 'Archive',         permission: 'inventory.view'    as Permission },
+  { label: 'Pharmacy',     href: '/dashboard/pharmacy',        icon: 'Pill',            permission: 'pharmacy.view'     as Permission },
   { label: 'Recalls',      href: '/dashboard/recalls',         icon: 'Bell',            permission: 'appointment.view'  as Permission },
   { label: 'Records',      href: '/dashboard/clinical-records',icon: 'FileText',        permission: 'records.view'      as Permission },
   { label: 'Lab Work',     href: '/dashboard/lab-work',        icon: 'FlaskConical',    permission: 'lab.view'          as Permission },
-  { label: 'Blood Test',   href: '/dashboard/blood-test',      icon: 'Droplet',         permission: 'blood_test.view'   as Permission },
   { label: 'Holidays',     href: '/dashboard/holidays',        icon: 'CalendarOff',     permission: 'holiday.view'      as Permission },
   { label: 'Audit Log',    href: '/dashboard/audit',           icon: 'ShieldCheck',     permission: 'audit.view'        as Permission },
   { label: 'Settings',     href: '/dashboard/settings',        icon: 'Settings',        permission: 'settings.view'     as Permission },

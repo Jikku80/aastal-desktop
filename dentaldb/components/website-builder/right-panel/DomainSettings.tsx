@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { websiteApi } from '@/lib/api/websiteApi';
 import toast from 'react-hot-toast';
+import { tokens } from './design-tokens';
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 const IcoCheck  = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>;
@@ -18,55 +19,41 @@ const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'clinickarobar.com';
 const API_IP      = process.env.NEXT_PUBLIC_API_IP      || ''; // e.g. '213.199.49.9' — set in .env
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
-const dk = {
-  bg:          '#111318',
-  surface:     'rgba(255,255,255,0.04)',
-  surfaceDeep: 'rgba(0,0,0,0.25)',
-  border:      'rgba(255,255,255,0.08)',
-  borderFocus: '#6366f1',
-  text:        '#e2e4ef',
-  muted:       '#6b7080',
-  label:       '#8b8fa8',
-  accent:      '#6366f1',
-  mono:        "'JetBrains Mono','Fira Code',monospace",
-  font:        "'Inter','Geist','Segoe UI',system-ui,sans-serif",
-};
-
 const sectionCard: React.CSSProperties = {
-  background: dk.surface, borderRadius: 12, border: `1px solid ${dk.border}`, padding: 14,
+  background: tokens.surface, borderRadius: 12, border: `1px solid ${tokens.border}`, padding: 14,
 };
 const sectionLabel: React.CSSProperties = {
-  fontSize: 10, fontWeight: 700, color: dk.label,
+  fontSize: 10, fontWeight: 700, color: tokens.label,
   textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10,
   display: 'flex', alignItems: 'center', gap: 6,
 };
 const inputSt: React.CSSProperties = {
-  width: '100%', fontSize: 13, color: dk.text,
-  border: `1.5px solid ${dk.border}`, borderRadius: 8,
-  padding: '8px 11px', outline: 'none', fontFamily: dk.font,
+  width: '100%', fontSize: 13, color: tokens.text,
+  border: `1.5px solid ${tokens.border}`, borderRadius: 8,
+  padding: '8px 11px', outline: 'none', fontFamily: tokens.font,
   boxSizing: 'border-box', transition: 'border-color .15s',
-  background: dk.surfaceDeep,
+  background: tokens.surfaceDeep,
 };
 const btnPrimary: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
   padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-  background: dk.accent, color: '#fff',
-  fontSize: 12, fontWeight: 600, fontFamily: dk.font,
+  background: tokens.accent, color: '#fff',
+  fontSize: 12, fontWeight: 600, fontFamily: tokens.font,
   transition: 'opacity .15s', width: '100%',
 };
 const btnGhost: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
   padding: '8px 14px', borderRadius: 8, cursor: 'pointer',
-  background: 'transparent', color: dk.text,
-  border: `1.5px solid ${dk.border}`,
-  fontSize: 12, fontWeight: 600, fontFamily: dk.font,
+  background: 'transparent', color: tokens.text,
+  border: `1.5px solid ${tokens.border}`,
+  fontSize: 12, fontWeight: 600, fontFamily: tokens.font,
   transition: 'all .15s', flex: 1,
 };
 const monoBox: React.CSSProperties = {
   background: 'rgba(0,0,0,0.3)',
   border: '1px solid rgba(255,255,255,0.1)',
   borderRadius: 7, padding: '7px 10px',
-  fontSize: 11, fontFamily: dk.mono,
+  fontSize: 11, fontFamily: tokens.fontMono,
   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
 };
 
@@ -172,23 +159,23 @@ export function DomainSettings({ clinicId }: { clinicId: string }) {
     : [];
 
   return (
-    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 20, fontFamily: dk.font, background: dk.bg, minHeight: '100%' }}>
+    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 20, fontFamily: tokens.font, background: tokens.bg, minHeight: '100%' }}>
 
       {/* ── Subdomain ── */}
       <div style={sectionCard}>
         <div style={sectionLabel}><IcoGlobe /> Free Subdomain</div>
 
-        <div style={{ fontSize: 11, color: dk.muted, marginBottom: 10, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 11, color: tokens.muted, marginBottom: 10, lineHeight: 1.6 }}>
           Your clinic will be accessible at{' '}
-          <span style={{ color: dk.text, fontFamily: dk.mono }}>
+          <span style={{ color: tokens.text, fontFamily: tokens.fontMono }}>
             yourslug.{ROOT_DOMAIN}
           </span>
         </div>
 
         {/* Input row */}
         <div style={{
-          display: 'flex', border: `1.5px solid ${dk.border}`, borderRadius: 8,
-          overflow: 'hidden', background: dk.surfaceDeep, marginBottom: 10,
+          display: 'flex', border: `1.5px solid ${tokens.border}`, borderRadius: 8,
+          overflow: 'hidden', background: tokens.surfaceDeep, marginBottom: 10,
           opacity: loading ? 0.6 : 1,
         }}>
           <input
@@ -198,12 +185,12 @@ export function DomainSettings({ clinicId }: { clinicId: string }) {
             disabled={loading}
             style={{
               flex: 1, padding: '8px 10px', fontSize: 13, border: 'none', outline: 'none',
-              fontFamily: dk.font, color: dk.text, background: 'transparent',
+              fontFamily: tokens.font, color: tokens.text, background: 'transparent',
             }}
           />
           <span style={{
-            padding: '8px 10px', background: 'rgba(255,255,255,0.04)', color: dk.muted,
-            fontSize: 12, borderLeft: `1.5px solid ${dk.border}`,
+            padding: '8px 10px', background: 'rgba(255,255,255,0.04)', color: tokens.muted,
+            fontSize: 12, borderLeft: `1.5px solid ${tokens.border}`,
             whiteSpace: 'nowrap', display: 'flex', alignItems: 'center',
           }}>
             .{ROOT_DOMAIN}
@@ -213,14 +200,14 @@ export function DomainSettings({ clinicId }: { clinicId: string }) {
         {/* Live URL preview */}
         {liveSubdomainUrl && !loading && (
           <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: dk.muted, marginBottom: 4 }}>Your public URL:</div>
+            <div style={{ fontSize: 11, color: tokens.muted, marginBottom: 4 }}>Your public URL:</div>
             <div style={{ ...monoBox }}>
               <span style={{ color: '#818cf8', wordBreak: 'break-all' }}>{liveSubdomainUrl}</span>
               <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                 <button
                   onClick={() => copyToClipboard(liveSubdomainUrl)}
                   title="Copy URL"
-                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: dk.muted, padding: 0 }}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: tokens.muted, padding: 0 }}
                 >
                   <IcoCopy />
                 </button>
@@ -229,7 +216,7 @@ export function DomainSettings({ clinicId }: { clinicId: string }) {
                   target="_blank"
                   rel="noopener noreferrer"
                   title="Open site"
-                  style={{ color: dk.muted, display: 'flex', alignItems: 'center' }}
+                  style={{ color: tokens.muted, display: 'flex', alignItems: 'center' }}
                 >
                   <IcoExtLink />
                 </a>
@@ -240,7 +227,7 @@ export function DomainSettings({ clinicId }: { clinicId: string }) {
 
         {/* Preview link (builder preview, no publish needed) */}
         {subdomain && !loading && (
-          <div style={{ marginBottom: 10, fontSize: 11, color: dk.muted }}>
+          <div style={{ marginBottom: 10, fontSize: 11, color: tokens.muted }}>
             Builder preview:{' '}
             <a
               href={`/site/${subdomain}/preview`}
@@ -267,8 +254,8 @@ export function DomainSettings({ clinicId }: { clinicId: string }) {
       <div style={{ ...sectionCard, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={sectionLabel}><IcoGlobe /> Custom Domain</div>
 
-        <div style={{ fontSize: 11, color: dk.muted, lineHeight: 1.6 }}>
-          Connect your own domain (e.g. <span style={{ color: dk.text, fontFamily: dk.mono }}>www.yourclinic.com</span>).
+        <div style={{ fontSize: 11, color: tokens.muted, lineHeight: 1.6 }}>
+          Connect your own domain (e.g. <span style={{ color: tokens.text, fontFamily: tokens.fontMono }}>www.yourclinic.com</span>).
           Enter the domain, save, then add the DNS records below in your domain registrar.
         </div>
 
@@ -277,8 +264,8 @@ export function DomainSettings({ clinicId }: { clinicId: string }) {
           onChange={e => setCustomDomain(e.target.value.toLowerCase().trim())}
           placeholder="www.yourclinic.com or yourclinic.com"
           style={inputSt}
-          onFocus={e  => (e.currentTarget.style.borderColor = dk.borderFocus)}
-          onBlur={e   => (e.currentTarget.style.borderColor = dk.border)}
+          onFocus={e  => (e.currentTarget.style.borderColor = tokens.borderFocus)}
+          onBlur={e   => (e.currentTarget.style.borderColor = tokens.border)}
         />
 
         {/* DNS instructions — shown once a domain is entered */}
@@ -307,12 +294,12 @@ export function DomainSettings({ clinicId }: { clinicId: string }) {
                       {'  '}
                       <span style={{ color: '#94a3b8' }}>{rec.name}</span>
                       {'  →  '}
-                      <span style={{ color: dk.text, wordBreak: 'break-all' }}>{rec.value}</span>
+                      <span style={{ color: tokens.text, wordBreak: 'break-all' }}>{rec.value}</span>
                     </div>
                     <button
                       onClick={() => copyToClipboard(rec.value)}
                       title="Copy value"
-                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: dk.muted, flexShrink: 0, padding: 0 }}
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: tokens.muted, flexShrink: 0, padding: 0 }}
                     >
                       <IcoCopy />
                     </button>
@@ -367,7 +354,7 @@ export function DomainSettings({ clinicId }: { clinicId: string }) {
         )}
 
         {verified === true && customDomain && (
-          <div style={{ fontSize: 11, color: dk.muted }}>
+          <div style={{ fontSize: 11, color: tokens.muted }}>
             🎉 Your site is live at{' '}
             <a
               href={`https://${customDomain}`}

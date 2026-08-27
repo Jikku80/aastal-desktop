@@ -12,7 +12,7 @@ import {
   Package, Archive, DollarSign, FileText, ListOrdered,
   Bell, FlaskConical, MessageSquare, Receipt, ClipboardList,
   Activity, TrendingUp, Smile, User, ScanLine, BarChart2,
-  MapPin, Award, Sun, Moon, Droplet,
+  MapPin, Award, Sun, Moon, Droplet, Pill, Landmark,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api';
@@ -43,6 +43,7 @@ const NAV_FEATURE_MAP: Record<string, Feature | null> = {
   '/dashboard/billing':         null,
   '/dashboard/analytics':       null,
   '/dashboard/staff':           null,
+  '/dashboard/jwantra-ai':      null,
   // '/dashboard/staff-performance':null,
   '/dashboard/branches':        null,
   '/dashboard/public-listing':  null,
@@ -61,7 +62,6 @@ const NAV_FEATURE_MAP: Record<string, Feature | null> = {
   '/dashboard/clinical-records':null,
   '/dashboard/recalls':         null,
   '/dashboard/lab-work':        null,
-  '/dashboard/blood-test':      null,
   '/dashboard/holidays':        null,
   '/dashboard/tasks':           null,
   '/dashboard/imaging':         null,
@@ -87,7 +87,7 @@ const NAV_GROUPS = [
     id: 'patients',
     label: 'Patients',
     icon: 'Users',
-    hrefs: ['/dashboard/patients', '/dashboard/clinical-records', '/dashboard/lab-work', '/dashboard/blood-test'],
+    hrefs: ['/dashboard/patients', '/dashboard/clinical-records', '/dashboard/lab-work'],
   },
   {
     id: 'finance',
@@ -99,7 +99,9 @@ const NAV_GROUPS = [
       '/dashboard/payroll',
       '/dashboard/commissions',
       '/dashboard/reports',
+      '/dashboard/finance',
       '/dashboard/analytics',
+      '/dashboard/jwantra-ai',
     ],
   },
   {
@@ -122,6 +124,7 @@ const NAV_GROUPS = [
     hrefs: [
       '/dashboard/services',
       '/dashboard/inventory',
+      '/dashboard/pharmacy',
       '/dashboard/branches',
       '/dashboard/roles',
       '/dashboard/audit',

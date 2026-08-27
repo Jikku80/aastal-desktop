@@ -12,7 +12,6 @@ import { Attendance } from '../attendance/entities/attendance.entity';
 import { AuditLog } from '../audit/entities/audit-log.entity';
 import { AuthCache } from '../auth/entities/auth-cache.entity';
 import { Invoice } from '../billing/entities/invoice.entity';
-import { BloodTest } from '../blood-test/entities/blood-test.entity';
 import { Branch } from '../branch/entities/branch.entity';
 import { DowngradeSelection } from '../branch/entities/downgrade-selection.entity';
 import { ClinicalRecord, Prescription } from '../clinical-records/entities/clinical-record.entity';
@@ -34,9 +33,15 @@ import { GalleryItem } from '../gallery/entities/gallery-item.entity';
 import { Holiday } from '../holidays/entities/holiday.entity';
 import { IntakeFormSubmission } from '../intake-forms/entities/intake-form-submission.entity';
 import { IntakeFormTemplate } from '../intake-forms/entities/intake-form-template.entity';
+import { JwantraIntegration } from '../integrations/jwantra/entities/jwantra-integration.entity';
 import { Product } from '../inventory/entities/product.entity';
 import { PurchaseOrder } from '../inventory/entities/purchase-order.entity';
+import { InventoryConsumptionEvent } from '../inventory/entities/inventory-consumption.entity';
+import { MedicineBatch } from '../pharmacy/entities/medicine-batch.entity';
+import { BatchNotificationLog } from '../pharmacy/entities/batch-notification-log.entity';
+import { TreatmentPlanItem } from '../treatment-plans/entities/treatment-plan-item.entity';
 import { LabWork } from '../lab-work/entities/lab-work.entity';
+import { LabService } from '../lab-work/entities/lab-service.entity';
 import { Leave } from '../leave/entities/leave.entity';
 import { Notice } from '../notices/entities/notice.entity';
 import { Notification } from '../notifications/entities/notification.entity';
@@ -72,6 +77,10 @@ import { WaitingQueue } from '../waiting-queue/entities/waiting-queue.entity';
 import { ClinicWebsite } from '../website-builder/entities/clinic-website.entity';
 import { ContactMessage } from '../website-builder/entities/contact-message.entity';
 import { WebsiteOrder } from '../website-builder/entities/website-order.entity';
+import { Account } from '../finance/entities/account.entity';
+import { JournalEntry } from '../finance/entities/journal-entry.entity';
+import { JournalLine } from '../finance/entities/journal-line.entity';
+import { AccountingPeriod } from '../finance/entities/accounting-period.entity';
 
 export const ALL_ENTITIES = [
   ApiKey,
@@ -81,7 +90,6 @@ export const ALL_ENTITIES = [
   AuditLog,
   AuthCache,
   Invoice,
-  BloodTest,
   Branch,
   DowngradeSelection,
   ClinicalRecord,
@@ -104,9 +112,15 @@ export const ALL_ENTITIES = [
   Holiday,
   IntakeFormSubmission,
   IntakeFormTemplate,
+  JwantraIntegration,
   Product,
   PurchaseOrder,
+  InventoryConsumptionEvent,
+  MedicineBatch,
+  BatchNotificationLog,
+  TreatmentPlanItem,
   LabWork,
+  LabService,
   Leave,
   Notice,
   Notification,
@@ -142,4 +156,8 @@ export const ALL_ENTITIES = [
   ClinicWebsite,
   ContactMessage,
   WebsiteOrder,
+  Account,
+  JournalEntry,
+  JournalLine,
+  AccountingPeriod,
 ];

@@ -11,6 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditEntityType } from '../audit/entities/audit-log.entity';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { User } from '../users/entities/user.entity';
+import { JournalService } from '../finance/journal.service';
 
 @Injectable()
 export class ExpensesService {
@@ -20,7 +21,40 @@ export class ExpensesService {
     @InjectRepository(User)    private userRepo: Repository<User>,
     private auditService: AuditService,
     private notificationsGateway: NotificationsGateway,
+    private journalService: JournalService,
   ) {}
+
+  /**
+   * Fire-and-forget auto-journal hook (Phase 9 §2 — expense approved →
+   * Debit mapped Expense account, Credit Cash). Shared by create() (for
+   * expenses created pre-approved, e.g. system-generated ones) and
+   * approve(). Never blocks the expense flow that already succeeded.
+   */
+  private postExpenseJournal(clinicId: string, expense: Expense, userId: string): void {
+    // journal.service.postExpenseApproved() already catches & logs its own
+    // errors internally, but wrap again here defensively so a synchronous
+    // throw can never bubble into the expense-approval response.
+    this.journalService.postExpenseApproved(clinicId, expense, userId).catch(() => {});
+  }
+
+  /**
+   * Backfills journal postings for approved expenses that predate the
+   * auto-journal hook (or that were created while the clinic's chart of
+   * accounts hadn't been seeded yet — see JournalService.postExpenseApproved,
+   * which silently skips posting in that case). Safe to re-run any time:
+   * postExpenseApproved() is itself idempotent per expense id.
+   */
+  async reconcileJournal(clinicId: string, userId: string): Promise<{ scanned: number; posted: number }> {
+    const approved = await this.expenseRepo.find({
+      where: { clinicId, approvalStatus: ApprovalStatus.APPROVED },
+    });
+    let posted = 0;
+    for (const expense of approved) {
+      const entry = await this.journalService.postExpenseApproved(clinicId, expense, userId);
+      if (entry) posted++;
+    }
+    return { scanned: approved.length, posted };
+  }
 
   // ── Private helpers ──────────────────────────────────────────────────────────
 
@@ -69,6 +103,9 @@ export class ExpensesService {
       entityType: 'expense' as AuditEntityType, entityId: saved.id,
       changes: { after: dto },
     });
+    if (saved.approvalStatus === ApprovalStatus.APPROVED) {
+      this.postExpenseJournal(clinicId, saved, userId);
+    }
     return this.enrichExpense(saved);
   }
 
@@ -139,6 +176,9 @@ export class ExpensesService {
     this.notificationsGateway.server?.to(clinicId).emit('expense:status', {
       expenseId: id, status, approverId,
     });
+    if (status === ApprovalStatus.APPROVED) {
+      this.postExpenseJournal(clinicId, saved, approverId);
+    }
     return this.enrichExpense(saved);
   }
 

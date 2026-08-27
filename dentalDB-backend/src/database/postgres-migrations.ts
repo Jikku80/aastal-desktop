@@ -27,8 +27,16 @@ import { NotificationPatientId1784600000000 } from '../migrations/1784600000000-
 import { AppointmentIndependentBookingNullable1784800000000 } from '../migrations/1784800000000-AppointmentIndependentBookingNullable';
 import { InvoiceNumberPerClinicUnique1784900000000 } from '../migrations/1784900000000-InvoiceNumberPerClinicUnique';
 import { PatientFileBlobSync1785000000000 } from '../migrations/1785000000000-PatientFileBlobSync';
-import { GalleryItems1785100000000 } from '../migrations/1785100000000-GalleryItems';
-import { RecallBranchScoping1785200000000 } from '../migrations/1785200000000-RecallBranchScoping';
+import { GalleryItems1785100000000 } from '../migrations/1785100000000-GalleryItems';import { RecallBranchScoping1785200000000 } from '../migrations/1785200000000-RecallBranchScoping';
+import { JwantraIntegrations1785300000000 } from '../migrations/1785300000000-JwantraIntegrations';
+import { JwantraAiLink1785400000000 } from '../migrations/1785400000000-JwantraAiLink';
+import { TreatmentPlansAndInventoryConsumption1785500000000 } from '../migrations/1785500000000-TreatmentPlansAndInventoryConsumption';
+import { PharmacyPackage1785600000000 } from '../migrations/1785600000000-PharmacyPackage';
+import { PrescriptionPharmacyDispensing1785700000000 } from '../migrations/1785700000000-PrescriptionPharmacyDispensing';
+import { ConsolidateLabWork1785800000000 } from '../migrations/1785800000000-ConsolidateLabWork';
+import { AuditLogLabWorkEnumValue1785900000000 } from '../migrations/1785900000000-AuditLogLabWorkEnumValue';
+import { DesignStudioTemplateColumns1786000000000 } from '../migrations/1786000000000-DesignStudioTemplateColumns';
+import { FinanceModule1786100000000 } from '../migrations/1786100000000-FinanceModule';
 
 export const POSTGRES_MIGRATIONS = [
   SeoInfrastructure1700000000001,
@@ -57,4 +65,12 @@ export const POSTGRES_MIGRATIONS = [
   PatientFileBlobSync1785000000000,
   GalleryItems1785100000000,
   RecallBranchScoping1785200000000,
+  JwantraIntegrations1785300000000,
+  JwantraAiLink1785400000000,
+  TreatmentPlansAndInventoryConsumption1785500000000,
+  PharmacyPackage1785600000000,
+  PrescriptionPharmacyDispensing1785700000000,
+  ConsolidateLabWork1785800000000,
+  AuditLogLabWorkEnumValue1785900000000,
+  DesignStudioTemplateColumns1786000000000,
 ];

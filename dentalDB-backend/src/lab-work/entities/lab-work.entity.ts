@@ -72,6 +72,29 @@ export class LabWork {
   @Column({ nullable: true, type: 'text' })
   testDescription: string;
 
+  /**
+   * Free-text test/panel category, e.g. "lipid_profile", "lft", "other".
+   * Replaces the old hardcoded `BloodTestType` enum (Phase 5 consolidation
+   * of the blood-test module into this one) — nullable so existing lab
+   * work orders that never had a type keep working unchanged.
+   */
+  @Column({ nullable: true })
+  testType: string;
+
+  /** Whether the patient needed to fast before sample collection (carried over from blood-test) */
+  @Column({ default: false })
+  fasting: boolean;
+
+  /**
+   * IDs of `LabService` catalog entries this order was placed against.
+   * A single order can span several services (e.g. a full metabolic
+   * workup ordering Liver + Renal + Lipid panels together, like the
+   * sample multi-panel report), each contributing its own group of rows
+   * to `results` (tagged via `panelName` on each row).
+   */
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
+  serviceIds: string[];
+
   @Column({ type: isSQLite ? 'varchar' : 'enum', enum: LabWorkStatus, default: LabWorkStatus.PENDING })
   status: LabWorkStatus;
 
@@ -94,13 +117,21 @@ export class LabWork {
   @Column({ nullable: true, type: isSQLite ? 'datetime' : 'timestamptz' })
   patientNotifiedAt: Date;
 
-  /** Structured results — array of { parameter, value, unit, referenceRange, flag } */
+  /**
+   * Structured results — array of one row per parameter. `panelName` groups
+   * rows into printed sections (e.g. "LIVER FUNCTION TEST"); rows sharing
+   * the same panelName render together as one table on the report, so one
+   * order can hold a multi-panel report exactly like the sample lab report
+   * (Liver + Renal + Bone/Joint + Lipid panels in a single document).
+   */
   @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true })
   results: {
+    panelName?: string;
     parameter: string;
     value: string;
     unit?: string;
     referenceRange?: string;
+    method?: string;
     flag?: 'normal' | 'low' | 'high' | 'critical';
   }[];
 

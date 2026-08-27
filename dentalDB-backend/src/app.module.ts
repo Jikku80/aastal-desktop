@@ -34,8 +34,11 @@ import { RbacModule }           from './rbac/rbac.module';
 import { RbacService }          from './rbac/rbac.service';
 import { ServicesModule }       from './services/services.module';
 import { InventoryModule }      from './inventory/inventory.module';
+import { PharmacyModule }       from './pharmacy/pharmacy.module';
 import { CommissionsModule }    from './commissions/commissions.module';
 import { ClinicalRecordsModule } from './clinical-records/clinical-records.module';
+import { TreatmentPlansModule } from './treatment-plans/treatment-plans.module';
+import { FinanceModule } from './finance/finance.module';
 
 import { User }                 from './users/entities/user.entity';
 import { Clinic }               from './clinics/entities/clinic.entity';
@@ -49,7 +52,6 @@ import { OutboxModule } from './outbox/outbox.module';
 import { SyncModule } from './sync/sync.module';
 import { AuditModule } from './audit/audit.module';
 import { LabWorkModule } from './lab-work/lab-work.module';
-import { BloodTestModule } from './blood-test/blood-test.module';
 import { HolidaysModule } from './holidays/holidays.module';
 import { NoticesModule } from './notices/notices.module';
 import { ExpensesModule } from './expenses/expenses.module';
@@ -76,6 +78,7 @@ import { TelehealthModule }      from './telehealth/telehealth.module';
 import { PatientPortalModule }   from './patient-portal/patient-portal.module';
 import { SymptomCheckerModule }  from './symptom-checker/symptom-checker.module';
 import { DoctorPortalModule }    from './doctor-portal/doctor-portal.module';
+import { JwantraIntegrationModule } from './integrations/jwantra/jwantra-integration.module';
 
 @Module({
   imports: [
@@ -128,8 +131,10 @@ import { DoctorPortalModule }    from './doctor-portal/doctor-portal.module';
     SuperAdminModule,
     ServicesModule,
     InventoryModule,
+    PharmacyModule,
     CommissionsModule,
     ClinicalRecordsModule,
+    TreatmentPlansModule,
     WaitingQueueModule,
     PrescriptionsModule,
     RecallsModule,
@@ -137,11 +142,11 @@ import { DoctorPortalModule }    from './doctor-portal/doctor-portal.module';
     SyncModule,
     AuditModule,
     LabWorkModule,
-    BloodTestModule,
     HolidaysModule,
     NoticesModule,
     ExpensesModule,
     PayrollModule,
+    FinanceModule,
     PatientWalletModule,
     TasksModule,
     DentalChartModule,
@@ -157,6 +162,7 @@ import { DoctorPortalModule }    from './doctor-portal/doctor-portal.module';
     PatientPortalModule,
     SymptomCheckerModule,
     DoctorPortalModule,
+    JwantraIntegrationModule,
     // Cache: Redis when REDIS_URL is set (production / staging), in-memory otherwise (local dev).
     // Swap store by setting REDIS_URL in your environment — no code change required.
     // TTL and max-items remain configurable via CACHE_TTL_MS / CACHE_MAX_ITEMS.

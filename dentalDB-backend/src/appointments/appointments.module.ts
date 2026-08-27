@@ -19,6 +19,7 @@ import { BranchLockGuard } from '../common/guards/branch-lock.guard';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
 import { AppointmentsGateway } from './appointments.gateway';
+import { JwantraIntegrationModule } from '../integrations/jwantra/jwantra-integration.module';
 
 // NOTE: the Socket.IO Redis adapter used to be wired up from inside this
 // gateway's own afterInit() hook (SOCKET_IO_ADAPTER_FACTORY). That only
@@ -36,6 +37,7 @@ import { AppointmentsGateway } from './appointments.gateway';
     ServicesModule,
     JwtModule,
     ConfigModule,
+    JwantraIntegrationModule,
   ],
   controllers: [AppointmentsController],
   providers: [

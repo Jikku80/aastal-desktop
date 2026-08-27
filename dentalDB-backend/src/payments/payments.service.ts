@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Optional, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -6,13 +6,17 @@ import { Repository } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
 import * as crypto from 'crypto';
 import { Invoice, InvoiceStatus, PaymentMethod } from '../billing/entities/invoice.entity';
+import { JwantraIntegrationService } from '../integrations/jwantra/jwantra-integration.service';
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   constructor(
     private config: ConfigService,
     private http: HttpService,
     @InjectRepository(Invoice) private invoiceRepo: Repository<Invoice>,
+    @Optional() private jwantraIntegration?: JwantraIntegrationService,
   ) {}
 
   // ─── eSewa ────────────────────────────────────────────────────────────────
@@ -250,7 +254,12 @@ export class PaymentsService {
     invoice.paymentTransactionId = transactionId;
     invoice.paidAt = new Date();
     invoice.status = due <= 0 ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID;
-    await this.invoiceRepo.save(invoice);
+    const saved = await this.invoiceRepo.save(invoice);
+
+    if (this.jwantraIntegration && saved.clinicId) {
+      this.jwantraIntegration.notifyInvoicePaid(saved.clinicId, saved).catch((e) =>
+        this.logger.warn('Jwantra invoice.paid webhook dispatch failed: ' + e?.message));
+    }
   }
   // ─── Subscription payments ────────────────────────────────────────────────
   private async _initEsewaSubscription(clinicId: string, dto: {

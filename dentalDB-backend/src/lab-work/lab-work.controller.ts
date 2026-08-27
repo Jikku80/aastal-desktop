@@ -1,14 +1,19 @@
 import {
   Controller, Get, Post, Patch, Delete,
-  Body, Param, Query, Request, UseGuards, ForbiddenException,
+  Body, Param, Query, Request, UseGuards, ForbiddenException, Res, StreamableFile,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { LabWorkService } from './lab-work.service';
+import { LabReportPdfService } from './lab-report-pdf.service';
 import { CreateLabWorkDto, UpdateLabWorkDto } from './dto/lab-work.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../rbac/guards/permissions.guard';
 import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 import { BranchLockGuard } from '../common/guards/branch-lock.guard';
 import { BranchesService } from '../branch/branch.service';
+import { ClinicsService } from '../clinics/clinics.service';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction, AuditEntityType } from '../audit/entities/audit-log.entity';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, BranchLockGuard)
 @Controller('lab-work')
@@ -16,6 +21,9 @@ export class LabWorkController {
   constructor(
     private readonly svc: LabWorkService,
     private readonly branchesService: BranchesService,
+    private readonly pdfService: LabReportPdfService,
+    private readonly clinicsService: ClinicsService,
+    private readonly auditService: AuditService,
   ) {}
 
   @Post()
@@ -80,10 +88,76 @@ export class LabWorkController {
     return this.svc.findUnbilledByPatient(req.user.clinicId, patientId);
   }
 
+  // ── Phase 8 — Design Studio template (lab report) ──────────────────────────
+  // Same get/save + pdfmake-backed preview shape as billing/prescription
+  // templates. Placed ahead of the ':id' routes below so 'template' isn't
+  // swallowed as an id param.
+  @Get('template')
+  @RequirePermissions('lab.view')
+  getTemplate(@Request() req) {
+    return this.pdfService.getTemplate(req.user.clinicId);
+  }
+
+  @Patch('template')
+  @RequirePermissions('lab.manage')
+  async updateTemplate(@Request() req, @Body() body: any) {
+    const allowed = ['themeColor', 'showLogo', 'showLicenseNumber', 'showMethodColumn', 'zebraStripes', 'headerNote', 'footerNote'];
+    const patch: Record<string, any> = {};
+    for (const k of allowed) {
+      if (k in body) patch[k] = body[k];
+    }
+    return this.pdfService.saveTemplate(req.user.clinicId, patch);
+  }
+
+  @Get('template/preview')
+  @RequirePermissions('lab.view')
+  async previewTemplate(@Request() req, @Res({ passthrough: true }) res: Response): Promise<StreamableFile> {
+    const pdfBuffer = await this.pdfService.getTemplatePreviewPdf(req.user.clinicId);
+    res.set({
+      'Content-Type':        'application/pdf',
+      'Content-Disposition': 'inline; filename="lab-report-template-preview.pdf"',
+      'Content-Length':      pdfBuffer.length,
+    });
+    const { Readable } = require('stream');
+    return new StreamableFile(Readable.from(pdfBuffer));
+  }
+
   @Get(':id')
   @RequirePermissions('lab.view')
   findOne(@Request() req, @Param('id') id: string) {
     return this.svc.findOne(req.user.clinicId, id);
+  }
+
+  // Phase 7 — same pdfmake pipeline & print-confirmation pattern as the
+  // invoice PDF endpoint (billing/billing.controller.ts downloadPdf).
+  @Get(':id/pdf')
+  @RequirePermissions('lab.view')
+  async downloadPdf(
+    @Request() req,
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const lab       = await this.svc.findOne(req.user.clinicId, id);
+    const clinic    = await this.clinicsService.findById(req.user.clinicId);
+    const pdfBuffer = await this.pdfService.generateLabReportPdf(lab, clinic);
+
+    setImmediate(() => this.auditService.log({
+      clinicId:   req.user.clinicId,
+      userId:     req.user.id,
+      action:     AuditAction.EXPORT,
+      entityType: AuditEntityType.LAB_WORK,
+      entityId:   id,
+      ipAddress:  req.ip,
+      userAgent:  req.headers['user-agent'],
+    }));
+
+    res.set({
+      'Content-Type':        'application/pdf',
+      'Content-Disposition': `attachment; filename="Lab-Report-${lab.testName.replace(/[^a-z0-9]+/gi, '-')}-${lab.id.slice(0, 8)}.pdf"`,
+      'Content-Length':      pdfBuffer.length,
+    });
+    const { Readable } = require('stream');
+    return new StreamableFile(Readable.from(pdfBuffer));
   }
 
   @Patch(':id')

@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { ClinicWebsite, PageConfig, SectionConfig, SectionType, ThemeConfig, GlobalSettings, SeoConfig } from './entities/clinic-website.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { Appointment, AppointmentStatus } from '../appointments/entities/appointment.entity';
+import { ShiftResolver } from '../shifts/shift-resolver.service';
 
 // ── Default theme ──────────────────────────────────────────────────────────────
 
@@ -108,6 +109,7 @@ export class WebsiteBuilderService {
     @InjectRepository(Appointment)   private aptRepo: Repository<Appointment>,
     private config: ConfigService,
     private nginxProvisioning: NginxProvisioningService,
+    private shiftResolver: ShiftResolver,
   ) {}
 
   // ── findOrCreate ─────────────────────────────────────────────────────────────
@@ -728,24 +730,45 @@ Keep the EXACT same JSON shape and all non-text fields. Only improve text values
       bookedSet.add(`${key}|${hh}:${roundedMm}`);
     }
 
+    // If a specific doctor was requested and this clinic actually uses the
+    // Shift module, prefer that doctor's real per-day shift hours over the
+    // clinic-wide working hours — otherwise the site would offer slots the
+    // doctor isn't even scheduled to be in for.
+    const usesShiftModule = doctorId
+      ? await this.shiftResolver.hasAnyShiftConfig(site.clinicId)
+      : false;
+
     for (let i = 0; i < 14; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
       const key = d.toISOString().split('T')[0];
 
-      const clinic     = site.clinic;
-      const dayName    = d.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-      const workingDay = clinic?.workingHours?.[dayName];
+      let startStr: string | undefined;
+      let endStr:   string | undefined;
 
-      const wd = workingDay as any;
-      if (!wd || (!wd.start && !wd.open)) {
-        result[key] = [];
-        continue;
+      if (usesShiftModule && doctorId) {
+        const resolved = await this.shiftResolver.resolveUserShift(doctorId, site.clinicId, key);
+        if (resolved.type !== 'working' || !resolved.shift) {
+          result[key] = []; // doctor is off / on leave that day
+          continue;
+        }
+        startStr = resolved.shift.startTime;
+        endStr   = resolved.shift.endTime;
+      } else {
+        const clinic     = site.clinic;
+        const dayName    = d.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+        const workingDay = clinic?.workingHours?.[dayName] as any;
+        if (!workingDay || (!workingDay.start && !workingDay.open)) {
+          result[key] = [];
+          continue;
+        }
+        startStr = workingDay.start || workingDay.open  || '09:00';
+        endStr   = workingDay.end   || workingDay.close || '17:00';
       }
 
       const slots: string[] = [];
-      const start = this.parseTime(wd.start || wd.open || '09:00');
-      const end   = this.parseTime(wd.end   || wd.close || '17:00');
+      const start = this.parseTime(startStr || '09:00');
+      const end   = this.parseTime(endStr   || '17:00');
       let cur = start;
       while (cur + 30 <= end) {
         const hh   = String(Math.floor(cur / 60)).padStart(2, '0');

@@ -8,6 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { BranchesService } from '../branch/branch.service';
 import { addMonths, addDays } from 'date-fns';
 import { resolveOfflineLicense } from './offline-license.util';
+import { resolveOnlineLicense } from './online-license.util';
 
 // ── Per-spec plan features ─────────────────────────────────────────────────────
 const PLAN_FEATURES: Record<string, string[]> = {
@@ -60,7 +61,7 @@ const PLAN_PRICES_NPR: Record<string, { monthly: number; yearly: number }> = {
   free: { monthly: 0, yearly: 0 },
 };
 
-const FREE_TRIAL_DAYS = 14;
+const FREE_TRIAL_DAYS = 30;
 
 @Injectable()
 export class SubscriptionsService {
@@ -92,33 +93,12 @@ export class SubscriptionsService {
     const now    = new Date();
 
     // ── Auto-lock logic ──────────────────────────────────────────────────────
-    let isLocked   = false;
-    let lockReason = '';
-
-    if (clinic?.plan === SubscriptionPlan.FREE) {
-      if (clinic.trialEndsAt && now > new Date(clinic.trialEndsAt)) {
-        isLocked   = true;
-        lockReason = 'trial_expired';
-        if (sub && sub.status === SubscriptionStatus.ACTIVE) {
-          sub.status = SubscriptionStatus.EXPIRED;
-          await this.subRepo.save(sub).catch(() => {});
-        }
-      }
-    } else if (sub) {
-      if (sub.currentPeriodEnd && now > new Date(sub.currentPeriodEnd)) {
-        isLocked   = true;
-        lockReason = 'subscription_expired';
-        if (sub.status === SubscriptionStatus.ACTIVE) {
-          sub.status = SubscriptionStatus.EXPIRED;
-          await this.subRepo.save(sub).catch(() => {});
-        }
-      }
-      if (sub.status === SubscriptionStatus.CANCELLED) { isLocked = true; lockReason = 'cancelled'; }
-      if (sub.status === SubscriptionStatus.EXPIRED)   { isLocked = true; lockReason = 'subscription_expired'; }
-    } else {
-      isLocked   = true;
-      lockReason = 'no_sub';
-    }
+    // Delegates to the same resolver enforced on every request in
+    // jwt.strategy.ts, so the status this endpoint displays can never drift
+    // from what's actually being enforced.
+    const licenseResult = await resolveOnlineLicense(clinicId, this.clinicRepo, this.subRepo);
+    const isLocked   = licenseResult.isLocked;
+    const lockReason = licenseResult.lockReason;
 
     const plan = clinic?.plan || 'free';
     const numBranches: number = (clinic?.settings as any)?.numBranches ?? 1;

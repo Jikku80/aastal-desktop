@@ -18,6 +18,7 @@ import { WebsiteBuilderPublicController } from './website-builder.public.control
 import { WebsiteOrdersController } from './website-orders.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { NginxProvisioningService } from './nginx-provisioning.service';
+import { ShiftsModule } from '../shifts/shifts.module';
 
 @Module({
   imports: [
@@ -28,6 +29,10 @@ import { NginxProvisioningService } from './nginx-provisioning.service';
     ]),
     MulterModule.register({}),
     NotificationsModule,
+    // Gives the public booking endpoints access to ShiftResolver so doctor
+    // availability on the website can respect real shift schedules instead
+    // of always showing every doctor / every clinic working-hour slot.
+    ShiftsModule,
   ],
   controllers: [
     WebsiteBuilderController,

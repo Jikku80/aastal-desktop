@@ -30,7 +30,7 @@ export class BillingController {
   @Post('invoices')
   @RequirePermissions('invoice.create')
   create(@Request() req, @Body() dto: CreateInvoiceDto) {
-    return this.service.create(req.user.clinicId, dto);
+    return this.service.create(req.user.clinicId, dto, req.user.id);
   }
 
   @Get('invoices')
@@ -45,6 +45,16 @@ export class BillingController {
     return this.service.getAnalytics(req.user.clinicId, query);
   }
 
+  // Backfills the accounting ledger from already-paid invoices — for clinics
+  // whose Chart of Accounts wasn't seeded (or didn't exist) at the time
+  // those payments were recorded. Surfaced as "Sync from Billing & Expenses"
+  // on the Finance → Chart of Accounts screen.
+  @Post('reconcile-finance')
+  @RequirePermissions('finance.manage_accounts')
+  reconcileFinance(@Request() req) {
+    return this.service.reconcileJournal(req.user.clinicId, req.user.id);
+  }
+
   @Get('invoices/:id')
   @RequirePermissions('billing.view')
   findOne(@Request() req, @Param('id') id: string) {
@@ -54,7 +64,7 @@ export class BillingController {
   @Patch('invoices/:id')
   @RequirePermissions('invoice.update')
   update(@Request() req, @Param('id') id: string, @Body() dto: any) {
-    return this.service.update(req.user.clinicId, id, dto);
+    return this.service.update(req.user.clinicId, id, dto, req.user.id);
   }
 
   @Patch('invoices/:id/pay')

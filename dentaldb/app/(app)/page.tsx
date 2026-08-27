@@ -376,7 +376,7 @@ function Hero() {
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 mb-14">
-          {["14-day free trial", "No credit card needed", "Free for patients & doctors", "Access from any device"].map(t => (
+          {["30-day free trial", "No credit card needed", "Free for patients & doctors", "Access from any device"].map(t => (
             <div key={t} className="flex items-center gap-1.5" style={{ fontSize: "0.75rem", color: "var(--slate)", fontWeight: 500 }}>
               <Icon.check s={11} />{t}
             </div>
@@ -675,9 +675,9 @@ function Pricing() {
   const plans = [
     {
       name: "Free trial",
-      badge: "14 days",
+      badge: "30 days",
       price: "Free",
-      priceNote: "14-day trial · no renewal",
+      priceNote: "30-day trial · no renewal",
       yearlyNote: null as string | null,
       description: "For clinics trying Aastal. Every admin feature unlocked, no card required.",
       featured: false,
@@ -687,7 +687,7 @@ function Pricing() {
         { text: "Billing & analytics", included: true },
         { text: "Staff management", included: true },
         { text: "SMS reminders & notifications", included: true },
-        { text: "Expires after 14 days", included: true },
+        { text: "Expires after 30 days", included: true },
         { text: "Website builder", included: false },
         { text: "API access", included: false },
       ],
@@ -907,7 +907,7 @@ function CTA() {
         <div style={{ background: "var(--ink)", borderRadius: "1.5rem", padding: "clamp(2.5rem,5vw,4rem)", position: "relative", overflow: "hidden" }}>
           <div style={{ position: "absolute", top: -80, left: "50%", transform: "translateX(-50%)", width: 400, height: 200, borderRadius: "50%", background: "radial-gradient(ellipse at center, rgba(11,110,93,0.35) 0%, transparent 70%)", pointerEvents: "none" }} />
 
-          <span className="aa-eyebrow" style={{ justifyContent: "center", color: "#7fc9b6" }}>Free for 14 days · no card needed</span>
+          <span className="aa-eyebrow" style={{ justifyContent: "center", color: "#7fc9b6" }}>Free for 30 days · no card needed</span>
 
           <h2 className="aa-serif" style={{ fontWeight: 400, fontSize: "clamp(2rem,5vw,2.875rem)", color: "#fff", lineHeight: 1.1, marginBottom: "1rem" }}>
             Bring your practice — or your care — onto one platform.

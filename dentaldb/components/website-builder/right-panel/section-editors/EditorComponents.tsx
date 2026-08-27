@@ -2,36 +2,45 @@
 
 import { sanitizeImageUrl } from '@/lib/sanitizeImageUrl';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical, Check } from 'lucide-react';
+import { tokens } from '../design-tokens';
+import { useBuilderStore } from '../../hooks/useBuilderState';
 
-// ── Design tokens (dark premium) ─────────────────────────────────────────────
-const t = {
-  bg:          '#111318',
-  surface:     'rgba(255,255,255,0.04)',
-  surfaceHov:  'rgba(255,255,255,0.07)',
-  border:      'rgba(255,255,255,0.08)',
-  borderFocus: '#6366f1',
-  text:        '#e2e4ef',
-  textMuted:   '#6b7080',
-  textLabel:   '#8b8fa8',
-  accent:      '#6366f1',
-  accentLight: 'rgba(99,102,241,0.15)',
-  danger:      '#f87171',
-  dangerLight: 'rgba(248,113,113,0.1)',
-  success:     '#4ade80',
-  font:        "'Inter','Geist','Segoe UI',system-ui,sans-serif",
-  fontMono:    "'JetBrains Mono','Fira Code',monospace",
-};
+// ── useThemeSwatches ──────────────────────────────────────────────────────────
+// Pulls the site's current theme colors so color pickers can lead with a
+// curated swatch row instead of defaulting straight to a raw hex field.
+export interface ThemeSwatch { label: string; value: string }
+
+export function useThemeSwatches(): ThemeSwatch[] {
+  const { theme } = useBuilderStore();
+  return [
+    { label: 'Primary',    value: theme?.primaryColor    ?? '#1e40af' },
+    { label: 'Secondary',  value: theme?.secondaryColor  ?? '#0ea5e9' },
+    { label: 'Accent',     value: theme?.accentColor     ?? '#f59e0b' },
+    { label: 'Text',       value: theme?.textColor       ?? '#111827' },
+    { label: 'Background', value: theme?.backgroundColor ?? '#ffffff' },
+  ];
+}
+
+// ── FieldHint ─────────────────────────────────────────────────────────────────
+// Shared plain-language hint text, shown under a field label.
+export function FieldHint({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ fontSize: 10.5, color: tokens.muted, marginTop: -2, marginBottom: 5, fontFamily: tokens.font, lineHeight: 1.4 }}>
+      {children}
+    </div>
+  );
+}
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
   background: 'rgba(0,0,0,0.3)',
-  border: `1px solid ${t.border}`,
+  border: `1px solid ${tokens.border}`,
   borderRadius: 7,
   padding: '7px 10px',
   fontSize: 12,
-  color: t.text,
-  fontFamily: t.font,
+  color: tokens.text,
+  fontFamily: tokens.font,
   outline: 'none',
   transition: 'border-color 0.15s',
   boxSizing: 'border-box',
@@ -45,7 +54,7 @@ export function EditorTabs({ tabs }: { tabs: { label: string; content: React.Rea
     <div>
       <div style={{
         display: 'flex',
-        borderBottom: `1px solid ${t.border}`,
+        borderBottom: `1px solid ${tokens.border}`,
         background: 'rgba(0,0,0,0.2)',
         position: 'sticky', top: 0, zIndex: 10,
       }}>
@@ -56,15 +65,15 @@ export function EditorTabs({ tabs }: { tabs: { label: string; content: React.Rea
             style={{
               flex: 1, padding: '10px 4px', border: 'none', cursor: 'pointer',
               background: 'transparent',
-              color: active === i ? '#818cf8' : t.textMuted,
+              color: active === i ? '#818cf8' : tokens.muted,
               fontSize: 11.5, fontWeight: active === i ? 600 : 500,
-              fontFamily: t.font,
+              fontFamily: tokens.font,
               borderBottom: active === i ? `2px solid #6366f1` : '2px solid transparent',
               transition: 'all 0.15s',
               letterSpacing: '0.01em',
             }}
-            onMouseEnter={e => { if (active !== i) e.currentTarget.style.color = t.textLabel; }}
-            onMouseLeave={e => { if (active !== i) e.currentTarget.style.color = t.textMuted; }}
+            onMouseEnter={e => { if (active !== i) e.currentTarget.style.color = tokens.label; }}
+            onMouseLeave={e => { if (active !== i) e.currentTarget.style.color = tokens.muted; }}
           >
             {tab.label}
           </button>
@@ -77,12 +86,14 @@ export function EditorTabs({ tabs }: { tabs: { label: string; content: React.Rea
 
 // ── EditorSection ─────────────────────────────────────────────────────────────
 
-export function EditorSection({ title, children, collapsible = false }: {
+export function EditorSection({ title, children, collapsible = false, defaultOpen = true }: {
   title: string;
   children: React.ReactNode;
   collapsible?: boolean;
+  /** Initial open/closed state when collapsible. Ignored when collapsible is false. */
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{ marginBottom: 20 }}>
       <button
@@ -95,15 +106,15 @@ export function EditorSection({ title, children, collapsible = false }: {
         }}
       >
         {collapsible && (
-          <span style={{ color: t.textMuted }}>
+          <span style={{ color: tokens.muted }}>
             {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
           </span>
         )}
         <span style={{
-          fontSize: 10, fontWeight: 700, color: t.textMuted,
-          textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: t.font,
+          fontSize: 10, fontWeight: 700, color: tokens.muted,
+          textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: tokens.font,
         }}>{title}</span>
-        <div style={{ flex: 1, height: 1, background: t.border, marginLeft: 6 }} />
+        <div style={{ flex: 1, height: 1, background: tokens.border, marginLeft: 6 }} />
       </button>
       {(!collapsible || open) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div>
@@ -124,9 +135,11 @@ interface FieldProps {
   min?:        number;
   max?:        number;
   rows?:       number;
+  /** Short plain-language explanation shown under the label. */
+  hint?:       string;
 }
 
-export function EditorField({ label, value, onChange, placeholder, multiline, type = 'text', min, max, rows = 3 }: FieldProps) {
+export function EditorField({ label, value, onChange, placeholder, multiline, type = 'text', min, max, rows = 3, hint }: FieldProps) {
   const [localVal, setLocalVal] = useState(value ?? '');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isUserTyping = useRef(false);
@@ -155,15 +168,16 @@ export function EditorField({ label, value, onChange, placeholder, multiline, ty
 
   const activeInput: React.CSSProperties = {
     ...inputStyle,
-    borderColor: focused ? t.borderFocus : t.border,
+    borderColor: focused ? tokens.borderFocus : tokens.border,
     boxShadow: focused ? `0 0 0 3px rgba(99,102,241,0.12)` : 'none',
   };
 
   return (
     <div>
-      <label style={{ display: 'block', fontSize: 11.5, fontWeight: 500, color: t.textLabel, marginBottom: 5, fontFamily: t.font }}>
+      <label style={{ display: 'block', fontSize: 11.5, fontWeight: 500, color: tokens.label, marginBottom: hint ? 2 : 5, fontFamily: tokens.font }}>
         {label}
       </label>
+      {hint && <FieldHint>{hint}</FieldHint>}
       {type === 'range' ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <input
@@ -172,7 +186,7 @@ export function EditorField({ label, value, onChange, placeholder, multiline, ty
             onChange={e => { setLocalVal(e.target.value); onChange(Number(e.target.value)); }}
             style={{ flex: 1, accentColor: '#6366f1', height: 4 }}
           />
-          <span style={{ fontSize: 11, color: t.textMuted, minWidth: 28, textAlign: 'right', fontFamily: t.fontMono }}>{localVal}</span>
+          <span style={{ fontSize: 11, color: tokens.muted, minWidth: 28, textAlign: 'right', fontFamily: tokens.fontMono }}>{localVal}</span>
         </div>
       ) : multiline ? (
         <textarea
@@ -201,17 +215,21 @@ export function EditorField({ label, value, onChange, placeholder, multiline, ty
 
 // ── EditorSelect ──────────────────────────────────────────────────────────────
 
-export function EditorSelect({ label, value, onChange, options }: {
+export function EditorSelect({ label, value, onChange, options, hint }: {
   label:   string;
   value:   any;
   onChange: (val: string) => void;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; description?: string }[];
+  /** Short plain-language explanation shown under the label. */
+  hint?:   string;
 }) {
+  const selected = options.find(o => o.value === value);
   return (
     <div>
-      <label style={{ display: 'block', fontSize: 11.5, fontWeight: 500, color: t.textLabel, marginBottom: 5, fontFamily: t.font }}>
+      <label style={{ display: 'block', fontSize: 11.5, fontWeight: 500, color: tokens.label, marginBottom: hint ? 2 : 5, fontFamily: tokens.font }}>
         {label}
       </label>
+      {hint && <FieldHint>{hint}</FieldHint>}
       <div style={{ position: 'relative' }}>
         <select
           value={value ?? ''}
@@ -226,11 +244,12 @@ export function EditorSelect({ label, value, onChange, options }: {
         </select>
         <div style={{
           position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-          pointerEvents: 'none', color: t.textMuted,
+          pointerEvents: 'none', color: tokens.muted,
         }}>
           <ChevronDown size={12} />
         </div>
       </div>
+      {selected?.description && <FieldHint><span style={{ marginTop: 4, display: 'block' }}>{selected.description}</span></FieldHint>}
     </div>
   );
 }
@@ -247,8 +266,8 @@ export function EditorToggle({ label, checked, onChange, description }: {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 12, fontWeight: 500, color: t.text, fontFamily: t.font }}>{label}</div>
-        {description && <div style={{ fontSize: 10.5, color: t.textMuted, marginTop: 2, fontFamily: t.font }}>{description}</div>}
+        <div style={{ fontSize: 12, fontWeight: 500, color: tokens.text, fontFamily: tokens.font }}>{label}</div>
+        {description && <div style={{ fontSize: 10.5, color: tokens.muted, marginTop: 2, fontFamily: tokens.font }}>{description}</div>}
       </div>
       <button
         type="button"
@@ -257,7 +276,7 @@ export function EditorToggle({ label, checked, onChange, description }: {
           position: 'relative', display: 'inline-flex',
           height: 20, width: 36, flexShrink: 0, borderRadius: 10,
           background: isChecked ? '#6366f1' : 'rgba(255,255,255,0.1)',
-          border: isChecked ? '1px solid rgba(99,102,241,0.5)' : `1px solid ${t.border}`,
+          border: isChecked ? '1px solid rgba(99,102,241,0.5)' : `1px solid ${tokens.border}`,
           cursor: 'pointer', transition: 'all 0.2s',
           outline: 'none', boxShadow: isChecked ? '0 0 8px rgba(99,102,241,0.3)' : 'none',
         }}
@@ -279,38 +298,96 @@ export function EditorToggle({ label, checked, onChange, description }: {
 
 // ── EditorColorPicker ─────────────────────────────────────────────────────────
 
-export function EditorColorPicker({ label, value, onChange }: {
+export function EditorColorPicker({ label, value, onChange, swatches }: {
   label:   string;
   value:   string;
   onChange: (v: string) => void;
+  /** Curated theme swatches (from useThemeSwatches()) shown before the raw hex input. */
+  swatches?: ThemeSwatch[];
 }) {
   const [localVal, setLocalVal] = useState(value || '#000000');
+  const matchesSwatch = !!swatches?.some(s => s.value.toLowerCase() === (value || '').toLowerCase());
+  const [customOpen, setCustomOpen] = useState(!swatches || !matchesSwatch);
 
   useEffect(() => { setLocalVal(value || '#000000'); }, [value]);
+  useEffect(() => {
+    if (swatches && matchesSwatch) setCustomOpen(false);
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const customInputs = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: swatches ? 8 : 0 }}>
+      <div style={{ position: 'relative', width: 34, height: 34, borderRadius: 7, overflow: 'hidden', border: `1px solid ${tokens.border}`, flexShrink: 0 }}>
+        <input
+          type="color"
+          value={localVal}
+          onChange={e => { setLocalVal(e.target.value); onChange(e.target.value); }}
+          style={{ position: 'absolute', inset: -4, width: 'calc(100% + 8px)', height: 'calc(100% + 8px)', cursor: 'pointer', border: 'none', padding: 0 }}
+        />
+      </div>
+      <input
+        type="text"
+        value={localVal}
+        onChange={e => { setLocalVal(e.target.value); if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) onChange(e.target.value); }}
+        onBlur={e => onChange(e.target.value)}
+        placeholder="#000000"
+        style={{ ...inputStyle, flex: 1, fontFamily: tokens.fontMono, fontSize: 11.5 }}
+      />
+    </div>
+  );
+
+  if (!swatches || swatches.length === 0) {
+    return (
+      <div>
+        <label style={{ display: 'block', fontSize: 11.5, fontWeight: 500, color: tokens.label, marginBottom: 5, fontFamily: tokens.font }}>
+          {label}
+        </label>
+        {customInputs}
+      </div>
+    );
+  }
 
   return (
     <div>
-      <label style={{ display: 'block', fontSize: 11.5, fontWeight: 500, color: t.textLabel, marginBottom: 5, fontFamily: t.font }}>
+      <label style={{ display: 'block', fontSize: 11.5, fontWeight: 500, color: tokens.label, marginBottom: 5, fontFamily: tokens.font }}>
         {label}
       </label>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ position: 'relative', width: 34, height: 34, borderRadius: 7, overflow: 'hidden', border: `1px solid ${t.border}`, flexShrink: 0 }}>
-          <input
-            type="color"
-            value={localVal}
-            onChange={e => { setLocalVal(e.target.value); onChange(e.target.value); }}
-            style={{ position: 'absolute', inset: -4, width: 'calc(100% + 8px)', height: 'calc(100% + 8px)', cursor: 'pointer', border: 'none', padding: 0 }}
-          />
-        </div>
-        <input
-          type="text"
-          value={localVal}
-          onChange={e => { setLocalVal(e.target.value); if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) onChange(e.target.value); }}
-          onBlur={e => onChange(e.target.value)}
-          placeholder="#000000"
-          style={{ ...inputStyle, flex: 1, fontFamily: t.fontMono, fontSize: 11.5 }}
-        />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {swatches.map(sw => {
+          const active = sw.value.toLowerCase() === (value || '').toLowerCase();
+          return (
+            <button
+              key={sw.label}
+              type="button"
+              title={sw.label}
+              onClick={() => { setCustomOpen(false); onChange(sw.value); }}
+              style={{
+                width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                background: sw.value, cursor: 'pointer',
+                border: active ? `2px solid ${tokens.accent}` : `1px solid ${tokens.border}`,
+                boxShadow: active ? `0 0 0 2px ${tokens.accentLight}` : 'none',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'all 0.15s',
+              }}
+            >
+              {active && <Check size={13} color={/^#(fff|ffffff)/i.test(sw.value) ? '#111827' : '#fff'} strokeWidth={3} />}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => setCustomOpen(o => !o)}
+          style={{
+            height: 28, padding: '0 10px', borderRadius: 14,
+            border: customOpen ? `2px solid ${tokens.accent}` : `1px solid ${tokens.border}`,
+            background: customOpen ? tokens.accentLight : tokens.surface,
+            color: customOpen ? tokens.accent : tokens.muted,
+            fontSize: 11, fontWeight: 500, fontFamily: tokens.font, cursor: 'pointer',
+          }}
+        >
+          Custom
+        </button>
       </div>
+      {customOpen && customInputs}
     </div>
   );
 }
@@ -359,14 +436,14 @@ export function EditorImageUpload({ label, value, onChange }: {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <label style={{ fontSize: 11.5, fontWeight: 500, color: t.textLabel, fontFamily: t.font }}>
+        <label style={{ fontSize: 11.5, fontWeight: 500, color: tokens.label, fontFamily: tokens.font }}>
           {label}
         </label>
         {value && (
           <button
             type="button"
             onClick={() => { onChange(''); setUrlInput(''); setShowUrlInput(false); }}
-            style={{ fontSize: 11, color: '#f87171', background: 'none', border: 'none', cursor: 'pointer', fontFamily: t.font }}
+            style={{ fontSize: 11, color: '#f87171', background: 'none', border: 'none', cursor: 'pointer', fontFamily: tokens.font }}
           >
             Remove
           </button>
@@ -375,7 +452,7 @@ export function EditorImageUpload({ label, value, onChange }: {
 
       {value ? (
         /* Preview with action buttons */
-        <div style={{ borderRadius: 10, overflow: 'hidden', border: `1px solid ${t.border}`, marginBottom: 8, position: 'relative' }}>
+        <div style={{ borderRadius: 10, overflow: 'hidden', border: `1px solid ${tokens.border}`, marginBottom: 8, position: 'relative' }}>
           <img
             src={value}
             alt=""
@@ -393,7 +470,7 @@ export function EditorImageUpload({ label, value, onChange }: {
             onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.opacity = '1'; (e.currentTarget as HTMLDivElement).style.background = 'rgba(0,0,0,0.55)'; }}
             onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.opacity = '0'; (e.currentTarget as HTMLDivElement).style.background = 'rgba(0,0,0,0)'; }}
           >
-            <label style={{ padding: '6px 14px', background: 'rgba(255,255,255,0.95)', borderRadius: 8, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', color: '#111827', fontFamily: t.font }}>
+            <label style={{ padding: '6px 14px', background: 'rgba(255,255,255,0.95)', borderRadius: 8, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', color: '#111827', fontFamily: tokens.font }}>
               {uploading ? 'Uploading…' : '↑ Replace'}
               <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} disabled={uploading} />
             </label>
@@ -405,11 +482,11 @@ export function EditorImageUpload({ label, value, onChange }: {
           style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6,
             width: '100%', padding: '20px 8px',
-            border: `2px dashed ${dragging ? t.accent : t.border}`,
+            border: `2px dashed ${dragging ? tokens.accent : tokens.border}`,
             borderRadius: 10, cursor: uploading ? 'not-allowed' : 'pointer',
-            fontSize: 12, color: dragging ? t.accent : t.textMuted,
-            transition: 'all 0.15s', fontFamily: t.font,
-            background: dragging ? `${t.accent}10` : 'rgba(255,255,255,0.02)',
+            fontSize: 12, color: dragging ? tokens.accent : tokens.muted,
+            transition: 'all 0.15s', fontFamily: tokens.font,
+            background: dragging ? `${tokens.accent}10` : 'rgba(255,255,255,0.02)',
             boxSizing: 'border-box',
           }}
           onDragOver={e => { e.preventDefault(); setDragging(true); }}
@@ -430,7 +507,7 @@ export function EditorImageUpload({ label, value, onChange }: {
         <button
           type="button"
           onClick={() => setShowUrlInput(v => !v)}
-          style={{ fontSize: 10.5, color: t.textMuted, background: 'none', border: 'none', cursor: 'pointer', fontFamily: t.font, padding: 0 }}
+          style={{ fontSize: 10.5, color: tokens.muted, background: 'none', border: 'none', cursor: 'pointer', fontFamily: tokens.font, padding: 0 }}
         >
           {showUrlInput ? '▲ Hide URL input' : '🔗 Use URL instead'}
         </button>
@@ -463,7 +540,7 @@ export function EditorImageUpload({ label, value, onChange }: {
 // ── EditorArrayField ──────────────────────────────────────────────────────────
 
 export function EditorArrayField<T extends { id?: string }>({
-  label, items, onChange, renderItem, defaultItem, addLabel = 'Add Item',
+  label, items, onChange, renderItem, defaultItem, addLabel = 'Add Item', bare = false,
 }: {
   label:       string;
   items:       T[];
@@ -471,6 +548,9 @@ export function EditorArrayField<T extends { id?: string }>({
   renderItem:  (item: T, update: (updates: Partial<T>) => void, remove: () => void, index: number) => React.ReactNode;
   defaultItem: T;
   addLabel?:   string;
+  /** Skip the default card wrapper — use when renderItem already renders its own
+   *  container (e.g. EditorListItem), so items don't get double-wrapped. */
+  bare?:       boolean;
 }) {
   const add    = () => onChange([...items, { ...defaultItem, id: Math.random().toString(36).slice(2) } as T]);
   const remove = (i: number) => onChange(items.filter((_, idx) => idx !== i));
@@ -479,17 +559,17 @@ export function EditorArrayField<T extends { id?: string }>({
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: t.font }}>{label}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: tokens.muted, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: tokens.font }}>{label}</span>
         <button
           type="button"
           onClick={add}
           style={{
             display: 'flex', alignItems: 'center', gap: 4,
-            fontSize: 11, color: '#818cf8', fontWeight: 500, fontFamily: t.font,
+            fontSize: 11, color: '#818cf8', fontWeight: 500, fontFamily: tokens.font,
             background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px',
             borderRadius: 5, transition: 'background 0.15s',
           }}
-          onMouseEnter={e => e.currentTarget.style.background = t.accentLight}
+          onMouseEnter={e => e.currentTarget.style.background = tokens.accentLight}
           onMouseLeave={e => e.currentTarget.style.background = 'none'}
         >
           <Plus size={11} /> {addLabel}
@@ -497,18 +577,24 @@ export function EditorArrayField<T extends { id?: string }>({
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {items.map((item, i) => (
-          <div key={(item as any).id || i} style={{
-            border: `1px solid ${t.border}`, borderRadius: 9,
-            padding: '10px 12px',
-            background: 'rgba(0,0,0,0.25)',
-          }}>
-            {renderItem(item, updates => update(i, updates), () => remove(i), i)}
-          </div>
+          bare ? (
+            <React.Fragment key={(item as any).id || i}>
+              {renderItem(item, updates => update(i, updates), () => remove(i), i)}
+            </React.Fragment>
+          ) : (
+            <div key={(item as any).id || i} style={{
+              border: `1px solid ${tokens.border}`, borderRadius: 9,
+              padding: '10px 12px',
+              background: 'rgba(0,0,0,0.25)',
+            }}>
+              {renderItem(item, updates => update(i, updates), () => remove(i), i)}
+            </div>
+          )
         ))}
         {items.length === 0 && (
           <div style={{
-            fontSize: 11.5, color: t.textMuted, textAlign: 'center', padding: '14px',
-            border: `1px dashed ${t.border}`, borderRadius: 8, fontFamily: t.font,
+            fontSize: 11.5, color: tokens.muted, textAlign: 'center', padding: '14px',
+            border: `1px dashed ${tokens.border}`, borderRadius: 8, fontFamily: tokens.font,
           }}>
             No items yet — click "{addLabel}" above
           </div>

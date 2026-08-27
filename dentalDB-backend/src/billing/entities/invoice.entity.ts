@@ -85,10 +85,11 @@ export class Invoice {
   @Column()
   invoiceNumber: string;
 
-  @Column()
+  /** NULL for pharmacy/product-only walk-in sales — no patient record required when nothing on the invoice is patient-specific. */
+  @Column({ nullable: true })
   patientId: string;
 
-  @ManyToOne(() => Patient, { eager: true })
+  @ManyToOne(() => Patient, { eager: true, nullable: true })
   @JoinColumn({ name: 'patientId' })
   patient: Patient;
 
@@ -112,6 +113,12 @@ export class Invoice {
     commissionPercentage?: number;
     bloodTestId?: string;
     labWorkId?: string;
+    // Phase 3 — links this line item back to the prescription it fulfills
+    // (see clinical-record.entity.ts Prescription), so a pharmaceutical
+    // product's dispensed quantity gets recorded against the prescription
+    // it was prescribed under. Optional — a product line item doesn't
+    // have to originate from a prescription (e.g. OTC/walk-in sale).
+    prescriptionId?: string;
   }[];
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 }) subtotal: number;

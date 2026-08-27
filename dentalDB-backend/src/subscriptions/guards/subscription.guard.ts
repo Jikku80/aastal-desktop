@@ -46,13 +46,13 @@ export class SubscriptionGuard implements CanActivate {
 
     const now = new Date();
 
-    // ── FREE plan: 14-day trial from clinic creation ───────────────────────────
+    // ── FREE plan: 30-day trial from clinic creation ───────────────────────────
     if (clinic.plan === SubscriptionPlan.FREE) {
       const trialEnd = clinic.trialEndsAt;
       if (trialEnd && now > new Date(trialEnd)) {
         throw new ForbiddenException({
           code:    'TRIAL_EXPIRED',
-          message: 'Your 14-day free trial has expired. Please upgrade to continue using DentalOS.',
+          message: 'Your 30-day free trial has expired. Please upgrade to continue using DentalOS.',
           lockType: 'trial',
         });
       }

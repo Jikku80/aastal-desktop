@@ -1,7 +1,13 @@
-import { IsString, IsOptional, IsArray, ValidateNested } from 'class-validator';
+import { IsString, IsOptional, IsArray, ValidateNested, IsNumber, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class PrescriptionDto {
+  /** Present when editing an existing line — lets update() match it back to
+   *  its row instead of deleting/recreating (see ClinicalRecordsService). */
+  @IsOptional()
+  @IsString()
+  id?: string;
+
   @IsString()
   medicineName: string;
 
@@ -20,6 +26,17 @@ export class PrescriptionDto {
   @IsOptional()
   @IsString()
   instructions?: string;
+
+  /** Links this prescription line to a pharmacy inventory Product — omit for free-text-only medicines outside inventory. */
+  @IsOptional()
+  @IsString()
+  productId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  quantityPrescribed?: number;
 }
 
 export class CreateClinicalRecordDto {

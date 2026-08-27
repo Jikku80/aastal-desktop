@@ -29,6 +29,12 @@ export const SYSTEM_PERMISSIONS = [
   // Finance — Reports & Wallet
   { key: 'reports.view',     label: 'View Reports',      group: 'Finance' },
   { key: 'wallet.manage',    label: 'Manage Wallets',    group: 'Finance' },
+  // Finance — Accounting (Phase 9: Chart of Accounts / General Ledger)
+  { key: 'finance.view_ledger',       label: 'View Ledger & Journal',        group: 'Finance' },
+  { key: 'finance.manage_accounts',   label: 'Manage Chart of Accounts',     group: 'Finance' },
+  { key: 'finance.post_journal_entry',label: 'Post Manual Journal Entries',  group: 'Finance' },
+  { key: 'finance.view_statements',   label: 'View Financial Statements',    group: 'Finance' },
+  { key: 'finance.close_period',      label: 'Close Accounting Periods',     group: 'Finance' },
 
   { key: 'dashboard.view',     label: 'View Dashboard',           group: 'Dashboard' },
   { key: 'queue.view',         label: 'View Waiting Room Queue',  group: 'Queue' },
@@ -74,16 +80,26 @@ export const SYSTEM_PERMISSIONS = [
   { key: 'records.create',    label: 'Create Clinical Record',group: 'Records'   },
   { key: 'records.update',    label: 'Update Clinical Record',group: 'Records'   },
   { key: 'audit.view',        label: 'View Audit Log',        group: 'Audit'     },
-  { key: 'lab.view',          label: 'View Lab Work',         group: 'Lab'       },
-  { key: 'lab.manage',        label: 'Manage Lab Work',       group: 'Lab'       },
-  { key: 'blood_test.view',   label: 'View Blood Tests',      group: 'Lab'       },
-  { key: 'blood_test.manage', label: 'Manage Blood Tests',    group: 'Lab'       },
+  { key: 'lab.view',            label: 'View Lab Work',          group: 'Lab' },
+  { key: 'lab.manage',          label: 'Manage Lab Work',        group: 'Lab' },
+  { key: 'lab.manage_services', label: 'Manage Lab Service Catalog', group: 'Lab' },
   { key: 'holiday.view',      label: 'View Holidays',         group: 'Holidays & Notices' },
   { key: 'holiday.manage',    label: 'Manage Holidays',       group: 'Holidays & Notices' },
   { key: 'notice.view',       label: 'View Notices',          group: 'Holidays & Notices' },
   { key: 'notice.manage',     label: 'Manage Notices',        group: 'Holidays & Notices' },
   { key: 'tasks.view',        label: 'View Tasks',            group: 'Tasks' },
   { key: 'tasks.manage',      label: 'Create / Edit / Delete Tasks', group: 'Tasks' },
+
+  // ── Pharmaceutical / Pharmacy package (batch & expiry management) ────────
+  { key: 'pharmacy.view',                    label: 'View Pharmacy Inventory',            group: 'Pharmacy' },
+  { key: 'pharmacy.manage_medicines',        label: 'Manage Medicine Definitions',        group: 'Pharmacy' },
+  { key: 'pharmacy.manage_batches',          label: 'Manage Batches / Lots',              group: 'Pharmacy' },
+  { key: 'pharmacy.view_expiry',             label: 'View Expiry & Batch Reports',        group: 'Pharmacy' },
+  { key: 'pharmacy.manage_expired_stock',    label: 'Dispose / Write Off Expired Stock',  group: 'Pharmacy' },
+  { key: 'pharmacy.dispense',                label: 'Dispense / Sell Medicines',          group: 'Pharmacy' },
+  { key: 'pharmacy.manual_batch_selection',  label: 'Manually Select Batch (override FEFO)', group: 'Pharmacy' },
+  { key: 'pharmacy.override_batch_restrictions', label: 'Override Controlled/Expiry Restrictions', group: 'Pharmacy' },
+  { key: 'pharmacy.view_all_branches',       label: 'View Pharmacy Data — All Branches',  group: 'Pharmacy' },
 
   // ── Part 7 — Marketplace / Clinic-side permissions ───────────────────────
   { key: 'listing.manage',       label: 'Manage Public Listing',          group: 'Marketplace' },
@@ -146,11 +162,13 @@ export const DEFAULT_STAFF_PERMISSIONS: string[] = [
   // Services & Inventory — view only, catalog/stock config stays admin-only
   'services.view',
   'inventory.view',
+  // Pharmacy — view + dispense are day-to-day staff actions; batch/expiry
+  // management and manual FEFO overrides stay admin-only by default
+  'pharmacy.view', 'pharmacy.dispense',
   // Clinical records (also covers the "visualization" pages)
   'records.view', 'records.create', 'records.update',
   // Lab work & blood tests — need to create/update results, not just view
   'lab.view', 'lab.manage',
-  'blood_test.view', 'blood_test.manage',
   // Attendance — view + update (no separate "update" key; manage covers it)
   'attendance.view', 'attendance.manage',
   // Shifts — view only, as requested
@@ -426,8 +444,7 @@ export class RbacService {
       'patient.view', 'patient.create', 'patient.update', 'patient.record',
       'billing.view', 'billing.manage', 'invoice.create', 'invoice.update',
       'records.view', 'records.create', 'records.update',
-      'lab.view', 'lab.manage',
-      'blood_test.view', 'blood_test.manage',
+      'lab.view', 'lab.manage', 'lab.manage_services',
       'doctor.profile.manage', 'doctor.availability', 'doctor.invites',
       'doctor.bookings', 'doctor.reviews.respond',
       'intake.manage', 'consent.manage', 'telehealth.manage',

@@ -46,7 +46,7 @@ export function isOfflineSqlite(): boolean {
  * updatedAt column) are deliberately left alone — creation time is already
  * immutable and correct for those.
  *
- * @param entityClassName TypeORM entity class name, e.g. BloodTest.name
+ * @param entityClassName TypeORM entity class name, e.g. LabWork.name
  */
 export function pendingSyncFields(entityClassName: string): Record<string, any> {
   if (!isOfflineSqlite()) return {};

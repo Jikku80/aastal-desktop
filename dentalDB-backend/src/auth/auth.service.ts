@@ -22,6 +22,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthCacheService } from './auth-cache.service';
 import { AuditAction, AuditEntityType } from '../audit/entities/audit-log.entity';
 import { SyncService } from '../sync/sync.service';
+import { CoaService } from '../finance/coa.service';
 
 const COOKIE_ACCESS  = 'access_token';
 const COOKIE_REFRESH = 'refresh_token';
@@ -41,6 +42,7 @@ export class AuthService {
     private auditService:  AuditService,
     private authCache:     AuthCacheService,
     private syncService:   SyncService,
+    private coaService:    CoaService,
   ) {}
 
   setTokenCookies(res: Response, accessToken: string, refreshToken: string) {
@@ -112,7 +114,7 @@ export class AuthService {
         name: dto.clinicName || `${dto.firstName}'s Dental Clinic`,
         slug: this.generateSlug(dto.clinicName || dto.firstName),
         plan: SubscriptionPlan.FREE,
-        trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       });
       clinic = await this.clinicRepo.save(clinic);
       // A fresh clinic needs at least one branch to be usable — without
@@ -123,6 +125,12 @@ export class AuthService {
       await this.branchRepo.save(
         this.branchRepo.create({ clinicId: clinic.id, name: 'Main Branch' }),
       );
+      // Phase 9 — a fresh clinic gets its default chart of accounts seeded
+      // immediately, same "usable from minute one" reasoning as the Main
+      // Branch above (Finance → Chart of Accounts would otherwise be empty
+      // until someone manually seeds it). Never block registration on this.
+      this.coaService.seedDefaultCoa(clinic.id).catch((e) =>
+        this.logger.warn(`Failed to seed default chart of accounts for clinic ${clinic!.id}: ${e?.message}`));
     }
 
     const user = this.userRepo.create({
@@ -186,13 +194,15 @@ export class AuthService {
       name:        dto.clinicName,
       slug:        this.generateSlug(dto.clinicName),
       plan:        SubscriptionPlan.FREE,
-      trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       isLocalPlaceholder: false,
     });
     await this.clinicRepo.save(clinic);
     await this.branchRepo.save(
       this.branchRepo.create({ clinicId: clinic.id, name: 'Main Branch' }),
     );
+    this.coaService.seedDefaultCoa(clinic.id).catch((e) =>
+      this.logger.warn(`Failed to seed default chart of accounts for clinic ${clinic.id}: ${e?.message}`));
 
     const user = this.userRepo.create({
       id:        dto.userId,

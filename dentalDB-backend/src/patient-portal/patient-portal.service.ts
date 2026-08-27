@@ -8,11 +8,11 @@ import { PatientRecordConsentService } from '../patient-auth/patient-record-cons
 import { Appointment } from '../appointments/entities/appointment.entity';
 import { ClinicalRecord, Prescription } from '../clinical-records/entities/clinical-record.entity';
 import { Patient, Gender as PatientGender } from '../patients/entities/patient.entity';
+import { findOrCreatePatient } from '../patients/patient-dedup.util';
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { User } from '../users/entities/user.entity';
 import { VideoProviderService } from '../telehealth/video-provider.service';
 import { FilesService } from '../files/files.service';
-import { BloodTestService } from '../blood-test/blood-test.service';
 import { LabWorkService } from '../lab-work/lab-work.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
@@ -35,7 +35,6 @@ export class PatientPortalService {
     @InjectRepository(User) private userRepo: Repository<User>,
     private readonly videoProvider: VideoProviderService,
     private readonly filesService: FilesService,
-    private readonly bloodTestService: BloodTestService,
     private readonly labWorkService: LabWorkService,
     private readonly notificationsService: NotificationsService,
     private readonly notificationsGateway: NotificationsGateway,
@@ -353,22 +352,23 @@ export class PatientPortalService {
       if (existingPatient) return existingPatient.id;
     }
 
-    // No clinic-side record yet for this clinic — create one from the
-    // account's profile so the patient doesn't have to fill it in twice.
+    // No clinic-side record yet for this clinic — reuse a matching record if
+    // clinic staff already created one manually (same name + phone), or
+    // create one from the account's profile so the patient doesn't have to
+    // fill it in twice.
     const account = await this.accountRepo.findOne({ where: { id: patientAccountId } });
     if (!account) throw new NotFoundException('Account not found');
 
     const allowedGenders = Object.values(PatientGender) as string[];
-    const newPatient = await this.patientRepo.save(this.patientRepo.create({
-      clinicId,
-      branchId: branchId || null,
-      firstName: account.firstName?.trim() || 'Patient',
-      lastName: account.lastName?.trim() || '',
-      email: account.email || null,
-      phone: account.phone || null,
-      dateOfBirth: account.dateOfBirth || null,
-      gender: allowedGenders.includes(account.gender as any) ? (account.gender as any) : null,
-    }));
+    const { patient: newPatient } = await findOrCreatePatient(this.patientRepo, clinicId, {
+      branchId:    branchId || undefined,
+      firstName:   account.firstName?.trim() || 'Patient',
+      lastName:    account.lastName?.trim() || '',
+      email:       account.email || undefined,
+      phone:       account.phone || undefined,
+      dateOfBirth: account.dateOfBirth || undefined,
+      gender:      allowedGenders.includes(account.gender as any) ? (account.gender as any) : undefined,
+    } as any);
 
     await this.linkRepo.save(this.linkRepo.create({
       patientAccountId,
@@ -458,7 +458,7 @@ export class PatientPortalService {
 
   /**
    * Cross-clinic reports & lab results timeline. Merges patient files,
-   * blood-test orders/results, and clinical-record attachments from every
+   * lab-work orders/results, and clinical-record attachments from every
    * clinic this account is linked to (via getLinkedRecords / PatientAccountLink
    * — never a clinicId the caller supplies), each item tagged with the
    * source clinic so the patient can tell where it came from.
@@ -468,9 +468,8 @@ export class PatientPortalService {
     const patientIds = links.map(l => l.clinicPatientId).filter(Boolean) as string[];
     if (patientIds.length === 0) return { data: [], total: 0 };
 
-    const [files, bloodTests, labWorks, records, { clinicIdByPatientId, clinicNameById }] = await Promise.all([
+    const [files, labWorks, records, { clinicIdByPatientId, clinicNameById }] = await Promise.all([
       this.filesService.findByPatientIds(patientIds),
-      this.bloodTestService.findByPatientIds(patientIds),
       this.labWorkService.findByPatientIds(patientIds),
       this.recordRepo.find({
         where: patientIds.map(id => ({ patientId: id })),
@@ -499,20 +498,6 @@ export class PatientPortalService {
       createdAt: f.createdAt,
       downloadUrl: `/patient/reports/files/${f.id}/download`,
       ...clinicTag(f.patientId),
-    }));
-
-    bloodTests.forEach(b => timeline.push({
-      id: b.id,
-      kind: 'blood_test',
-      category: b.testType,
-      title: b.testName,
-      description: b.resultSummary || null,
-      status: b.status,
-      results: b.results || null,
-      labName: b.labName || null,
-      createdAt: b.createdAt,
-      attachments: b.attachments || [],
-      ...clinicTag(b.patientId),
     }));
 
     labWorks.forEach(l => timeline.push({
@@ -723,10 +708,10 @@ export class PatientPortalService {
       });
     }
 
-    // Collect lab results from reports (blood tests + lab work)
+    // Collect lab results from reports
     const reportsResult = await this.getReports(patientAccountId);
     const labResults = (reportsResult.data || [])
-      .filter((item: any) => item.kind === 'blood_test' || item.kind === 'lab_work')
+      .filter((item: any) => item.kind === 'lab_work')
       .map((item: any) => ({
         title: item.title,
         clinicName: item.clinicName,

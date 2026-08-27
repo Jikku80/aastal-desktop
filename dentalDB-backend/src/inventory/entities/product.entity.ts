@@ -3,8 +3,36 @@ import {
 } from 'typeorm';
 import { Branch } from '../../branch/entities/branch.entity';
 
+const isSQLite = process.env.DB_DRIVER === 'sqlite';
+
+/**
+ * Classification of an inventory item. Every existing product defaults to
+ * GENERAL so nothing already in the system changes behavior. Only items
+ * classified PHARMACEUTICAL pick up batch/expiry/FEFO handling from the
+ * `pharmacy` module (see pharmacy/entities/medicine-batch.entity.ts) — the
+ * pharma-specific columns below stay null/unused for every other item type.
+ */
+export enum InventoryItemType {
+  GENERAL        = 'general',
+  PHARMACEUTICAL = 'pharmaceutical',
+  MEDICAL_SUPPLY = 'medical_supply',
+  CONSUMABLE     = 'consumable',
+}
+
+export enum DosageForm {
+  TABLET   = 'tablet',
+  CAPSULE  = 'capsule',
+  SYRUP    = 'syrup',
+  INJECTION = 'injection',
+  CREAM    = 'cream',
+  OINTMENT = 'ointment',
+  DROPS    = 'drops',
+  OTHER    = 'other',
+}
+
 @Entity('products')
 @Index(['clinicId'])
+@Index(['clinicId', 'itemType'])
 export class Product {
   @Column({ type: 'varchar', length: 20, default: 'synced' })
   syncStatus: 'synced' | 'pending' | 'conflict';
@@ -63,6 +91,53 @@ export class Product {
 
   @Column({ nullable: true })
   imageUrl: string;
+
+  // ── Pharmaceutical classification & attributes ──────────────────────────
+  // Extends the existing product model in place instead of a parallel
+  // "medicine" table — see pharmacy/entities/medicine-batch.entity.ts for
+  // batch-level (expiry/lot) data, which references this row by productId.
+
+  @Column({
+    type: isSQLite ? 'varchar' : 'enum',
+    enum: InventoryItemType,
+    default: InventoryItemType.GENERAL,
+  })
+  itemType: InventoryItemType;
+
+  /** Only meaningful when itemType = PHARMACEUTICAL. */
+  @Column({ nullable: true })
+  genericName: string;
+
+  @Column({ nullable: true })
+  brandName: string;
+
+  @Column({ nullable: true })
+  medicineCategory: string;
+
+  @Column({ type: isSQLite ? 'varchar' : 'enum', enum: DosageForm, nullable: true })
+  dosageForm: DosageForm;
+
+  @Column({ nullable: true })
+  strength: string;
+
+  @Column({ nullable: true })
+  dosageUnit: string;
+
+  @Column({ nullable: true })
+  manufacturer: string;
+
+  @Column({ nullable: true, type: 'text' })
+  storageInstructions: string;
+
+  @Column({ default: false })
+  prescriptionRequired: boolean;
+
+  /** Controlled / restricted substance — gates pharmacy.override_batch_restrictions elsewhere. */
+  @Column({ default: false })
+  isControlled: boolean;
+
+  @Column({ nullable: true })
+  barcode: string;
 
   @CreateDateColumn() createdAt: Date;
   @UpdateDateColumn() updatedAt: Date;

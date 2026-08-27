@@ -27,11 +27,19 @@ export class InvoiceItemDto {
   @IsOptional() @IsNumber() commissionPercentage?: number;
   @IsOptional() @IsString() bloodTestId?: string;
   @IsOptional() @IsString() labWorkId?: string;
+  // Links this item to the pharmacy-dispensing Prescription it fulfills
+  // (Phase 11) — lets BillingService.deductStockForItem mark that
+  // prescription's dispensedQuantity/dispensingStatus once this invoice is
+  // paid, the same way labWorkId/bloodTestId already close out a lab order.
+  @IsOptional() @IsString() prescriptionId?: string;
 }
 
 export class CreateInvoiceDto {
-  @IsUUID()
-  patientId: string;
+  // Optional — a pharmacy/product-only walk-in sale doesn't need a patient
+  // record. Services and lab items still require one; that's enforced in
+  // the frontend (InvoiceModal) rather than here, same as other
+  // cross-field business rules on this DTO.
+  @IsOptional() @IsUUID() patientId?: string;
 
   @IsOptional() @IsString() appointmentId?: string;
   @IsOptional() @IsString() branchId?: string;

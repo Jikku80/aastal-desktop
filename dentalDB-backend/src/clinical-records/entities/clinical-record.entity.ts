@@ -91,6 +91,12 @@ export class ClinicalRecord {
   @UpdateDateColumn() updatedAt: Date;
 }
 
+export enum PrescriptionDispensingStatus {
+  NOT_DISPENSED = 'not_dispensed',
+  PARTIALLY_DISPENSED = 'partially_dispensed',
+  DISPENSED = 'dispensed',
+}
+
 @Entity('prescriptions')
 export class Prescription {
   @Column({ type: 'varchar', length: 20, default: 'synced' })
@@ -120,6 +126,25 @@ export class Prescription {
 
   @Column({ nullable: true, type: 'text' })
   instructions: string;
+
+  // ── Pharmacy dispensing linkage (Phase 3) ──────────────────────────────
+  // Optional — a prescription can still be pure free-text (medicineName
+  // only) for medicines outside the pharmacy inventory. When productId IS
+  // set, the pharmacy dispensing queue and FEFO billing integration pick
+  // this row up (see ClinicalRecordsService.findPendingDispensing /
+  // markPrescriptionDispensed, and BillingService's pharma item routing).
+  // No separate prescription/dispensing entity — this row IS the record.
+  @Column({ nullable: true })
+  productId: string;
+
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  quantityPrescribed: number;
+
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  dispensedQuantity: number;
+
+  @Column({ type: isSQLite ? 'varchar' : 'enum', enum: PrescriptionDispensingStatus, default: PrescriptionDispensingStatus.NOT_DISPENSED })
+  dispensingStatus: PrescriptionDispensingStatus;
 
   @CreateDateColumn() createdAt: Date;
 }

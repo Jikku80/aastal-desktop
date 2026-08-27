@@ -1,10 +1,12 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { X, Plus, Trash2, Loader2, Search, ChevronDown, Stethoscope, Package, Receipt, Wallet, AlertTriangle } from 'lucide-react';
+import { X, Plus, Trash2, Loader2, Search, ChevronDown, Stethoscope, Package, Receipt, Wallet, AlertTriangle, Printer, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { billingApi, patientsApi, appointmentsApi, servicesApi, inventoryApi, usersApi, bloodTestApi, labApi, walletApi } from '@/lib/api';
+import { billingApi, patientsApi, appointmentsApi, servicesApi, inventoryApi, usersApi, labApi, walletApi, pharmacyApi } from '@/lib/api';
+import { downloadInvoicePdf } from '@/lib/invoicePdf';
 import { useAuthStore } from '@/store/auth.store';
+import { usePermissionsStore } from '@/store/permissions.store';
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 import { formatNepalDateTime } from '@/lib/timezone';
 import { BSDateField } from '@/components/ui/BSDateField';
@@ -22,8 +24,8 @@ import { BSDateField } from '@/components/ui/BSDateField';
 // it to 0 in state itself, or the input snaps back to "0" the instant the
 // user backspaces the field, making it impossible to type a new number.
 interface ServiceLine { _uid: string; serviceId: string; serviceName: string; qty: number | ''; unitPrice: number | ''; doctorId: string; }
-interface ProductLine { _uid: string; productId: string; productName: string; qty: number | ''; unitPrice: number | ''; }
-interface TestLine { id: string; type: 'blood' | 'lab'; name: string; cost: number; }
+interface ProductLine { _uid: string; productId: string; productName: string; qty: number | ''; unitPrice: number | ''; prescriptionId?: string; }
+interface TestLine { id: string; type: 'lab'; name: string; cost: number; }
 
 const newUid = () =>
   (typeof crypto !== 'undefined' && crypto.randomUUID)
@@ -254,10 +256,17 @@ function ProductLineRow({
 
 // ── Main Modal ────────────────────────────────────────────────────────────────
 export default function InvoiceModal({
-  onClose, onSuccess, initialPatientId, initialPatientName, initialAppointmentId,
+  onClose, onSuccess, initialPatientId, initialPatientName, initialAppointmentId, initialProductLine,
 }: {
   onClose: () => void; onSuccess: () => void;
   initialPatientId?: string; initialPatientName?: string; initialAppointmentId?: string;
+  // Quick-sale entry point (Pharmacy → "Sell"): pre-fills a single product
+  // line and switches the type selector to Products, so a pharmacy-only
+  // sale doesn't require re-picking the item here. Name/price are looked
+  // up from the live `products` list once it loads (see effect below) so
+  // they can't drift from whatever the invoice actually bills — only qty
+  // is taken as given from the caller.
+  initialProductLine?: { productId: string; qty?: number };
 }) {
   const { activeBranch, clinic } = useAuthStore();
   useBodyScrollLock(true);
@@ -271,7 +280,9 @@ export default function InvoiceModal({
   const [linkAppt,      setLinkAppt]      = useState(!!initialAppointmentId);
 
   // Billing type
-  const [billingType, setBillingType] = useState<'service' | 'product' | 'both'>('service');
+  const [billingType, setBillingType] = useState<'service' | 'product' | 'both'>(
+    initialProductLine ? 'product' : 'service',
+  );
 
   // Lines
   const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
@@ -319,23 +330,57 @@ export default function InvoiceModal({
     queryFn:  () => appointmentsApi.list({ patientId, status: 'completed', isPaid: 'false', limit: 50, order: 'DESC' }).then(r => r.data),
     enabled:  !!patientId && linkAppt,
   });
-  const { data: unbilledBlood } = useQuery({
-    queryKey: ['unbilled-blood-inv', patientId],
-    queryFn:  () => bloodTestApi.unbilledByPatient(patientId).then(r => r.data),
-    enabled:  !!patientId,
-  });
+  // Lab work — blood tests were folded into lab-work orders (Phase 5), so
+  // this is now the single source for anything billable from the lab.
   const { data: unbilledLab } = useQuery({
     queryKey: ['unbilled-lab-inv', patientId],
     queryFn:  () => labApi.unbilledByPatient(patientId).then(r => r.data),
     enabled:  !!patientId,
+  });
+  // Pending pharmacy-linked prescriptions (Phase 11) — same endpoint the
+  // pharmacy Dispense Queue reads, so a prescription billed here and one
+  // dispensed there can't drift out of sync. Gated on pharmacy.dispense
+  // (same permission the endpoint itself requires) so a billing-only user
+  // simply doesn't see this section rather than hitting a 403.
+  const can = usePermissionsStore(s => s.can);
+  const canSeePendingRx = can('pharmacy.dispense' as any);
+  const { data: pendingRxData } = useQuery({
+    queryKey: ['pending-prescriptions-inv', activeBranch?.id],
+    queryFn:  () => pharmacyApi.pendingDispensing(activeBranch?.id).then(r => r.data),
+    enabled:  canSeePendingRx,
   });
 
   const services = servicesData?.data || [];
   const products = productsData?.data || [];
   const doctors  = (staffData?.data || []).filter((u: any) => /doctor|dentist/i.test(u.role));
   const apts     = aptsData?.data || [];
-  const pendingBloodTests = (unbilledBlood || []).filter((t: any) => !testLines.some(l => l.id === t.id));
+
+  // Seed the quick-sale line once the product catalog has actually loaded
+  // (so name/price come from real data, not guessed) — runs once per
+  // productId, guarded by `seededRef` so it doesn't re-add the line if the
+  // catalog query refetches later or the person removes the line manually.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (!initialProductLine || seededRef.current || products.length === 0) return;
+    seededRef.current = true;
+    const product = products.find((p: any) => p.id === initialProductLine.productId);
+    setProductLines(p => [{
+      _uid:        newUid(),
+      productId:   initialProductLine.productId,
+      productName: product?.name || '',
+      qty:         initialProductLine.qty || 1,
+      unitPrice:   Number(product?.price) || 0,
+    }, ...p]);
+  }, [products, initialProductLine]);
+
   const pendingLabWork    = (unbilledLab   || []).filter((t: any) => !testLines.some(l => l.id === t.id));
+  // Scope to this patient client-side (the shared endpoint isn't
+  // patient-filtered — it also serves the clinic-wide pharmacy queue) and
+  // drop anything already added as a product line.
+  const pendingPrescriptions = ((pendingRxData || []) as any[]).filter(
+    rx => rx.clinicalRecord?.patient?.id === patientId
+      && !productLines.some(l => l.prescriptionId === rx.id),
+  );
 
   // Computed totals
   const serviceSubtotal = serviceLines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unitPrice) || 0), 0);
@@ -345,9 +390,17 @@ export default function InvoiceModal({
   const taxAmount       = subtotal * ((Number(taxPercent) || 0) / 100);
   const total           = Math.max(subtotal + taxAmount - (Number(discountAmount) || 0), 0);
 
+  // A service or lab/blood-test line is inherently tied to one patient
+  // (clinical record sync, doctor commission, lab-order linkage) — those
+  // require a patient to be selected. A pharmacy/product-only sale doesn't,
+  // so it can be billed as a walk-in. Backend enforces the same rule
+  // (BillingService.create) — this just keeps the button in sync with it.
+  const hasAnyLine    = serviceLines.length > 0 || productLines.length > 0 || testLines.length > 0;
+  const needsPatient  = serviceLines.length > 0 || testLines.length > 0;
+
   // Test line helpers
-  const addTestLine    = (t: any, type: 'blood' | 'lab') =>
-    setTestLines(p => [...p, { id: t.id, type, name: t.testName, cost: Number(t.cost || 0) }]);
+  const addTestLine    = (t: any) =>
+    setTestLines(p => [...p, { id: t.id, type: 'lab', name: t.testName, cost: Number(t.cost || 0) }]);
   const removeTestLine = (id: string) => setTestLines(p => p.filter(l => l.id !== id));
 
   // Service line helpers — new lines go to the TOP of the list, so staff
@@ -363,6 +416,25 @@ export default function InvoiceModal({
   const removeProductLine = (uid: string) => setProductLines(p => p.filter(l => l._uid !== uid));
   const updateProductLine = (uid: string, field: keyof ProductLine, val: any) =>
     setProductLines(p => p.map(l => l._uid === uid ? { ...l, [field]: val } : l));
+
+  // Adds a product line pre-filled from a pending prescription (Phase 11) —
+  // carries prescriptionId through so BillingService marks it dispensed
+  // once this invoice is paid. Quantity/price still editable afterward,
+  // same as any other product line.
+  const addPrescriptionLine = (rx: any) => {
+    const product = products.find((p: any) => p.id === rx.productId);
+    const remaining = rx.quantityPrescribed != null
+      ? Math.max(Number(rx.quantityPrescribed) - Number(rx.dispensedQuantity || 0), 0)
+      : 1;
+    setProductLines(p => [{
+      _uid: newUid(),
+      productId:     rx.productId,
+      productName:   product?.name || rx.medicineName,
+      qty:           remaining || 1,
+      unitPrice:     Number(product?.price || 0),
+      prescriptionId: rx.id,
+    }, ...p]);
+  };
 
   // Auto-populate from appointment
   const handleApptChange = (apptId: string) => {
@@ -440,6 +512,29 @@ export default function InvoiceModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dueAfterManual, paidAmountNum, total]);
 
+  // Phase 6 — print-on-billing. After a successful save, we show a
+  // "Print this invoice?" confirm step in place of the form instead of
+  // immediately calling the parent's onSuccess (which unmounts this modal
+  // in all three call sites). The invoice is already saved either way —
+  // this step is purely post-save and never blocks anything.
+  const [createdInvoice, setCreatedInvoice] = useState<{ id: string; invoiceNumber: string } | null>(null);
+  const [printing, setPrinting] = useState(false);
+
+  const finishAndClose = () => onSuccess();
+
+  const handlePrint = async () => {
+    if (!createdInvoice) return;
+    setPrinting(true);
+    try {
+      await downloadInvoicePdf(createdInvoice.id, createdInvoice.invoiceNumber);
+    } catch {
+      toast.error('Download failed. You can print it later from the invoice list.');
+    } finally {
+      setPrinting(false);
+      finishAndClose();
+    }
+  };
+
   const mutation = useMutation({
     mutationFn: async () => {
       const allItems = [
@@ -457,23 +552,26 @@ export default function InvoiceModal({
           unitPrice:   Number(l.unitPrice) || 0,
           total:       (Number(l.qty) || 0) * (Number(l.unitPrice) || 0),
           productId:   l.productId || undefined,
+          prescriptionId: l.prescriptionId || undefined,
         })),
         ...testLines.map(l => ({
           description: l.name,
           quantity:    1,
           unitPrice:   l.cost,
           total:       l.cost,
-          bloodTestId: l.type === 'blood' ? l.id : undefined,
-          labWorkId:   l.type === 'lab'   ? l.id : undefined,
+          labWorkId:   l.id,
         })),
       ];
-      if (allItems.length === 0) throw new Error('Add at least one service or product');
+      if (allItems.length === 0) throw new Error('Add at least one service, product, or lab item');
       if (allItems.some(it => !it.quantity || it.quantity <= 0)) {
         throw new Error('Enter a quantity for every line item');
       }
+      if (needsPatient && !patientId) {
+        throw new Error('Select a patient to bill a service or lab item');
+      }
 
       const res = await billingApi.createInvoice({
-        patientId,
+        patientId: patientId || undefined,
         appointmentId: appointmentId || undefined,
         branchId:      activeBranch?.id,
         items:         allItems,
@@ -508,7 +606,7 @@ export default function InvoiceModal({
       }
       return { res, walletError, walletApplied: walletApplyAmount > 0 && !walletError };
     },
-    onSuccess: ({ walletError, walletApplied }) => {
+    onSuccess: ({ res, walletError, walletApplied }) => {
       qc.invalidateQueries({ queryKey: ['wallet-balance-inv', patientId] });
       qc.invalidateQueries({ queryKey: ['wallet', patientId] });
       qc.invalidateQueries({ queryKey: ['wallet-tx', patientId] });
@@ -522,7 +620,9 @@ export default function InvoiceModal({
       } else if (walletApplied) {
         toast.success(`Invoice created — NPR ${walletApplyAmount.toLocaleString()} paid from wallet.`);
       }
-      onSuccess();
+      // Show the print-confirm step instead of closing immediately — see
+      // Phase 6 note above `finishAndClose`.
+      setCreatedInvoice({ id: res.data.id, invoiceNumber: res.data.invoiceNumber });
     },
     onError: (e: any) => toast.error(e?.message || e?.response?.data?.message || 'Failed to create invoice'),
   });
@@ -543,6 +643,43 @@ export default function InvoiceModal({
       <div className="relative w-full sm:max-w-xl max-h-[95vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl flex flex-col"
         style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
 
+      {createdInvoice ? (
+        // ── Phase 6: post-save print confirmation ──────────────────────
+        // Replaces the form once the invoice is saved. The invoice already
+        // exists at this point regardless of what's picked here — Print
+        // and Not now both just decide whether a PDF gets fetched before
+        // closing, they never re-touch the invoice itself.
+        <div className="p-6 sm:p-8 flex flex-col items-center text-center gap-4">
+          <div className="w-14 h-14 rounded-full flex items-center justify-center bg-emerald-400/10">
+            <CheckCircle2 size={28} className="text-emerald-400" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-[var(--text-primary)] text-lg">Invoice Created</h2>
+            <p className="text-sm text-[var(--text-muted)] mt-1">
+              Invoice #{createdInvoice.invoiceNumber} has been saved.
+            </p>
+          </div>
+          <p className="text-sm text-[var(--text-primary)]">Print this invoice?</p>
+          <div className="flex gap-3 w-full pt-1">
+            <button
+              type="button"
+              onClick={finishAndClose}
+              disabled={printing}
+              className="btn-secondary flex-1 justify-center">
+              Not now
+            </button>
+            <button
+              type="button"
+              onClick={handlePrint}
+              disabled={printing}
+              className="btn-primary flex-1 justify-center gap-1.5">
+              {printing ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
+              Print
+            </button>
+          </div>
+        </div>
+      ) : (
+      <>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 sticky top-0 z-10"
           style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>
@@ -557,8 +694,15 @@ export default function InvoiceModal({
 
           {/* ① Patient */}
           <div>
-            <label className="label">Patient *</label>
+            <label className="label">
+              Patient {needsPatient ? '*' : <span className="text-[var(--text-muted)] font-normal">(optional — walk-in sale)</span>}
+            </label>
             <PatientCombobox value={patientId} initialLabel={patientName} onChange={(id, name) => { setPatientId(id); setPatientName(name); setAppointmentId(''); }} />
+            {!needsPatient && !patientId && (
+              <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                No patient needed for a product-only sale — add one only if you want it linked to a patient record.
+              </p>
+            )}
           </div>
 
           {/* ② Billing type selector */}
@@ -659,16 +803,43 @@ export default function InvoiceModal({
             </div>
           )}
 
-          {/* Lab & Blood Tests section — only meaningful once a patient is selected */}
-          {patientId && (pendingBloodTests.length > 0 || pendingLabWork.length > 0 || testLines.length > 0) && (
+          {/* Pending Prescriptions — Phase 11. Same visibility rule as the
+              pharmacy Dispense Queue: only staff with pharmacy.dispense see
+              this, and only once a patient is selected. */}
+          {patientId && canSeePendingRx && pendingPrescriptions.length > 0 && (
             <div className="space-y-2">
-              <SectionHeader icon={Receipt} label="Lab & Blood Tests" color="text-amber-400" />
+              <SectionHeader icon={Package} label="Pending Prescriptions" color="text-sky-400" />
+              <div className="space-y-1.5">
+                {pendingPrescriptions.map((rx: any) => {
+                  const remaining = rx.quantityPrescribed != null
+                    ? Math.max(Number(rx.quantityPrescribed) - Number(rx.dispensedQuantity || 0), 0)
+                    : undefined;
+                  return (
+                    <button key={rx.id} type="button" onClick={() => addPrescriptionLine(rx)}
+                      className="w-full flex items-center justify-between py-2 px-3 rounded-xl border border-dashed border-[var(--border)] text-left hover:bg-white/5 transition-colors">
+                      <span className="text-sm text-[var(--text-secondary)]">
+                        {rx.medicineName}
+                        <span className="text-[10px] uppercase ml-1">Prescription</span>
+                        {remaining != null && <span className="text-[10px] text-[var(--text-muted)] ml-1">· {remaining} remaining</span>}
+                      </span>
+                      <span className="flex items-center gap-1 text-xs text-[var(--accent)]"><Plus size={11} /> Add</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Lab Work section — only meaningful once a patient is selected */}
+          {patientId && (pendingLabWork.length > 0 || testLines.length > 0) && (
+            <div className="space-y-2">
+              <SectionHeader icon={Receipt} label="Lab Work" color="text-amber-400" />
               {testLines.length > 0 && (
                 <div className="space-y-1.5">
                   {testLines.map(l => (
                     <div key={l.id} className="flex items-center justify-between py-2 px-3 rounded-xl"
                       style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                      <span className="text-sm text-[var(--text-primary)]">{l.name} <span className="text-[10px] text-[var(--text-muted)] uppercase ml-1">{l.type === 'blood' ? 'Blood Test' : 'Lab Work'}</span></span>
+                      <span className="text-sm text-[var(--text-primary)]">{l.name} <span className="text-[10px] text-[var(--text-muted)] uppercase ml-1">Lab Work</span></span>
                       <div className="flex items-center gap-3">
                         <span className="text-sm text-[var(--text-secondary)]">NPR {l.cost.toLocaleString()}</span>
                         <button type="button" onClick={() => removeTestLine(l.id)} className="text-red-400 hover:text-red-300">
@@ -679,17 +850,10 @@ export default function InvoiceModal({
                   ))}
                 </div>
               )}
-              {(pendingBloodTests.length > 0 || pendingLabWork.length > 0) && (
+              {pendingLabWork.length > 0 && (
                 <div className="space-y-1.5">
-                  {pendingBloodTests.map((t: any) => (
-                    <button key={t.id} type="button" onClick={() => addTestLine(t, 'blood')}
-                      className="w-full flex items-center justify-between py-2 px-3 rounded-xl border border-dashed border-[var(--border)] text-left hover:bg-white/5 transition-colors">
-                      <span className="text-sm text-[var(--text-secondary)]">{t.testName} <span className="text-[10px] uppercase ml-1">Blood Test</span></span>
-                      <span className="flex items-center gap-1 text-xs text-[var(--accent)]"><Plus size={11} /> NPR {Number(t.cost).toLocaleString()}</span>
-                    </button>
-                  ))}
                   {pendingLabWork.map((t: any) => (
-                    <button key={t.id} type="button" onClick={() => addTestLine(t, 'lab')}
+                    <button key={t.id} type="button" onClick={() => addTestLine(t)}
                       className="w-full flex items-center justify-between py-2 px-3 rounded-xl border border-dashed border-[var(--border)] text-left hover:bg-white/5 transition-colors">
                       <span className="text-sm text-[var(--text-secondary)]">{t.testName} <span className="text-[10px] uppercase ml-1">Lab Work</span></span>
                       <span className="flex items-center gap-1 text-xs text-[var(--accent)]"><Plus size={11} /> NPR {Number(t.cost).toLocaleString()}</span>
@@ -880,12 +1044,14 @@ export default function InvoiceModal({
             <button
               type="button"
               onClick={() => mutation.mutate()}
-              disabled={mutation.isPending || !patientId || (serviceLines.length === 0 && productLines.length === 0)}
+              disabled={mutation.isPending || !hasAnyLine || (needsPatient && !patientId)}
               className="btn-primary flex-1 justify-center">
               {mutation.isPending ? <Loader2 size={14} className="animate-spin" /> : 'Create Invoice'}
             </button>
           </div>
         </div>
+      </>
+      )}
       </div>
     </div>
   );

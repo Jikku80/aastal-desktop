@@ -26,6 +26,7 @@ export default function PreviewPage() {
 
   const [data,  setData]  = useState<SiteData | null>(null);
   const [state, setState] = useState<'loading' | 'error' | 'ready'>('loading');
+  const [retryKey, setRetryKey] = useState(0);
 
   // Keep latest slug in a ref so the message handler always uses the current value
   const slugRef = useRef(slug);
@@ -57,14 +58,31 @@ export default function PreviewPage() {
 
   // Load initial data from API (authenticated preview endpoint)
   useEffect(() => {
+    let cancelled = false;
+    setState('loading');
+
+    // Belt-and-braces: `websiteApi.getPreview()` already runs against an
+    // axios client with its own request timeout, but that alone can't catch
+    // every stuck-forever case (e.g. a request that never actually left the
+    // browser due to a thrown error before the network layer engaged). This
+    // guarantees the "Loading preview…" screen always resolves to something
+    // actionable within a bounded time instead of spinning indefinitely.
+    const watchdog = setTimeout(() => {
+      if (!cancelled) setState('error');
+    }, 25_000);
+
     websiteApi.getPreview()
       .then((d: SiteData) => {
+        if (cancelled) return;
         if (!d) { setState('error'); return; }
         setData(d);
         setState('ready');
       })
-      .catch(() => setState('error'));
-  }, []);
+      .catch(() => { if (!cancelled) setState('error'); })
+      .finally(() => clearTimeout(watchdog));
+
+    return () => { cancelled = true; clearTimeout(watchdog); };
+  }, [retryKey]);
 
   // Listen for real-time updates from the builder
   useEffect(() => {

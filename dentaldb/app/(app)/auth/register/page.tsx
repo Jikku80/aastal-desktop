@@ -156,7 +156,7 @@ export default function RegisterPage() {
             <span className="font-display text-xl text-white font-bold">ClinicKarobar</span>
           </div>
           <h2 className="font-display text-4xl xl:text-5xl text-white leading-tight mb-4">
-            Start your free<br /><span className="text-brand-400">14-day trial.</span>
+            Start your free<br /><span className="text-brand-400">30-day trial.</span>
           </h2>
           <p className="text-[var(--text-secondary)] text-base leading-relaxed max-w-sm">
             No credit card required. Full access to all features. Cancel anytime.

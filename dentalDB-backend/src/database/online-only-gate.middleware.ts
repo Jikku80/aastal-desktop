@@ -34,12 +34,32 @@ const ONLINE_ONLY_PREFIXES = [
   'analytics',
   'doctor-portal',
   'reviews',
+  // Jwantra connector namespace (integrations/jwantra/*). JwantraIntegration
+  // has no entity in the SQLite DataSource (see database/offline-entities.ts)
+  // — syncing to a sibling SaaS product isn't something the offline desktop
+  // build needs to support.
+  'integrations',
 ];
 
 function matchesOnlineOnlyPrefix(path: string): boolean {
   // path arrives WITHOUT the /api/v1 prefix here (see how this is mounted in main.ts)
   const first = path.replace(/^\//, '').split('/')[0];
   return ONLINE_ONLY_PREFIXES.includes(first);
+}
+
+// These two GET routes under the 'subscriptions' prefix are specifically
+// built to work with zero connectivity — SubscriptionsService.getCurrent()
+// branches to getCurrentOffline() (Clinic + SyncMeta only, no Subscription
+// entity touched) on DB_DRIVER=sqlite, and getPlans() is pure static data.
+// Without this carve-out, a genuinely offline desktop instance would 503 on
+// its own SubscriptionGate status check instead of rendering the trial/
+// subscription-expired lock screen — the opposite of what that gate exists
+// for. Mutating routes (upgrade/renew/cancel) still need connectivity and
+// stay gated below.
+const OFFLINE_CAPABLE_GET_PATHS = new Set(['/subscriptions', '/subscriptions/plans']);
+
+function isOfflineCapableRoute(req: Request): boolean {
+  return req.method === 'GET' && OFFLINE_CAPABLE_GET_PATHS.has(req.path);
 }
 
 export function setupOnlineOnlyGate(app: INestApplication): void {
@@ -88,6 +108,7 @@ export function setupOnlineOnlyGate(app: INestApplication): void {
     : null;
 
   app.use('/api/v1', (req: Request, res: Response, next: NextFunction) => {
+    if (isOfflineCapableRoute(req)) return next();
     if (!matchesOnlineOnlyPrefix(req.path)) return next();
 
     if (connectivity.getIsOnline() && proxy) {

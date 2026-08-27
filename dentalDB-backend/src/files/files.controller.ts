@@ -74,7 +74,7 @@ export class FilesController {
    * could upload to, or view/download/delete files on, ANY patient —
    * including ones assigned to a branch they have no access to. This
    * mirrors the same accessible-branch pattern already used by
-   * BloodTestController/ClinicalRecordsController/LabWorkController: an
+   * ClinicalRecordsController/LabWorkController: an
    * owner/super_admin can reach every branch, everyone else only the
    * branch(es) they're actually assigned to (see
    * BranchesService.getAccessibleBranchIds).

@@ -23,20 +23,23 @@ import ExpenseDetailPanel from '@/components/expenses/ExpenseDetailPanel';
 import NoBranchBanner from '@/components/layout/NoBranchBanner';
 import { NoBranchesExistBanner } from '@/components/layout/NoBranchesExistBanner';
 
-const CATEGORY_COLORS: Record<string, string> = {
-  salaries: '#6366f1', rent: '#f59e0b', utilities: '#3b82f6',
-  medical_supplies: '#10b981', equipment: '#8b5cf6', marketing: '#ec4899',
-  maintenance: '#f97316', software: '#06b6d4', lab_supplies: '#84cc16',
-  inventory: '#0ea5e9', other: '#6b7280',
-};
+// Enterprise register: category is informational, not a status — so every
+// category gets the same neutral treatment instead of a distinct hue each.
+// Color stays reserved for genuine states (approval status, over/under).
+const INK      = 'var(--text-primary)';
+const MUTED    = 'var(--text-muted)';
+const POSITIVE = '#3f8f6f';
+const NEGATIVE = '#c14545';
+const CAUTION  = '#b8863f';
+const ACCENT   = '#3a6ea5';
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  pending:  { bg: 'rgba(245,158,11,0.10)',  text: '#f59e0b', border: 'rgba(245,158,11,0.25)' },
-  approved: { bg: 'rgba(16,185,129,0.10)',  text: '#10b981', border: 'rgba(16,185,129,0.25)' },
-  rejected: { bg: 'rgba(239,68,68,0.10)',   text: '#ef4444', border: 'rgba(239,68,68,0.25)' },
+  pending:  { bg: 'rgba(184,134,63,0.10)', text: CAUTION,  border: 'rgba(184,134,63,0.25)' },
+  approved: { bg: 'rgba(63,143,111,0.10)', text: POSITIVE, border: 'rgba(63,143,111,0.25)' },
+  rejected: { bg: 'rgba(193,69,69,0.10)',  text: NEGATIVE, border: 'rgba(193,69,69,0.25)' },
 };
 
-function fmtNPR(v: any) { return `NPR ${Number(v || 0).toLocaleString()}`; }
+function fmtNPR(v: any) { return `NPR ${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
 function capFirst(s: string) { return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' '); }
 
 const surface = {
@@ -65,10 +68,10 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function CategoryBadge({ category }: { category: string }) {
-  const color = CATEGORY_COLORS[category] ?? '#6b7280';
   return (
     <span style={{
-      background: `${color}18`, color,
+      background: 'var(--bg-elevated)', color: 'var(--text-secondary)',
+      border: '1px solid var(--border)',
       borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 500,
     }}>
       {capFirst(category)}
@@ -77,9 +80,10 @@ function CategoryBadge({ category }: { category: string }) {
 }
 
 function SourceBadge({ exp }: { exp: any }) {
-  if (exp.payrollRunId) return <span style={{ fontSize: 10, color: '#8b5cf6', background: 'rgba(139,92,246,0.10)', borderRadius: 4, padding: '1px 6px', fontWeight: 500 }}>Payroll</span>;
-  if (exp.labWorkId)    return <span style={{ fontSize: 10, color: '#10b981', background: 'rgba(16,185,129,0.10)', borderRadius: 4, padding: '1px 6px', fontWeight: 500 }}>Lab</span>;
-  if (exp.purchaseOrderId) return <span style={{ fontSize: 10, color: '#f59e0b', background: 'rgba(245,158,11,0.10)', borderRadius: 4, padding: '1px 6px', fontWeight: 500 }}>PO</span>;
+  const style = { fontSize: 10, color: MUTED, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 6px', fontWeight: 600 };
+  if (exp.payrollRunId)    return <span style={style}>Payroll</span>;
+  if (exp.labWorkId)       return <span style={style}>Lab</span>;
+  if (exp.purchaseOrderId) return <span style={style}>PO</span>;
   return null;
 }
 
@@ -100,7 +104,7 @@ function ExpenseCard({ exp, canApprove, canManage, onApprove, onEdit, onDelete, 
           </p>
         </div>
         <div style={{ marginLeft: 12, textAlign: 'right', flexShrink: 0 }}>
-          <p style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 15 }}>{fmtNPR(exp.amount)}</p>
+          <p style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 15, fontVariantNumeric: 'tabular-nums' }}>{fmtNPR(exp.amount)}</p>
           <StatusBadge status={exp.approvalStatus} />
         </div>
       </div>
@@ -116,11 +120,11 @@ function ExpenseCard({ exp, canApprove, canManage, onApprove, onEdit, onDelete, 
           {canApprove && exp.approvalStatus === 'pending' && (
             <>
               <button onClick={() => onApprove(exp.id, 'approved')}
-                style={{ padding: 6, borderRadius: 6, background: 'rgba(16,185,129,0.1)', color: '#10b981', border: 'none', cursor: 'pointer', display: 'flex' }}>
+                style={{ padding: 6, borderRadius: 6, background: 'rgba(63,143,111,0.12)', color: POSITIVE, border: 'none', cursor: 'pointer', display: 'flex' }}>
                 <CheckCircle size={15} />
               </button>
               <button onClick={() => onApprove(exp.id, 'rejected')}
-                style={{ padding: 6, borderRadius: 6, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer', display: 'flex' }}>
+                style={{ padding: 6, borderRadius: 6, background: 'rgba(193,69,69,0.12)', color: NEGATIVE, border: 'none', cursor: 'pointer', display: 'flex' }}>
                 <CheckCircle size={15} />
               </button>
             </>
@@ -132,7 +136,7 @@ function ExpenseCard({ exp, canApprove, canManage, onApprove, onEdit, onDelete, 
                 <Edit2 size={14} />
               </button>
               <button onClick={() => { if (confirm('Delete this expense?')) onDelete(exp.id); }}
-                style={{ padding: 6, borderRadius: 6, background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer', display: 'flex' }}>
+                style={{ padding: 6, borderRadius: 6, background: 'rgba(193,69,69,0.08)', color: NEGATIVE, border: '1px solid rgba(193,69,69,0.2)', cursor: 'pointer', display: 'flex' }}>
                 <Trash2 size={14} />
               </button>
             </>
@@ -316,7 +320,7 @@ function VendorsTab({ canManage }: { canManage: boolean }) {
                           <Edit2 size={13} />
                         </button>
                         <button onClick={() => { if (confirm('Remove this vendor?')) deleteMutation.mutate(v.id); }}
-                          style={{ padding: '5px 8px', borderRadius: 6, background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer', display: 'flex' }}>
+                          style={{ padding: '5px 8px', borderRadius: 6, background: 'rgba(193,69,69,0.08)', color: NEGATIVE, border: '1px solid rgba(193,69,69,0.2)', cursor: 'pointer', display: 'flex' }}>
                           <Trash2 size={13} />
                         </button>
                       </div>
@@ -397,13 +401,13 @@ function ExpensesTab({ canManage, canApprove, calendarType }: any) {
   const pendingCount = expenses.filter((e: any) => e.approvalStatus === 'pending').length;
 
   const summaryCards = [
-    { label: 'This Month',       value: fmtNPR(thisMonthTotal), icon: TrendingDown, color: '#ef4444',  sub: `${pctChg}% vs last month` },
-    { label: 'Pending Approval', value: pendingCount,           icon: Clock,        color: '#f59e0b',  sub: 'awaiting review' },
-    { label: 'Top Category',     value: topCat ? capFirst(topCat.category) : '—', icon: Receipt, color: '#027cc6', sub: topCat ? fmtNPR(topCat.total) : '' },
-    { label: 'Last Month',       value: fmtNPR(lastMonthTotal), icon: AlertTriangle, color: '#8892a4', sub: 'comparison' },
+    { label: 'This Month',       value: fmtNPR(thisMonthTotal), icon: TrendingDown, color: NEGATIVE, sub: `${pctChg}% vs last month` },
+    { label: 'Pending Approval', value: pendingCount,           icon: Clock,        color: CAUTION,  sub: 'awaiting review' },
+    { label: 'Top Category',     value: topCat ? capFirst(topCat.category) : '—', icon: Receipt, color: ACCENT, sub: topCat ? fmtNPR(topCat.total) : '' },
+    { label: 'Last Month',       value: fmtNPR(lastMonthTotal), icon: AlertTriangle, color: MUTED, sub: 'comparison' },
   ];
 
-  const tooltipStyle = { background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)' };
+  const tooltipStyle = { background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, color: INK, fontSize: 12 };
   const handleApprove = (id: string, status: string) => approveMutation.mutate({ id, status });
 
   return (
@@ -411,52 +415,50 @@ function ExpensesTab({ canManage, canApprove, calendarType }: any) {
 
       {!activeBranch && branches.length > 1 && <NoBranchBanner action="view branch-specific expenses" />}
 
-      {/* Summary Cards */}
+      {/* Summary Cards — static, not animated in: financial screens should feel stable */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }} className="lg:grid-cols-4">
         {summaryCards.map(card => (
-          <motion.div key={card.label}
-            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-            style={{ ...surface, padding: '16px 18px' }}>
+          <div key={card.label} style={{ ...surface, padding: '16px 18px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <p style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{card.label}</p>
-                <p style={{ fontSize: 20, fontWeight: 700, marginTop: 4, color: card.color }}>{card.value}</p>
-                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{card.sub}</p>
+                <p style={{ fontSize: 11, color: MUTED, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{card.label}</p>
+                <p style={{ fontSize: 20, fontWeight: 700, marginTop: 4, color: card.color, fontVariantNumeric: 'tabular-nums' }}>{card.value}</p>
+                <p style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{card.sub}</p>
               </div>
-              <card.icon size={18} style={{ color: card.color, opacity: 0.6 }} />
+              <card.icon size={18} style={{ color: MUTED, opacity: 0.7 }} />
             </div>
-          </motion.div>
+          </div>
         ))}
       </div>
 
-      {/* Charts */}
+      {/* Charts — muted tones; color reserved for real signal, not decoration */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }} className="lg:grid-cols-2">
         <div style={{ ...surface, padding: '20px' }}>
-          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>Expenses by Category</p>
+          <p style={{ fontSize: 13, fontWeight: 600, color: INK, marginBottom: 16 }}>Expenses by Category</p>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="category" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickFormatter={v => capFirst(v).slice(0, 8)} />
-              <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis dataKey="category" tick={{ fontSize: 10, fill: MUTED }} tickFormatter={v => capFirst(v).slice(0, 8)} axisLine={{ stroke: 'var(--border)' }} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
               <Tooltip formatter={(v) => [fmtNPR(v), 'Total']} contentStyle={tooltipStyle} />
-              <Bar dataKey="total" fill="var(--brand)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="total" fill={ACCENT} radius={[3, 3, 0, 0]} maxBarSize={28} />
             </BarChart>
           </ResponsiveContainer>
         </div>
         <div style={{ ...surface, padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Monthly Trend</p>
-            <span style={{ fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 6, background: 'rgba(2,124,198,0.12)', color: '#027cc6', border: '1px solid rgba(2,124,198,0.25)' }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: INK }}>Monthly Trend</p>
+            <span style={{ fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 6, background: 'var(--bg-elevated)', color: MUTED, border: '1px solid var(--border)' }}>
               {calendarType}
             </span>
           </div>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={trendData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-              <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: 'var(--border)' }} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
               <Tooltip formatter={(v) => [fmtNPR(v), 'Expenses']} contentStyle={tooltipStyle} />
-              <Line type="monotone" dataKey="total" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="total" stroke={ACCENT} strokeWidth={2} dot={{ r: 3, fill: ACCENT }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -513,7 +515,7 @@ function ExpensesTab({ canManage, canApprove, calendarType }: any) {
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
                 {['Date', 'Description', 'Category', 'Vendor', 'Amount', 'Status', 'Actions'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                  <th key={h} style={{ textAlign: h === 'Amount' ? 'right' : 'left', padding: '10px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -541,18 +543,18 @@ function ExpensesTab({ canManage, canApprove, calendarType }: any) {
                     </div>
                   </td>
                   <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>{exp.vendor?.name ?? '—'}</td>
-                  <td style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-primary)' }}>{fmtNPR(exp.amount)}</td>
+                  <td style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-primary)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNPR(exp.amount)}</td>
                   <td style={{ padding: '12px 16px' }}><StatusBadge status={exp.approvalStatus} /></td>
                   <td style={{ padding: '12px 16px' }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                       {canApprove && exp.approvalStatus === 'pending' && (
                         <>
                           <button onClick={() => approveMutation.mutate({ id: exp.id, status: 'approved' })} title="Approve"
-                            style={{ padding: 6, borderRadius: 6, background: 'rgba(16,185,129,0.1)', color: '#10b981', border: 'none', cursor: 'pointer', display: 'flex' }}>
+                            style={{ padding: 6, borderRadius: 6, background: 'rgba(63,143,111,0.12)', color: POSITIVE, border: 'none', cursor: 'pointer', display: 'flex' }}>
                             <CheckCircle size={15} />
                           </button>
                           <button onClick={() => approveMutation.mutate({ id: exp.id, status: 'rejected' })} title="Reject"
-                            style={{ padding: 6, borderRadius: 6, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer', display: 'flex' }}>
+                            style={{ padding: 6, borderRadius: 6, background: 'rgba(193,69,69,0.12)', color: NEGATIVE, border: 'none', cursor: 'pointer', display: 'flex' }}>
                             <XCircle size={15} />
                           </button>
                         </>
@@ -564,7 +566,7 @@ function ExpensesTab({ canManage, canApprove, calendarType }: any) {
                             <Edit2 size={14} />
                           </button>
                           <button onClick={() => { if (confirm('Delete this expense?')) deleteMutation.mutate(exp.id); }}
-                            style={{ padding: 6, borderRadius: 6, background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer', display: 'flex' }}>
+                            style={{ padding: 6, borderRadius: 6, background: 'rgba(193,69,69,0.08)', color: NEGATIVE, border: '1px solid rgba(193,69,69,0.2)', cursor: 'pointer', display: 'flex' }}>
                             <Trash2 size={14} />
                           </button>
                         </>

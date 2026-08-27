@@ -6,9 +6,10 @@ import { Patient } from './entities/patient.entity';
 import { Appointment } from '../appointments/entities/appointment.entity';
 import { ClinicalRecord } from '../clinical-records/entities/clinical-record.entity';
 import { PatientFile } from '../files/entities/patient-file.entity';
-import { BloodTest } from '../blood-test/entities/blood-test.entity';
+import { LabWork } from '../lab-work/entities/lab-work.entity';
 import { Invoice } from '../billing/entities/invoice.entity';
 import { PatientAccountLink } from '../patient-auth/entities/patient-account-link.entity';
+import { digitsOnly, findOrCreatePatient, countFilledFields } from './patient-dedup.util';
 
 @Injectable()
 export class PatientsService {
@@ -17,7 +18,7 @@ export class PatientsService {
     @InjectRepository(Appointment) private appointmentRepo: Repository<Appointment>,
     @InjectRepository(ClinicalRecord) private clinicalRecordRepo: Repository<ClinicalRecord>,
     @InjectRepository(PatientFile) private fileRepo: Repository<PatientFile>,
-    @InjectRepository(BloodTest) private bloodTestRepo: Repository<BloodTest>,
+    @InjectRepository(LabWork) private labWorkRepo: Repository<LabWork>,
     @InjectRepository(Invoice) private invoiceRepo: Repository<Invoice>,
     @InjectRepository(PatientAccountLink) private accountLinkRepo: Repository<PatientAccountLink>,
   ) {}
@@ -56,28 +57,34 @@ export class PatientsService {
     return `+977${digits}`;
   }
 
+  /**
+   * Creates a patient — or, if one already exists in this clinic (same OPD
+   * number, or same first+last name and phone, all case-insensitive),
+   * reuses that record instead of creating a duplicate. See
+   * `findOrCreatePatient` for the exact matching rule. The returned object
+   * has a non-persisted `_matched: true` flag set when an existing record
+   * was reused, for callers that want to surface that to the user; every
+   * other field (id, firstName, …) is the same shape callers already read.
+   */
   async create(clinicId: string, dto: Partial<Patient> & { createdAt?: string | Date }): Promise<Patient> {
     const { createdAt, ...rest } = dto as any;
     if (rest.phone) rest.phone = this.normalizeNepalPhone(rest.phone);
+    if (!rest.firstName?.trim()) throw new BadRequestException('First name is required');
 
-    // Explicitly typed as DeepPartial<Patient> (not an array) so TypeORM's
-    // `create()` resolves to the single-entity overload instead of the
-    // array overload — otherwise `patient`/`saved` get inferred as Patient[]
-    // and `.id` / `.createdAt` access below fails to type-check.
-    const entityLike: DeepPartial<Patient> = { ...rest, clinicId };
-    const patient: Patient = this.repo.create(entityLike);
-    const saved: Patient = await this.repo.save(patient);
+    const { patient: saved, created } = await findOrCreatePatient(this.repo, clinicId, rest);
 
     // If a custom createdAt was supplied (e.g. backfilling old records), apply it
     // directly via a raw UPDATE — TypeORM's @CreateDateColumn cannot be overridden
-    // through save() because it is set unconditionally on INSERT.
-    if (createdAt) {
+    // through save() because it is set unconditionally on INSERT. Only meaningful
+    // for a genuinely new record — an existing patient keeps its real registration date.
+    if (created && createdAt) {
       const date = new Date(createdAt);
       if (!isNaN(date.getTime())) {
         await this.repo.update({ id: saved.id }, { createdAt: date } as any);
         saved.createdAt = date;
       }
     }
+    (saved as any)._matched = !created;
     return saved;
   }
 
@@ -179,8 +186,7 @@ export class PatientsService {
     appointments:            'appointments',
     invoices:                'invoices',
     clinical_records:        'clinical records',
-    blood_tests:             'blood test records',
-    lab_work:                'lab work records',
+    lab_works:               'lab work records',
     dental_charts:           'a dental chart',
     recalls:                 'recall schedules',
     vitals:                  'vitals records',
@@ -219,7 +225,7 @@ export class PatientsService {
   // ── Duplicate Patient Merge ─────────────────────────────────────────────────
 
   /**
-   * Reassigns every clinical-record, file, blood-test, appointment, and
+   * Reassigns every clinical-record, file, lab-work order, appointment, and
    * invoice from `mergeId` to `keepId`, then deletes the now-empty
    * duplicate. Both patients must belong to `clinicId` — this never
    * crosses clinics, since the whole point is fixing an accidental
@@ -240,7 +246,7 @@ export class PatientsService {
     await Promise.all([
       this.clinicalRecordRepo.update({ patientId: mergeId, clinicId }, { patientId: keepId } as any),
       this.fileRepo.update({ patientId: mergeId, clinicId }, { patientId: keepId } as any),
-      this.bloodTestRepo.update({ patientId: mergeId, clinicId }, { patientId: keepId } as any),
+      this.labWorkRepo.update({ patientId: mergeId, clinicId }, { patientId: keepId } as any),
       this.appointmentRepo.update({ patientId: mergeId, clinicId }, { patientId: keepId } as any),
       this.invoiceRepo.update({ patientId: mergeId, clinicId }, { patientId: keepId } as any),
     ]);
@@ -265,5 +271,120 @@ export class PatientsService {
     await this.repo.delete({ id: mergeId, clinicId });
 
     return { message: `Merged ${dupe.firstName} ${dupe.lastName} into ${keep.firstName} ${keep.lastName}.`, keepId };
+  }
+
+  /**
+   * Groups this clinic's existing patients into duplicate sets using the
+   * same signal `findOrCreatePatient` uses going forward: same OPD number,
+   * or same first+last name and phone (all case-insensitive). Uses a
+   * union-find so a patient that matches group A on OPD number and group B
+   * on name+phone still ends up in a single merged group rather than two
+   * separate ones.
+   */
+  private async findDuplicateGroups(clinicId: string): Promise<Patient[][]> {
+    const all = await this.repo.find({ where: { clinicId } });
+
+    const parent = new Map<string, string>();
+    const find = (id: string): string => {
+      if (!parent.has(id)) parent.set(id, id);
+      let root = id;
+      while (parent.get(root) !== root) root = parent.get(root) as string;
+      let cur = id;
+      while (parent.get(cur) !== root) {
+        const next = parent.get(cur) as string;
+        parent.set(cur, root);
+        cur = next;
+      }
+      return root;
+    };
+    const union = (a: string, b: string) => {
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) parent.set(ra, rb);
+    };
+
+    const norm = (s?: string | null) => (s || '').trim().toLowerCase();
+    const opdBuckets: Map<string, string[]> = new Map();
+    const namePhoneBuckets: Map<string, string[]> = new Map();
+
+    for (const p of all) {
+      find(p.id); // ensure registered even if it matches nothing
+
+      const opd = norm(p.opdNo);
+      if (opd) {
+        const bucket = opdBuckets.get(opd) || [];
+        bucket.push(p.id);
+        opdBuckets.set(opd, bucket);
+      }
+
+      const phone = digitsOnly(p.phone);
+      if (phone && p.firstName && p.lastName) {
+        const key = `${norm(p.firstName)}|${norm(p.lastName)}|${phone}`;
+        const bucket = namePhoneBuckets.get(key) || [];
+        bucket.push(p.id);
+        namePhoneBuckets.set(key, bucket);
+      }
+    }
+
+    for (const bucket of [...opdBuckets.values(), ...namePhoneBuckets.values()]) {
+      for (let i = 1; i < bucket.length; i++) union(bucket[0], bucket[i]);
+    }
+
+    const groups = new Map<string, Patient[]>();
+    for (const p of all) {
+      const root = find(p.id);
+      const bucket = groups.get(root) || [];
+      bucket.push(p);
+      groups.set(root, bucket);
+    }
+
+    return [...groups.values()].filter(g => g.length > 1);
+  }
+
+  /**
+   * Finds every set of duplicate patients in this clinic and merges each
+   * set down to one record, reusing the same `merge()` used for manual
+   * two-at-a-time merges. Within a group, the record kept is whichever was
+   * registered first (oldest `createdAt`); ties go to whichever has more
+   * fields filled in, so the survivor is the most complete record.
+   *
+   * Pass `dryRun: true` to preview what would be merged without changing
+   * anything — useful for reviewing before committing to it on real data.
+   */
+  async mergeAllDuplicates(clinicId: string, dryRun = false): Promise<{
+    groupsFound: number;
+    patientsMerged: number;
+    dryRun: boolean;
+    groups: { keepId: string; keepName: string; mergedIds: string[]; mergedNames: string[] }[];
+  }> {
+    const groups = await this.findDuplicateGroups(clinicId);
+    const details: { keepId: string; keepName: string; mergedIds: string[]; mergedNames: string[] }[] = [];
+    let patientsMerged = 0;
+
+    for (const group of groups) {
+      const sorted = [...group].sort((a, b) => {
+        const at = new Date(a.createdAt).getTime();
+        const bt = new Date(b.createdAt).getTime();
+        if (at !== bt) return at - bt;
+        return countFilledFields(b) - countFilledFields(a);
+      });
+      const keep  = sorted[0];
+      const dupes = sorted.slice(1);
+
+      details.push({
+        keepId:      keep.id,
+        keepName:    `${keep.firstName} ${keep.lastName}`,
+        mergedIds:   dupes.map(d => d.id),
+        mergedNames: dupes.map(d => `${d.firstName} ${d.lastName}`),
+      });
+
+      if (!dryRun) {
+        for (const dupe of dupes) {
+          await this.merge(clinicId, keep.id, dupe.id);
+        }
+      }
+      patientsMerged += dupes.length;
+    }
+
+    return { groupsFound: groups.length, patientsMerged, dryRun, groups: details };
   }
 }

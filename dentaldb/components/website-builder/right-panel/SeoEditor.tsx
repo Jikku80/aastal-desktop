@@ -14,22 +14,7 @@
 import React, { useState } from 'react';
 import type { SeoConfig } from '../hooks/useBuilderState';
 import { EditorImageUpload } from './section-editors/EditorComponents';
-
-// ── Design tokens (match the rest of the builder) ─────────────────────────────
-const dk = {
-  bg:          '#111318',
-  surface:     'rgba(255,255,255,0.04)',
-  surfaceDeep: 'rgba(0,0,0,0.25)',
-  border:      'rgba(255,255,255,0.08)',
-  borderFocus: '#6366f1',
-  text:        '#e2e4ef',
-  muted:       '#6b7080',
-  label:       '#8b8fa8',
-  accent:      '#6366f1',
-  danger:      '#ef4444',
-  success:     '#10b981',
-  font:        "'Inter','Geist','Segoe UI',system-ui,sans-serif",
-};
+import { tokens } from './design-tokens';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -99,28 +84,28 @@ export function SeoEditor({ seo, onChange }: SeoEditorProps) {
 
   // ── Styles ─────────────────────────────────────────────────────────────────
 
-  const wrap:      React.CSSProperties = { padding: 12, fontFamily: dk.font, color: dk.text, fontSize: 12 };
-  const heading:   React.CSSProperties = { fontSize: 10, fontWeight: 700, color: dk.label, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 };
+  const wrap:      React.CSSProperties = { padding: 12, fontFamily: tokens.font, color: tokens.text, fontSize: 12 };
+  const heading:   React.CSSProperties = { fontSize: 10, fontWeight: 700, color: tokens.label, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 };
   const tabBar:    React.CSSProperties = { display: 'flex', gap: 2, background: 'rgba(0,0,0,0.3)', borderRadius: 8, padding: 3, marginBottom: 12 };
   const tabBtn = (active: boolean): React.CSSProperties => ({
     flex: 1, padding: '5px 4px', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11,
-    fontWeight: active ? 600 : 400, fontFamily: dk.font,
-    background: active ? dk.accent : 'transparent',
-    color:      active ? '#fff'     : dk.muted,
+    fontWeight: active ? 600 : 400, fontFamily: tokens.font,
+    background: active ? tokens.accent : 'transparent',
+    color:      active ? '#fff'     : tokens.muted,
     transition: 'all .12s',
   });
   const section:   React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10 };
-  const divider:   React.CSSProperties = { borderTop: `1px solid ${dk.border}`, paddingTop: 10, marginTop: 2 };
+  const divider:   React.CSSProperties = { borderTop: `1px solid ${tokens.border}`, paddingTop: 10, marginTop: 2 };
   const grid2:     React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 };
   const infoBox:   React.CSSProperties = {
-    background: dk.surface, border: `1px solid ${dk.border}`, borderRadius: 8,
-    padding: 10, fontSize: 11, color: dk.muted, lineHeight: 1.6,
+    background: tokens.surface, border: `1px solid ${tokens.border}`, borderRadius: 8,
+    padding: 10, fontSize: 11, color: tokens.muted, lineHeight: 1.6,
   };
   const linkBtn = (color: string): React.CSSProperties => ({
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     width: '100%', padding: '8px 12px', borderRadius: 8, border: 'none',
     background: color, color: '#fff', fontSize: 11, fontWeight: 600,
-    cursor: 'pointer', textDecoration: 'none', fontFamily: dk.font,
+    cursor: 'pointer', textDecoration: 'none', fontFamily: tokens.font,
     transition: 'opacity .12s',
   });
 
@@ -145,8 +130,8 @@ export function SeoEditor({ seo, onChange }: SeoEditorProps) {
           <Field label="Keywords" hint="comma-separated" value={keywords.join(', ')} onChange={setKeywords} />
           <Field label="OG Image URL" hint="1200×630px recommended" value={seo.ogImage ?? ''} onChange={v => set('ogImage', v || undefined)} />
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: dk.label, marginBottom: 6 }}>Favicon</div>
-            <div style={{ fontSize: 10, color: dk.muted, marginBottom: 8 }}>Shown in browser tabs. PNG/ICO/SVG recommended (32×32 or 64×64px)</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: tokens.label, marginBottom: 6 }}>Favicon</div>
+            <div style={{ fontSize: 10, color: tokens.muted, marginBottom: 8 }}>Shown in browser tabs. PNG/ICO/SVG recommended (32×32 or 64×64px)</div>
             <EditorImageUpload
               label="Favicon"
               value={seo.favicon ?? ''}
@@ -158,9 +143,9 @@ export function SeoEditor({ seo, onChange }: SeoEditorProps) {
               type="checkbox"
               checked={!!seo.noindex}
               onChange={e => set('noindex', e.target.checked || undefined)}
-              style={{ width: 13, height: 13, accentColor: dk.accent }}
+              style={{ width: 13, height: 13, accentColor: tokens.accent }}
             />
-            <span style={{ fontSize: 11, color: dk.label }}>Noindex (hide from Google)</span>
+            <span style={{ fontSize: 11, color: tokens.label }}>Noindex (hide from Google)</span>
           </label>
         </div>
       )}
@@ -192,17 +177,17 @@ export function SeoEditor({ seo, onChange }: SeoEditorProps) {
             <Field label="Longitude" value={String(seo.longitude ?? '')} onChange={v => set('longitude', v ? parseFloat(v) : undefined)} />
           </div>
           <div>
-            <p style={{ fontSize: 11, fontWeight: 600, color: dk.label, marginBottom: 4 }}>Clinic Schema Type</p>
+            <p style={{ fontSize: 11, fontWeight: 600, color: tokens.label, marginBottom: 4 }}>Clinic Schema Type</p>
             <select
               value={seo.clinicType ?? 'MedicalClinic'}
               onChange={e => set('clinicType', e.target.value)}
-              style={{ width: '100%', background: dk.surfaceDeep, border: `1px solid ${dk.border}`, borderRadius: 6, padding: '6px 8px', fontSize: 11, color: dk.text, fontFamily: dk.font, outline: 'none' }}
+              style={{ width: '100%', background: tokens.surfaceDeep, border: `1px solid ${tokens.border}`, borderRadius: 6, padding: '6px 8px', fontSize: 11, color: tokens.text, fontFamily: tokens.font, outline: 'none' }}
             >
               {CLINIC_TYPES.map(t => <option key={t} value={t} style={{ background: '#1a1d24' }}>{t}</option>)}
             </select>
           </div>
           <div>
-            <p style={{ fontSize: 11, fontWeight: 600, color: dk.label, marginBottom: 6 }}>Aggregate Rating</p>
+            <p style={{ fontSize: 11, fontWeight: 600, color: tokens.label, marginBottom: 6 }}>Aggregate Rating</p>
             <div style={grid2}>
               <Field label="Rating (1–5)" value={String(rating.ratingValue ?? '')} onChange={v => setRating('ratingValue', v)} />
               <Field label="Review Count" value={String(rating.reviewCount ?? '')} onChange={v => setRating('reviewCount', v)} />
@@ -221,7 +206,7 @@ export function SeoEditor({ seo, onChange }: SeoEditorProps) {
             onChange={v => set('canonicalDomain', v || undefined)}
           />
           <div style={infoBox}>
-            <p style={{ fontWeight: 700, color: dk.text, marginBottom: 6 }}>Auto-generated for every site:</p>
+            <p style={{ fontWeight: 700, color: tokens.text, marginBottom: 6 }}>Auto-generated for every site:</p>
             {[
               ['sitemap.xml', 'all pages, doctors, blog posts, categories'],
               ['robots.txt', 'env-aware, blocks admin routes'],
@@ -231,12 +216,12 @@ export function SeoEditor({ seo, onChange }: SeoEditorProps) {
               ['manifest.webmanifest', 'PWA / favicon support'],
             ].map(([k, v]) => (
               <div key={k} style={{ display: 'flex', gap: 6, marginBottom: 3 }}>
-                <span style={{ color: dk.text, fontWeight: 600, whiteSpace: 'nowrap' }}>{k}</span>
-                <span style={{ color: dk.muted }}>— {v}</span>
+                <span style={{ color: tokens.text, fontWeight: 600, whiteSpace: 'nowrap' }}>{k}</span>
+                <span style={{ color: tokens.muted }}>— {v}</span>
               </div>
             ))}
           </div>
-          <a href="/dashboard/seo" target="_blank" rel="noopener noreferrer" style={linkBtn(dk.accent)}>
+          <a href="/dashboard/seo" target="_blank" rel="noopener noreferrer" style={linkBtn(tokens.accent)}>
             <span>🔍 Full SEO Dashboard</span>
             <span style={{ opacity: 0.7 }}>↗</span>
           </a>

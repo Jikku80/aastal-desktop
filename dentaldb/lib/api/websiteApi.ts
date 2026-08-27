@@ -151,9 +151,10 @@ export const websitePublicApi = {
   getBranches: (subdomain: string) =>
     publicApi.get(`/website-builder/public/${subdomain}/branches`).then(r => r.data),
 
-  getDoctors: (subdomain: string, branchId?: string) => {
+  getDoctors: (subdomain: string, branchId?: string, date?: string) => {
     const params: Record<string, string> = {};
     if (branchId) params.branchId = branchId;
+    if (date)     params.date     = date;
     return publicApi
       .get(`/website-builder/public/${subdomain}/doctors`, { params })
       .then(r => r.data);
@@ -188,9 +189,10 @@ export const websitePublicApi = {
   book: (subdomain: string, dto: {
     patientName:  string;
     patientPhone: string;
-    patientEmail: string;
-    doctorId:     string;
-    branchId:     string;
+    patientEmail?: string;
+    doctorId?:    string;
+    branchId?:    string;
+    serviceId?:   string;
     scheduledAt:  string;
     notes?:       string;
   }) =>

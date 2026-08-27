@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useBuilderStore } from '../hooks/useBuilderState';
 import type { GlobalSettings, NavVariant, FooterVariant } from '../hooks/useBuilderState';
-import { EditorField, EditorToggle, EditorImageUpload, EditorSection, EditorColorPicker } from './section-editors/EditorComponents';
+import { EditorField, EditorToggle, EditorImageUpload, EditorSection, EditorColorPicker, useThemeSwatches } from './section-editors/EditorComponents';
+import { EditorListItem } from './section-editors/EditorListItem';
+import { tokens } from './design-tokens';
 
 type NavSettings    = GlobalSettings['nav'];
 type FooterSettings = GlobalSettings['footer'];
@@ -12,28 +14,17 @@ type FooterColumn   = FooterSettings['columns'][number];
 type FooterLink     = FooterColumn['links'][number];
 type NavLink        = NavSettings['links'][number];
 
-const dk = {
-  bg:      '#111318',
-  border:  'rgba(255,255,255,0.08)',
-  surface: 'rgba(255,255,255,0.04)',
-  text:    '#e2e4ef',
-  muted:   '#6b7080',
-  label:   '#8b8fa8',
-  accent:  '#6366f1',
-  font:    "'Inter','Geist','Segoe UI',system-ui,sans-serif",
-};
-
 const inputCls: React.CSSProperties = {
   width: '100%', background: 'rgba(0,0,0,0.3)',
-  border: `1px solid ${dk.border}`, borderRadius: 7,
-  padding: '6px 10px', fontSize: 12, color: dk.text,
-  fontFamily: dk.font, outline: 'none', boxSizing: 'border-box',
+  border: `1px solid ${tokens.border}`, borderRadius: 7,
+  padding: '6px 10px', fontSize: 12, color: tokens.text,
+  fontFamily: tokens.font, outline: 'none', boxSizing: 'border-box',
 };
 
 const sectionLabel: React.CSSProperties = {
-  fontSize: 10, fontWeight: 700, color: dk.label,
+  fontSize: 10, fontWeight: 700, color: tokens.label,
   textTransform: 'uppercase', letterSpacing: '0.1em',
-  marginBottom: 10, fontFamily: dk.font,
+  marginBottom: 10, fontFamily: tokens.font,
 };
 
 // ── Variant card picker ────────────────────────────────────────────────────────
@@ -54,15 +45,15 @@ function VariantPicker<T extends string>({
             key={opt.value}
             onClick={() => onChange(opt.value)}
             style={{
-              padding: 0, border: `2px solid ${value === opt.value ? '#6366f1' : dk.border}`,
-              borderRadius: 10, cursor: 'pointer', background: value === opt.value ? 'rgba(99,102,241,0.1)' : dk.surface,
+              padding: 0, border: `2px solid ${value === opt.value ? '#6366f1' : tokens.border}`,
+              borderRadius: 10, cursor: 'pointer', background: value === opt.value ? 'rgba(99,102,241,0.1)' : tokens.surface,
               overflow: 'hidden', transition: 'all 0.15s', outline: 'none',
             }}
           >
-            <div style={{ height: 52, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `1px solid ${dk.border}` }}>
+            <div style={{ height: 52, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `1px solid ${tokens.border}` }}>
               {opt.preview}
             </div>
-            <div style={{ fontSize: 10, color: value === opt.value ? '#818cf8' : dk.muted, padding: '5px 6px', fontFamily: dk.font, fontWeight: value === opt.value ? 600 : 400 }}>
+            <div style={{ fontSize: 10, color: value === opt.value ? '#818cf8' : tokens.muted, padding: '5px 6px', fontFamily: tokens.font, fontWeight: value === opt.value ? 600 : 400 }}>
               {opt.label}
             </div>
           </button>
@@ -184,6 +175,7 @@ const FooterPreviewColumnsOnly = () => (
 export function GlobalSettingsEditor() {
   const { globalSettings, setGlobalSettings, pages } = useBuilderStore();
   const [activeTab, setActiveTab] = useState<'nav' | 'footer'>('nav');
+  const swatches = useThemeSwatches();
 
   const nav:    NavSettings    = globalSettings.nav;
   const footer: FooterSettings = globalSettings.footer;
@@ -228,10 +220,10 @@ export function GlobalSettingsEditor() {
     });
 
   return (
-    <div style={{ background: dk.bg, minHeight: '100%' }}>
+    <div style={{ background: tokens.bg, minHeight: '100%' }}>
       {/* Tab bar */}
       <div style={{
-        display: 'flex', borderBottom: `1px solid ${dk.border}`,
+        display: 'flex', borderBottom: `1px solid ${tokens.border}`,
         background: 'rgba(0,0,0,0.2)', position: 'sticky', top: 0, zIndex: 10,
       }}>
         {(['nav', 'footer'] as const).map(tab => {
@@ -243,9 +235,9 @@ export function GlobalSettingsEditor() {
               style={{
                 flex: 1, padding: '10px 4px', border: 'none', cursor: 'pointer',
                 background: 'transparent',
-                color: active ? '#818cf8' : dk.muted,
+                color: active ? '#818cf8' : tokens.muted,
                 fontSize: 11, fontWeight: active ? 600 : 400,
-                fontFamily: dk.font,
+                fontFamily: tokens.font,
                 borderBottom: active ? '2px solid #6366f1' : '2px solid transparent',
                 transition: 'all 0.15s', textTransform: 'capitalize', letterSpacing: '0.02em',
               }}
@@ -294,7 +286,7 @@ export function GlobalSettingsEditor() {
               />
               {/* Logo alignment */}
               <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: dk.muted, marginBottom: 5, fontFamily: dk.font }}>Logo Alignment</label>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: tokens.muted, marginBottom: 5, fontFamily: tokens.font }}>Logo Alignment</label>
                 <div style={{ display: 'flex', gap: 6 }}>
                   {(['left', 'center', 'right'] as const).map(a => (
                     <button
@@ -302,10 +294,10 @@ export function GlobalSettingsEditor() {
                       onClick={() => setNav({ logoAlign: a } as any)}
                       style={{
                         flex: 1, padding: '6px 4px', borderRadius: 6, border: '1px solid', cursor: 'pointer',
-                        fontSize: 11, fontWeight: 600, fontFamily: dk.font,
-                        borderColor: ((nav as any).logoAlign ?? 'left') === a ? dk.accent : dk.border,
-                        background:  ((nav as any).logoAlign ?? 'left') === a ? `${dk.accent}18` : dk.surface,
-                        color:       ((nav as any).logoAlign ?? 'left') === a ? dk.accent : dk.muted,
+                        fontSize: 11, fontWeight: 600, fontFamily: tokens.font,
+                        borderColor: ((nav as any).logoAlign ?? 'left') === a ? tokens.accent : tokens.border,
+                        background:  ((nav as any).logoAlign ?? 'left') === a ? `${tokens.accent}18` : tokens.surface,
+                        color:       ((nav as any).logoAlign ?? 'left') === a ? tokens.accent : tokens.muted,
                       }}
                     >
                       {a.charAt(0).toUpperCase() + a.slice(1)}
@@ -316,7 +308,7 @@ export function GlobalSettingsEditor() {
               {/* Logo size */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: dk.muted, marginBottom: 5, fontFamily: dk.font }}>Height (px)</label>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: tokens.muted, marginBottom: 5, fontFamily: tokens.font }}>Height (px)</label>
                   <input
                     type="number" min={20} max={120}
                     value={(nav as any).logoHeight ?? 36}
@@ -325,7 +317,7 @@ export function GlobalSettingsEditor() {
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: dk.muted, marginBottom: 5, fontFamily: dk.font }}>Width (px, optional)</label>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: tokens.muted, marginBottom: 5, fontFamily: tokens.font }}>Width (px, optional)</label>
                   <input
                     type="number" min={0} max={400}
                     value={(nav as any).logoWidth ?? ''}
@@ -336,7 +328,7 @@ export function GlobalSettingsEditor() {
                 </div>
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: dk.muted, marginBottom: 5, fontFamily: dk.font }}>Text Logo Font Size (px)</label>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: tokens.muted, marginBottom: 5, fontFamily: tokens.font }}>Text Logo Font Size (px)</label>
                 <input
                   type="number" min={10} max={48}
                   value={(nav as any).logoFontSize ?? 18}
@@ -363,18 +355,23 @@ export function GlobalSettingsEditor() {
 
             <EditorSection title="Colors">
               <EditorColorPicker
+                swatches={swatches}
                 label="Custom Background Color"
                 value={nav.bgColor ?? ''}
                 onChange={v => setNav({ bgColor: v || undefined } as any)}
               />
               <EditorColorPicker
+                swatches={swatches}
                 label="Link / Text Color"
                 value={nav.textColor ?? ''}
                 onChange={v => setNav({ textColor: v || undefined } as any)}
               />
             </EditorSection>
 
-            <EditorSection title="CTA Button">
+            <EditorSection title="Call-to-action button">
+              <div style={{ fontSize: 10.5, color: tokens.muted, marginTop: -4, fontFamily: tokens.font, lineHeight: 1.4 }}>
+                The button visitors click to book.
+              </div>
               <EditorField
                 label="Button Text"
                 value={nav.ctaButton?.text}
@@ -382,7 +379,7 @@ export function GlobalSettingsEditor() {
                 placeholder="Book Appointment"
               />
               <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: dk.muted, marginBottom: 5, fontFamily: dk.font }}>Action</label>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: tokens.muted, marginBottom: 5, fontFamily: tokens.font }}>Action</label>
                 <select
                   value={nav.ctaButton?.action ?? 'book'}
                   onChange={e => setNav({
@@ -407,28 +404,38 @@ export function GlobalSettingsEditor() {
 
             <EditorSection title="Navigation Links">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {nav.links.map((link, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <input
-                      value={link.label}
-                      onChange={e => updateNavLink(i, { label: e.target.value })}
-                      placeholder="Label"
-                      style={{ ...inputCls, flex: 1 }}
-                    />
-                    <select
-                      value={link.pageId}
-                      onChange={e => updateNavLink(i, { pageId: e.target.value })}
-                      style={{ ...inputCls, flex: 1 }}
+                {nav.links.map((link, i) => {
+                  return (
+                    <EditorListItem
+                      key={i}
+                      summary={link.label || 'Untitled link'}
+                      breadcrumb={['Navigation', link.label || 'Untitled link']}
+                      onRemove={() => removeNavLink(i)}
                     >
-                      {pages.map(p => (
-                        <option key={p.id} value={p.id}>{p.title}</option>
-                      ))}
-                    </select>
-                    <button onClick={() => removeNavLink(i)} style={{ color: dk.muted, background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                ))}
+                      <div>
+                        <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: tokens.muted, marginBottom: 5, fontFamily: tokens.font }}>Label</label>
+                        <input
+                          value={link.label}
+                          onChange={e => updateNavLink(i, { label: e.target.value })}
+                          placeholder="Label"
+                          style={inputCls}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: tokens.muted, marginBottom: 5, fontFamily: tokens.font }}>Links to page</label>
+                        <select
+                          value={link.pageId}
+                          onChange={e => updateNavLink(i, { pageId: e.target.value })}
+                          style={inputCls}
+                        >
+                          {pages.map(p => (
+                            <option key={p.id} value={p.id}>{p.title}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </EditorListItem>
+                  );
+                })}
                 <button
                   onClick={addNavLink}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#818cf8', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500 }}
@@ -471,6 +478,7 @@ export function GlobalSettingsEditor() {
                 placeholder={`© ${new Date().getFullYear()} Clinic Name`}
               />
               <EditorColorPicker
+                swatches={swatches}
                 label="Background Color"
                 value={footer.bgColor ?? ''}
                 onChange={v => setFooter({ bgColor: v || undefined } as any)}
@@ -501,31 +509,44 @@ export function GlobalSettingsEditor() {
 
             <EditorSection title="Footer Columns">
               {footer.columns.map((col, i) => (
-                <div key={i} style={{ border: `1px solid ${dk.border}`, borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <EditorListItem
+                  key={i}
+                  summary={`Column: ${col.heading || 'Untitled'} (${col.links.length} link${col.links.length === 1 ? '' : 's'})`}
+                  breadcrumb={['Footer', col.heading || 'Untitled column']}
+                  onRemove={() => removeColumn(i)}
+                >
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: tokens.muted, marginBottom: 5, fontFamily: tokens.font }}>Column Heading</label>
                     <input
                       value={col.heading}
                       onChange={e => updateColumn(i, { heading: e.target.value })}
                       placeholder="Column Heading"
-                      style={{ ...inputCls, fontWeight: 600, flex: 1 }}
+                      style={{ ...inputCls, fontWeight: 600 }}
                     />
-                    <button onClick={() => removeColumn(i)} style={{ marginLeft: 8, color: dk.muted, background: 'none', border: 'none', cursor: 'pointer' }}>
-                      <Trash2 size={12} />
-                    </button>
                   </div>
-                  {col.links.map((link, j) => (
-                    <div key={j} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <input value={link.label} onChange={e => updateColLink(i, j, { label: e.target.value })} placeholder="Label" style={{ ...inputCls, flex: 1 }} />
-                      <input value={link.href}  onChange={e => updateColLink(i, j, { href: e.target.value })}  placeholder="/page or https://..." style={{ ...inputCls, flex: 1 }} />
-                      <button onClick={() => removeColLink(i, j)} style={{ color: dk.muted, background: 'none', border: 'none', cursor: 'pointer' }}>
-                        <Trash2 size={11} />
-                      </button>
-                    </div>
-                  ))}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {col.links.map((link, j) => (
+                      <EditorListItem
+                        key={j}
+                        summary={link.label || 'Untitled link'}
+                        breadcrumb={['Footer', col.heading || 'Untitled column', 'Edit link']}
+                        onRemove={() => removeColLink(i, j)}
+                      >
+                        <div>
+                          <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: tokens.muted, marginBottom: 5, fontFamily: tokens.font }}>Label</label>
+                          <input value={link.label} onChange={e => updateColLink(i, j, { label: e.target.value })} placeholder="Label" style={inputCls} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: tokens.muted, marginBottom: 5, fontFamily: tokens.font }}>Link URL</label>
+                          <input value={link.href} onChange={e => updateColLink(i, j, { href: e.target.value })} placeholder="/page or https://..." style={inputCls} />
+                        </div>
+                      </EditorListItem>
+                    ))}
+                  </div>
                   <button onClick={() => addColLink(i)} style={{ fontSize: 12, color: '#818cf8', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <Plus size={10} /> Add Link
                   </button>
-                </div>
+                </EditorListItem>
               ))}
               <button
                 onClick={addColumn}

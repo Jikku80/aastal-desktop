@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { CheckCircle } from 'lucide-react';
 import type { SecProps } from './siteRendererHelpers';
@@ -12,6 +12,7 @@ export function BookingSection({ s, theme, subdomain, branches: propBranches, co
   const [step,           setStep]           = useState(1);
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedDoctor, setSelectedDoctor] = useState('');
+  const [selectedService, setSelectedService] = useState('');
   const [selectedDate,   setSelectedDate]   = useState('');
   const [selectedSlot,   setSelectedSlot]   = useState('');
   const [form, setForm] = useState({
@@ -25,11 +26,34 @@ export function BookingSection({ s, theme, subdomain, branches: propBranches, co
     staleTime: 300_000,
   });
   const branches = (liveBranches && liveBranches.length > 0) ? liveBranches : (propBranches ?? []);
+  const singleBranch = branches.length === 1 ? branches[0] : null;
+
+  // Single branch → book there directly, no branch picker shown anywhere.
+  // Multiple branches → the picker (below) is required before booking.
+  useEffect(() => {
+    if (singleBranch && !selectedBranch) setSelectedBranch(singleBranch.id);
+  }, [singleBranch, selectedBranch]);
 
   const { data: doctors } = useQuery<any[]>({
-    queryKey:  ['pub-doctors', subdomain, selectedBranch],
-    queryFn:   () => websitePublicApi.getDoctors(subdomain, selectedBranch || undefined),
+    queryKey:  ['pub-doctors', subdomain, selectedBranch, selectedDate],
+    // Passing selectedDate lets the backend narrow this list to doctors who
+    // actually have a shift that day (only when the clinic uses the Shift
+    // module at all — otherwise every doctor of the branch/clinic is
+    // returned, same as before).
+    queryFn:   () => websitePublicApi.getDoctors(subdomain, selectedBranch || undefined, selectedDate || undefined),
     staleTime: 60_000,
+  });
+
+  // Real clinic services (with a real backend id) — used so a service
+  // picked in the "treatment-first" variant maps to Appointment.serviceId
+  // instead of being a decorative label with nothing behind it. Falls back
+  // to the builder's static `s.services` list (title/price only, no id)
+  // only when the clinic hasn't set up any services yet — those stay
+  // display-only since there's no id to send.
+  const { data: liveServices } = useQuery<any[]>({
+    queryKey:  ['pub-services', subdomain],
+    queryFn:   () => websitePublicApi.getServices(subdomain),
+    staleTime: 300_000,
   });
 
   const { data: slots } = useQuery<Record<string, string[]>>({
@@ -87,7 +111,7 @@ export function BookingSection({ s, theme, subdomain, branches: propBranches, co
             </h3>
             <p className="text-gray-500">We will contact you shortly to confirm your appointment.</p>
             <button
-              onClick={() => { setSuccess(false); setStep(1); setSelectedDate(''); setSelectedSlot(''); setForm({ patientName: '', patientPhone: '', patientEmail: '', notes: '' }); }}
+              onClick={() => { setSuccess(false); setStep(1); setSelectedDate(''); setSelectedSlot(''); setSelectedService(''); setForm({ patientName: '', patientPhone: '', patientEmail: '', notes: '' }); }}
               className="mt-6 px-6 py-3 rounded-xl text-white font-semibold"
               style={{ background: theme.primaryColor }}
             >
@@ -101,6 +125,16 @@ export function BookingSection({ s, theme, subdomain, branches: propBranches, co
 
   const QuickForm = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Only shown when the clinic has more than one branch — with a single
+          branch, selectedBranch is already auto-filled above and this step
+          simply doesn't appear. */}
+      {branches.length > 1 && (
+        <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
+          style={{ border: '1.5px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', fontSize: 13, width: '100%', outline: 'none', background: '#fff' }}>
+          <option value="">Select Branch *</option>
+          {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+      )}
       {[{ph:'Full Name',key:'patientName'},{ph:'Phone Number',key:'patientPhone'},{ph:'Email (optional)',key:'patientEmail'}].map(f => (
         <input key={f.key} placeholder={f.ph} value={(form as any)[f.key]} onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
           style={{ border: '1.5px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', fontSize: 13, width: '100%', outline: 'none' }} />
@@ -108,13 +142,14 @@ export function BookingSection({ s, theme, subdomain, branches: propBranches, co
       <button onClick={() => bookMutation.mutate({
           patientName: form.patientName, patientPhone: form.patientPhone, patientEmail: form.patientEmail,
           doctorId: selectedDoctor || undefined, branchId: selectedBranch || undefined,
+          serviceId: selectedService || undefined,
           scheduledAt: selectedDate && selectedSlot ? `${selectedDate}T${selectedSlot}:00` : (() => {
             const t = new Date(Date.now() + 24 * 60 * 60 * 1000);
             return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}T10:00:00`;
           })(),
         })}
-        disabled={bookMutation.isPending || !form.patientName}
-        style={{ padding: '12px 24px', borderRadius: 8, background: p, color: '#fff', fontWeight: 700, border: 'none', cursor: 'pointer', opacity: !form.patientName ? 0.6 : 1 }}>
+        disabled={bookMutation.isPending || !form.patientName || !form.patientPhone || (branches.length > 1 && !selectedBranch)}
+        style={{ padding: '12px 24px', borderRadius: 8, background: p, color: '#fff', fontWeight: 700, border: 'none', cursor: 'pointer', opacity: (!form.patientName || !form.patientPhone || (branches.length > 1 && !selectedBranch)) ? 0.6 : 1 }}>
         {bookMutation.isPending ? 'Booking…' : (s.ctaText as string) || 'Book Now'}
       </button>
       {bookMutation.isError && <p style={{ color: '#ef4444', fontSize: 12 }}>Booking failed. Please try again.</p>}
@@ -179,12 +214,25 @@ export function BookingSection({ s, theme, subdomain, branches: propBranches, co
             <div style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20, padding: 32 }}>
               <h3 style={{ fontWeight: 700, color: '#fff', fontSize: 16, marginBottom: 20 }}>Book Appointment</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {branches.length > 1 && (
+                  <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
+                    style={{ border: '1.5px solid rgba(255,255,255,0.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13, width: '100%', background: 'rgba(255,255,255,0.08)', color: '#fff', outline: 'none' }}>
+                    <option value="" style={{ color: '#111' }}>Select Branch *</option>
+                    {branches.map((b: any) => <option key={b.id} value={b.id} style={{ color: '#111' }}>{b.name}</option>)}
+                  </select>
+                )}
                 {[{ph:'Full Name',key:'patientName'},{ph:'Phone Number',key:'patientPhone'}].map(f => (
                   <input key={f.key} placeholder={f.ph} value={(form as any)[f.key]} onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
                     style={{ border: '1.5px solid rgba(255,255,255,0.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13, width: '100%', background: 'rgba(255,255,255,0.08)', color: '#fff', outline: 'none' }} />
                 ))}
-                <button onClick={() => bookMutation.mutate({ patientName: form.patientName, patientPhone: form.patientPhone })}
-                  style={{ padding: 12, borderRadius: 8, background: '#ef4444', color: '#fff', fontWeight: 700, border: 'none', cursor: 'pointer' }}>
+                <button
+                  onClick={() => bookMutation.mutate({
+                    patientName: form.patientName, patientPhone: form.patientPhone,
+                    branchId: selectedBranch || undefined,
+                    scheduledAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+                  })}
+                  disabled={bookMutation.isPending || !form.patientName || !form.patientPhone || (branches.length > 1 && !selectedBranch)}
+                  style={{ padding: 12, borderRadius: 8, background: '#ef4444', color: '#fff', fontWeight: 700, border: 'none', cursor: 'pointer', opacity: (!form.patientName || !form.patientPhone || (branches.length > 1 && !selectedBranch)) ? 0.6 : 1 }}>
                   {bookMutation.isPending ? 'Booking…' : 'Request Emergency Appointment'}
                 </button>
               </div>
@@ -233,7 +281,19 @@ export function BookingSection({ s, theme, subdomain, branches: propBranches, co
   }
 
   if (variant === 'treatment-first') {
-    const services = (s.services as any[]) || [];
+    // Real clinic services (with a real id) take priority so a selection
+    // here actually maps to Appointment.serviceId; the builder's static
+    // `s.services` list (title/price typed into the section settings, no
+    // id) is only used as a display-only fallback when the clinic hasn't
+    // added any real services yet — those entries aren't clickable, since
+    // there's nothing to send the backend for them.
+    const realServices = (liveServices ?? []).map((svc: any) => ({
+      id: svc.id, title: svc.name, price: svc.price ? `Rs. ${svc.price}` : undefined,
+    }));
+    const staticServices = (s.services as any[]) || [];
+    const services = realServices.length > 0 ? realServices : staticServices;
+    const selectable = realServices.length > 0;
+
     return (
       <div className="py-14 sm:py-20" style={{ background: '#f8faff' }} id="booking">
         <div className={containerClass}>
@@ -242,12 +302,21 @@ export function BookingSection({ s, theme, subdomain, branches: propBranches, co
             <div>
               <h3 style={{ fontWeight: 700, color: theme.textColor, fontSize: 15, marginBottom: 16 }}>Select Treatment</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {(services.length ? services : [{ title: 'General Consultation' }, { title: 'Specialist Visit' }, { title: 'Health Checkup' }]).map((svc: any, i: number) => (
-                  <div key={i} style={{ padding: '12px 16px', borderRadius: 10, border: `1.5px solid ${i === 0 ? p : '#e5e7eb'}`, background: i === 0 ? `${p}08` : 'white', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 600, color: theme.textColor, fontSize: 13 }}>{svc.title}</span>
-                    {svc.price && <span style={{ fontSize: 12, color: p, fontWeight: 700 }}>{svc.price}</span>}
-                  </div>
-                ))}
+                {(services.length ? services : [{ title: 'General Consultation' }, { title: 'Specialist Visit' }, { title: 'Health Checkup' }]).map((svc: any, i: number) => {
+                  const isSelected = selectable ? selectedService === svc.id : i === 0;
+                  return (
+                    <div key={svc.id ?? i}
+                      onClick={selectable ? () => setSelectedService(prev => prev === svc.id ? '' : svc.id) : undefined}
+                      style={{
+                        padding: '12px 16px', borderRadius: 10, border: `1.5px solid ${isSelected ? p : '#e5e7eb'}`,
+                        background: isSelected ? `${p}08` : 'white', cursor: selectable ? 'pointer' : 'default',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      }}>
+                      <span style={{ fontWeight: 600, color: theme.textColor, fontSize: 13 }}>{svc.title}</span>
+                      {svc.price && <span style={{ fontSize: 12, color: p, fontWeight: 700 }}>{svc.price}</span>}
+                    </div>
+                  );
+                })}
               </div>
             </div>
             <div style={{ background: 'white', borderRadius: 20, padding: 28, boxShadow: '0 4px 20px rgba(0,0,0,0.07)' }}>
@@ -325,12 +394,14 @@ export function BookingSection({ s, theme, subdomain, branches: propBranches, co
           {step === 1 && (
             <div className="space-y-4 sm:space-y-5">
               <h3 className="font-bold text-lg sm:text-xl" style={{ fontFamily: theme.fontHeading, color: theme.textColor }}>Select Branch &amp; Doctor</h3>
-              {fields.branchSelect !== false && (
+              {/* Only shown when the clinic actually has more than one branch —
+                  a single branch is auto-selected and this step is skipped. */}
+              {fields.branchSelect !== false && branches.length > 1 && (
                 <div>
-                  <label className="block text-sm font-semibold mb-2" style={{ color: 'inherit', opacity: 0.75 }}>Branch</label>
+                  <label className="block text-sm font-semibold mb-2" style={{ color: 'inherit', opacity: 0.75 }}>Branch *</label>
                   <select value={selectedBranch} onChange={e => { setSelectedBranch(e.target.value); setSelectedDoctor(''); }}
                     className="w-full rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2" style={{ border: '1px solid rgba(128,128,128,0.3)', background: 'transparent', color: 'inherit' }}>
-                    <option value="">All Branches</option>
+                    <option value="">Select a branch…</option>
                     {(branches || []).map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
                 </div>
@@ -341,11 +412,38 @@ export function BookingSection({ s, theme, subdomain, branches: propBranches, co
                   <select value={selectedDoctor} onChange={e => setSelectedDoctor(e.target.value)}
                     className="w-full rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2" style={{ border: '1px solid rgba(128,128,128,0.3)', background: 'transparent', color: 'inherit' }}>
                     <option value="">Any Available Doctor</option>
-                    {(doctors ?? []).map((d: any) => <option key={d.id} value={d.id}>{d.name}{d.specialization ? ` — ${d.specialization}` : ''}</option>)}
+                    {(doctors ?? []).map((d: any) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}{d.specialization ? ` — ${d.specialization}` : ''}
+                        {d.shift ? ` (${d.shift.startTime}–${d.shift.endTime})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {/* Doctor list is automatically narrowed to whoever is on
+                      shift once a date is picked — see the doctors query
+                      above. If the clinic has never configured shifts, or no
+                      date is chosen yet, every doctor is listed. */}
+                </div>
+              )}
+              {fields.serviceSelect !== false && (liveServices ?? []).length > 0 && (
+                <div>
+                  <label className="block text-sm font-semibold mb-2" style={{ color: 'inherit', opacity: 0.75 }}>Treatment / Service</label>
+                  <select value={selectedService} onChange={e => setSelectedService(e.target.value)}
+                    className="w-full rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2" style={{ border: '1px solid rgba(128,128,128,0.3)', background: 'transparent', color: 'inherit' }}>
+                    <option value="">Not sure yet</option>
+                    {(liveServices ?? []).map((svc: any) => (
+                      <option key={svc.id} value={svc.id}>{svc.name}{svc.price ? ` — Rs. ${svc.price}` : ''}</option>
+                    ))}
                   </select>
                 </div>
               )}
-              <button onClick={() => setStep(2)} className="w-full py-3 rounded-xl text-white font-semibold text-base sm:text-lg" style={{ background: theme.primaryColor }}>Next</button>
+              <button
+                onClick={() => setStep(2)}
+                disabled={branches.length > 1 && !selectedBranch}
+                className="w-full py-3 rounded-xl text-white font-semibold text-base sm:text-lg disabled:opacity-50"
+                style={{ background: theme.primaryColor }}>
+                Next
+              </button>
             </div>
           )}
 
@@ -426,13 +524,16 @@ export function BookingSection({ s, theme, subdomain, branches: propBranches, co
               <div className="bg-white rounded-xl p-4 sm:p-5 border border-gray-200 space-y-3 text-sm">
                 <div className="flex justify-between"><span className="text-gray-500">Date</span><span className="font-semibold">{selectedDate}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Time</span><span className="font-semibold">{selectedSlot}</span></div>
+                {selectedService && (
+                  <div className="flex justify-between"><span className="text-gray-500">Treatment</span><span className="font-semibold">{(liveServices ?? []).find((svc: any) => svc.id === selectedService)?.name ?? '—'}</span></div>
+                )}
                 <div className="flex justify-between"><span className="text-gray-500">Name</span><span className="font-semibold">{form.patientName}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Phone</span><span className="font-semibold">{form.patientPhone}</span></div>
               </div>
               {bookMutation.isError && <p className="text-red-500 text-sm">Booking failed. Please try again.</p>}
               <div className="flex gap-3">
                 <button onClick={() => setStep(3)} className="flex-1 py-3 rounded-xl font-semibold text-sm sm:text-base" style={{ border: '1px solid rgba(128,128,128,0.4)', color: 'inherit' }}>Edit</button>
-                <button onClick={() => bookMutation.mutate({ patientName: form.patientName, patientPhone: form.patientPhone, patientEmail: form.patientEmail, doctorId: selectedDoctor, branchId: selectedBranch, scheduledAt: `${selectedDate}T${selectedSlot}:00`, notes: form.notes })}
+                <button onClick={() => bookMutation.mutate({ patientName: form.patientName, patientPhone: form.patientPhone, patientEmail: form.patientEmail, doctorId: selectedDoctor, branchId: selectedBranch, serviceId: selectedService || undefined, scheduledAt: `${selectedDate}T${selectedSlot}:00`, notes: form.notes })}
                   disabled={bookMutation.isPending} className="flex-1 py-3 rounded-xl text-white font-semibold text-base sm:text-lg disabled:opacity-50" style={{ background: theme.primaryColor }}>
                   {bookMutation.isPending ? 'Booking…' : 'Confirm Booking'}
                 </button>

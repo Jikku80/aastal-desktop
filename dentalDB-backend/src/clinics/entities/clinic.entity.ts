@@ -88,6 +88,17 @@ export class Clinic {
   @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true, default: () => "'{}'", })
   prescriptionTemplate: Record<string, any>;
 
+  // Phase 8 — Document Design Studio. Same JSON-column pattern as
+  // billingTemplate/prescriptionTemplate above; extended rather than
+  // reinventing a new templating concept.
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true, default: () => "'{}'", })
+  labReportTemplate: Record<string, any>;
+
+  // Consumed by Phase 9's balance sheet / P&L / cash-flow PDFs once the
+  // finance module exists. Branding can be configured ahead of that.
+  @Column({ type: isSQLite ? 'simple-json' : 'jsonb', nullable: true, default: () => "'{}'", })
+  financialStatementTemplate: Record<string, any>;
+
   @Column({ default: true })
   isActive: boolean;
 

@@ -9,9 +9,9 @@ import {
   Building2, User, Stethoscope, Phone, Mail, Calendar, ArrowUpRight,
   Hourglass, Scale, Ruler, Droplets, Activity, Thermometer, Heart, Wind,
   TrendingUp, Banknote, ClipboardCheck, Shield,
-  ChevronsLeft, ChevronsRight, X, PanelRightOpen, Droplet, FlaskConical,
+  ChevronsLeft, ChevronsRight, X, PanelRightOpen, FlaskConical,
 } from 'lucide-react';
-import { appointmentsApi, vitalsApi, commissionsApi, bloodTestApi, labApi } from '@/lib/api';
+import { appointmentsApi, vitalsApi, commissionsApi, labApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useContextPanelStore } from '@/store/contextpanel.store';
 import { useUILayoutStore } from '@/store/UILayout.store';
@@ -29,9 +29,9 @@ const STATUS_DOT: Record<string, string> = {
   no_show:     'bg-gray-400',
 };
 
-const BLOOD_STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
+const LAB_STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   pending:          { label: 'Pending',          color: 'text-amber-400',   bg: 'bg-amber-500/10'   },
-  sample_collected: { label: 'Sample Collected', color: 'text-blue-400',    bg: 'bg-blue-500/10'    },
+  sent:             { label: 'Sent',              color: 'text-blue-400',    bg: 'bg-blue-500/10'    },
   in_progress:      { label: 'In Progress',      color: 'text-purple-400',  bg: 'bg-purple-500/10'  },
   completed:        { label: 'Completed',        color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
   cancelled:        { label: 'Cancelled',        color: 'text-red-400',     bg: 'bg-red-500/10'     },
@@ -304,16 +304,14 @@ function VitalsOrCommissionsSection() {
 }
 
 
-/* ── Section 4 — Blood Tests w/ Clinical Records fallback ───────────────── */
-const BLOOD_TESTS_PAGE_SIZE = 8;
-const RECORDS_PAGE_SIZE = 8;
+/* ── Section 4 — Lab Work ─────────────────────────────────────────────────── */
+const LAB_WORK_PAGE_SIZE = 8;
 
-function BloodTestsSection() {
+function LabWorkSection() {
   const pathname = usePathname();
   const { activeBranch } = useAuthStore();
   const { selectedPatient, selectedStaff } = useContextPanelStore();
-  const btSentinelRef = useRef<HTMLDivElement>(null);
-  const recSentinelRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   const onPatients = pathname?.startsWith('/dashboard/patients');
   const onStaff    = pathname?.startsWith('/dashboard/staff');
@@ -324,20 +322,13 @@ function BloodTestsSection() {
     return { branchId: activeBranch?.id };
   }, [onPatients, onStaff, selectedPatient, selectedStaff, activeBranch?.id]);
 
-  const recFilters = useMemo(() => {
-    if (onPatients && selectedPatient) return { patientId: selectedPatient.id };
-    if (onStaff && selectedStaff)      return { dentistId: selectedStaff.id };
-    return {};
-  }, [onPatients, onStaff, selectedPatient, selectedStaff]);
-
-  // Blood tests — always fetch page 1 to detect emptiness
   const {
-    data: btData, isLoading: btLoading,
-    fetchNextPage: btFetchNext, hasNextPage: btHasNext, isFetchingNextPage: btFetching,
+    data, isLoading,
+    fetchNextPage, hasNextPage, isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ['context-sidebar-blood-tests', filters],
+    queryKey: ['context-sidebar-lab-work', filters],
     queryFn: ({ pageParam = 1 }) =>
-      bloodTestApi.list({ ...filters, page: pageParam, limit: BLOOD_TESTS_PAGE_SIZE }).then(r => r.data),
+      labApi.list({ ...filters, page: pageParam, limit: LAB_WORK_PAGE_SIZE }).then(r => r.data),
     getNextPageParam: (lastPage: any, pages: any[]) => {
       const loaded = pages.reduce((n: number, p: any) => n + (p?.data?.length ?? 0), 0);
       return loaded < (lastPage?.total ?? 0) ? pages.length + 1 : undefined;
@@ -345,87 +336,21 @@ function BloodTestsSection() {
     initialPageParam: 1,
   });
 
-  const tests: any[] = btData?.pages.flatMap((p: any) => p?.data ?? []) ?? [];
-  const noBloodTests = !btLoading && tests.length === 0;
+  const labs: any[] = data?.pages.flatMap((p: any) => p?.data ?? []) ?? [];
 
-  // Clinical records — only run when blood tests are empty
-  const {
-    data: recData, isLoading: recLoading,
-    fetchNextPage: recFetchNext, hasNextPage: recHasNext, isFetchingNextPage: recFetching,
-  } = useInfiniteQuery({
-    queryKey: ['context-sidebar-lab-work', recFilters],
-    queryFn: ({ pageParam = 1 }) =>
-      labApi.list({ ...recFilters, page: pageParam, limit: RECORDS_PAGE_SIZE }).then(r => r.data),
-    getNextPageParam: (lastPage: any, pages: any[]) => {
-      const loaded = pages.reduce((n: number, p: any) => n + (p?.data?.length ?? 0), 0);
-      return loaded < (lastPage?.total ?? 0) ? pages.length + 1 : undefined;
-    },
-    initialPageParam: 1,
-    enabled: noBloodTests,
-  });
-
-  const records: any[] = recData?.pages.flatMap((p: any) => p?.data ?? []) ?? [];
-
-  // Sentinel observers
   useEffect(() => {
-    const el = btSentinelRef.current;
+    const el = sentinelRef.current;
     if (!el) return;
     const obs = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && btHasNext && !btFetching) btFetchNext();
+      if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) fetchNextPage();
     }, { threshold: 0.1 });
     obs.observe(el);
     return () => obs.disconnect();
-  }, [btFetchNext, btHasNext, btFetching]);
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
-  useEffect(() => {
-    const el = recSentinelRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && recHasNext && !recFetching) recFetchNext();
-    }, { threshold: 0.1 });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [recFetchNext, recHasNext, recFetching]);
-
-  // ── Blood tests present ──────────────────────────────────────────────────
-  if (!btLoading && tests.length > 0) {
+  if (isLoading) {
     return (
-      <SectionCard title="Blood Tests" action={<Droplet size={13} className="text-red-400" />}>
-        <div className="max-h-72 overflow-y-auto -mx-1 px-1 space-y-1.5">
-          {tests.map(bt => {
-            const sm = BLOOD_STATUS_META[bt.status] ?? BLOOD_STATUS_META.pending;
-            return (
-              <div key={bt.id} className="rounded-xl px-3 py-2.5 space-y-1"
-                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-                <div className="flex items-center justify-between gap-2 min-w-0">
-                  <p className="text-xs font-medium text-[var(--text-primary)] truncate flex-1">{bt.testName}</p>
-                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${sm.color} ${sm.bg}`}>
-                    {sm.label}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-[var(--text-muted)] truncate">
-                    {bt.patient ? `${bt.patient.firstName} ${bt.patient.lastName}` : '—'}
-                    {bt.labName ? ` · ${bt.labName}` : ''}
-                  </p>
-                  <p className="text-[10px] text-[var(--text-muted)] shrink-0">
-                    {bt.createdAt ? format(new Date(bt.createdAt), 'MMM d') : ''}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-          {btFetching && <div className="h-10 rounded-xl bg-white/5 animate-pulse" />}
-          <div ref={btSentinelRef} className="h-1" />
-        </div>
-      </SectionCard>
-    );
-  }
-
-  // ── Loading blood tests ──────────────────────────────────────────────────
-  if (btLoading) {
-    return (
-      <SectionCard title="Blood Tests" action={<Droplet size={13} className="text-red-400" />}>
+      <SectionCard title="Lab Work" action={<FlaskConical size={13} className="text-blue-400" />}>
         <div className="space-y-1.5">
           {Array(3).fill(0).map((_, i) => <div key={i} className="h-14 rounded-xl bg-white/5 animate-pulse" />)}
         </div>
@@ -433,35 +358,37 @@ function BloodTestsSection() {
     );
   }
 
-  // ── No blood tests → show clinical records ───────────────────────────────
   return (
     <SectionCard title="Lab Work" action={<FlaskConical size={13} className="text-blue-400" />}>
       <div className="max-h-72 overflow-y-auto -mx-1 px-1 space-y-1.5">
-        {recLoading && (
-          Array(3).fill(0).map((_, i) => <div key={i} className="h-14 rounded-xl bg-white/5 animate-pulse" />)
+        {labs.length === 0 && (
+          <p className="text-xs text-[var(--text-muted)] text-center py-6">No lab orders found</p>
         )}
-        {!recLoading && records.length === 0 && (
-          <p className="text-xs text-[var(--text-muted)] text-center py-6">No records found</p>
-        )}
-        {records.map((rec: any) => (
-          <div key={rec.id} className="rounded-xl px-3 py-2.5 space-y-1"
-            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-            <p className="text-xs font-medium text-[var(--text-primary)] truncate">
-              {rec.testName || rec.labName || 'Lab Work'}
-            </p>
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[11px] text-[var(--text-muted)] truncate">
-                {rec.patient ? `${rec.patient.firstName} ${rec.patient.lastName}` : '—'}
-                {rec.labName ? ` · ${rec.labName}` : ''}
-              </p>
-              <p className="text-[10px] text-[var(--text-muted)] shrink-0">
-                {rec.createdAt ? format(new Date(rec.createdAt), 'MMM d') : ''}
-              </p>
+        {labs.map(lab => {
+          const sm = LAB_STATUS_META[lab.status] ?? LAB_STATUS_META.pending;
+          return (
+            <div key={lab.id} className="rounded-xl px-3 py-2.5 space-y-1"
+              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+              <div className="flex items-center justify-between gap-2 min-w-0">
+                <p className="text-xs font-medium text-[var(--text-primary)] truncate flex-1">{lab.testName}</p>
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${sm.color} ${sm.bg}`}>
+                  {sm.label}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] text-[var(--text-muted)] truncate">
+                  {lab.patient ? `${lab.patient.firstName} ${lab.patient.lastName}` : '—'}
+                  {lab.labName ? ` · ${lab.labName}` : ''}
+                </p>
+                <p className="text-[10px] text-[var(--text-muted)] shrink-0">
+                  {lab.createdAt ? format(new Date(lab.createdAt), 'MMM d') : ''}
+                </p>
+              </div>
             </div>
-          </div>
-        ))}
-        {recFetching && <div className="h-10 rounded-xl bg-white/5 animate-pulse" />}
-        <div ref={recSentinelRef} className="h-1" />
+          );
+        })}
+        {isFetchingNextPage && <div className="h-10 rounded-xl bg-white/5 animate-pulse" />}
+        <div ref={sentinelRef} className="h-1" />
       </div>
     </SectionCard>
   );
@@ -537,7 +464,7 @@ export default function ContextSidebar() {
         <ProfileSection />
         <AppointmentsSection />
         <VitalsOrCommissionsSection />
-        <BloodTestsSection />
+        <LabWorkSection />
       </motion.div>
     </aside>
   );

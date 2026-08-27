@@ -3,6 +3,7 @@
 import React from 'react';
 import { useBuilderStore } from '../hooks/useBuilderState';
 import { EditorColorPicker } from './section-editors/EditorComponents';
+import { tokens } from './design-tokens';
 
 const GOOGLE_FONTS = [
   'Inter', 'Poppins', 'Roboto', 'Open Sans', 'Lato', 'Montserrat',
@@ -10,41 +11,30 @@ const GOOGLE_FONTS = [
   'Lora', 'Merriweather', 'Cormorant Garamond', 'Source Sans Pro',
 ];
 
-const dk = {
-  bg:       '#111318',
-  border:   'rgba(255,255,255,0.08)',
-  surface:  'rgba(255,255,255,0.04)',
-  text:     '#e2e4ef',
-  muted:    '#6b7080',
-  label:    '#8b8fa8',
-  accent:   '#6366f1',
-  font:     "'Inter','Geist','Segoe UI',system-ui,sans-serif",
-};
-
 const sectionLabel: React.CSSProperties = {
-  fontSize: 10, fontWeight: 700, color: dk.label,
+  fontSize: 10, fontWeight: 700, color: tokens.label,
   textTransform: 'uppercase', letterSpacing: '0.1em',
-  marginBottom: 12, fontFamily: dk.font,
+  marginBottom: 12, fontFamily: tokens.font,
 };
 
 const fieldLabel: React.CSSProperties = {
-  display: 'block', fontSize: 11, fontWeight: 500, color: dk.muted,
-  marginBottom: 5, fontFamily: dk.font,
+  display: 'block', fontSize: 11, fontWeight: 500, color: tokens.muted,
+  marginBottom: 5, fontFamily: tokens.font,
 };
 
 const selectSt: React.CSSProperties = {
   width: '100%', background: 'rgba(0,0,0,0.35)',
-  border: `1px solid ${dk.border}`, borderRadius: 7,
-  padding: '7px 10px', fontSize: 12, color: dk.text,
-  fontFamily: dk.font, outline: 'none', boxSizing: 'border-box',
+  border: `1px solid ${tokens.border}`, borderRadius: 7,
+  padding: '7px 10px', fontSize: 12, color: tokens.text,
+  fontFamily: tokens.font, outline: 'none', boxSizing: 'border-box',
 };
 
 const pillBtn = (active: boolean): React.CSSProperties => ({
   flex: 1, padding: '7px 2px', fontSize: 11, fontWeight: 500,
   borderRadius: 6, cursor: 'pointer', border: 'none',
-  fontFamily: dk.font, transition: 'all 0.15s',
-  background: active ? 'rgba(99,102,241,0.2)' : dk.surface,
-  color:  active ? '#818cf8' : dk.muted,
+  fontFamily: tokens.font, transition: 'all 0.15s',
+  background: active ? 'rgba(99,102,241,0.2)' : tokens.surface,
+  color:  active ? '#818cf8' : tokens.muted,
   outline: active ? '1px solid rgba(99,102,241,0.4)' : '1px solid transparent',
 });
 
@@ -53,7 +43,7 @@ export function ThemeEditor() {
   const set = (key: string, val: any) => setTheme({ [key]: val } as any);
 
   return (
-    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 24, background: dk.bg, minHeight: '100%', fontFamily: dk.font }}>
+    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 24, background: tokens.bg, minHeight: '100%', fontFamily: tokens.font }}>
       {/* Colors */}
       <div>
         <div style={sectionLabel}>Colors</div>
@@ -121,12 +111,12 @@ export function ThemeEditor() {
       {/* Preview */}
       <div>
         <div style={sectionLabel}>Preview</div>
-        <div style={{ border: `1px solid ${dk.border}`, borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ border: `1px solid ${tokens.border}`, borderRadius: 12, overflow: 'hidden' }}>
           <div style={{ background: theme.primaryColor, padding: 16, color: 'white' }}>
             <div style={{ fontWeight: 700, fontSize: 14, fontFamily: theme.fontHeading }}>Heading — {theme.fontHeading}</div>
             <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2, fontFamily: theme.fontBody }}>Body text in {theme.fontBody}.</div>
           </div>
-          <div style={{ padding: 12, display: 'flex', gap: 8, background: dk.surface }}>
+          <div style={{ padding: 12, display: 'flex', gap: 8, background: tokens.surface }}>
             <button style={{
               padding: '8px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
               background: theme.buttonStyle === 'filled' ? theme.primaryColor : 'transparent',

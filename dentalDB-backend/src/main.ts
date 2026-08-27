@@ -181,6 +181,42 @@ async function bootstrap() {
     }
     next();
   });
+
+  // Design Studio's live preview (Invoice / Prescription / Lab Report
+  // panels) loads these three routes inside an <iframe>. Helmet's defaults
+  // — X-Frame-Options: SAMEORIGIN plus a CSP with frame-ancestors 'self' —
+  // apply globally and block exactly that whenever the admin frontend and
+  // this API aren't the same origin, which is the normal case: dev is
+  // localhost:3002 embedding localhost:4000, and most production
+  // deployments serve the API from its own host too. The browser drops the
+  // frame silently (no console network error, just a blank/refused embed),
+  // which is why the preview "does nothing" instead of failing loudly.
+  // Reuse the exact same origin allow-list CORS already trusts above,
+  // rather than opening framing up to anyone.
+  const PREVIEW_PATHS = new Set([
+    '/api/v1/billing/template/preview',
+    '/api/v1/prescriptions/template/preview-html',
+    '/api/v1/lab-work/template/preview',
+  ]);
+  app.use(async (req: any, res: any, next: any) => {
+    if (!PREVIEW_PATHS.has(req.path)) return next();
+
+    res.removeHeader('X-Frame-Options');
+    let frameAncestors = `'self' ${[...staticOrigins].join(' ')} https://*.${ROOT_DOMAIN}`;
+    const originHeader = req.headers.origin || req.headers.referer;
+    if (originHeader) {
+      try {
+        const embedOrigin = new URL(originHeader);
+        if (!staticOrigins.has(embedOrigin.origin) && await isKnownCustomDomain(embedOrigin.hostname)) {
+          frameAncestors += ` ${embedOrigin.origin}`;
+        }
+      } catch {
+        // malformed Origin/Referer — fall through with the static allow-list only
+      }
+    }
+    res.setHeader('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
+    next();
+  });
   app.use(compression());
   app.use(cookieParser());
   app.setGlobalPrefix('api/v1');

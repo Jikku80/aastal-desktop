@@ -3,8 +3,10 @@
 import React, { useState } from 'react';
 import { useBuilderStore } from '../hooks/useBuilderState';
 import { getSectionMeta } from '../utils/sectionMeta';
+import { SectionRenderer } from '../canvas/SectionRenderer';
 import { HeroEditor } from './section-editors/HeroEditor';
 import { GlobalDesignEditor } from './section-editors/GlobalDesignEditor';
+import { tokens } from './design-tokens';
 import {
   AboutEditor, ServicesEditor, TeamEditor, TestimonialsEditor,
   AppointmentBookingEditor, WorkingHoursEditor, ContactEditor,
@@ -20,7 +22,7 @@ import {
   AvailableSlotsEditor,
   DividerEditor,
   SpacerEditor,
-} from './section-editors/AllSectionEditors';
+} from './section-editors';
 import { websiteApi } from '@/lib/api/websiteApi';
 import toast from 'react-hot-toast';
 
@@ -29,6 +31,63 @@ const IcoSparkles = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="
 const IcoSpin     = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{animation:'builder-spin .7s linear infinite',display:'block'}}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>;
 
 const font = "'Inter','Geist','Segoe UI',system-ui,sans-serif";
+
+/**
+ * Live thumbnail of the currently-selected section, shown at the top of the
+ * panel so the person has a visual anchor confirming which section they're
+ * editing before scrolling through the form below it. Renders the *real*
+ * SectionRenderer at full size and scales it down, rather than a generic
+ * schematic icon, so it reflects the section's actual current content.
+ */
+const THUMBNAIL_SOURCE_WIDTH = 1200;
+const THUMBNAIL_HEIGHT = 92;
+
+function SectionLiveThumbnail({ section }: { section: any }) {
+  return (
+    <div style={{
+      height: THUMBNAIL_HEIGHT, overflow: 'hidden', position: 'relative',
+      background: '#fff', borderBottom: '1px solid rgba(255,255,255,0.06)',
+      flexShrink: 0,
+    }}>
+      {/* Scale factor is resolved at runtime via CSS custom property + container query
+          width isn't available here, so we use a ResizeObserver-free trick:
+          render at a fixed known width and let the wrapper below scale it with
+          a percentage-based transform computed from its own clientWidth. */}
+      <ScaledSection section={section} />
+      {/* Fade so a tall section doesn't look abruptly clipped */}
+      <div style={{
+        position: 'absolute', bottom: 0, left: 0, right: 0, height: 20,
+        background: 'linear-gradient(rgba(255,255,255,0), rgba(255,255,255,0.9))',
+        pointerEvents: 'none',
+      }} />
+    </div>
+  );
+}
+
+function ScaledSection({ section }: { section: any }) {
+  const wrapperRef = React.useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.22);
+
+  React.useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const compute = () => setScale(el.clientWidth / THUMBNAIL_SOURCE_WIDTH);
+    compute();
+    const ro = new ResizeObserver(compute);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div ref={wrapperRef} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
+      <div style={{
+        width: THUMBNAIL_SOURCE_WIDTH, transform: `scale(${scale})`, transformOrigin: 'top left',
+      }}>
+        <SectionRenderer section={section} />
+      </div>
+    </div>
+  );
+}
 
 const EditorMap: Record<string, React.ComponentType<any>> = {
   hero:                  HeroEditor,
@@ -171,6 +230,9 @@ export function SectionEditor({ clinicId }: SectionEditorProps = {}) {
         </button>
       </div>
 
+      {/* Live thumbnail — visual anchor confirming which section this is */}
+      <SectionLiveThumbnail section={section} />
+
       {/* Content / Design tab switcher */}
       <div style={{
         display: 'flex',
@@ -183,10 +245,10 @@ export function SectionEditor({ clinicId }: SectionEditorProps = {}) {
             key={tab}
             onClick={() => setActiveEditorTab(tab)}
             style={{
-              flex: 1, padding: '9px 4px', border: 'none', cursor: 'pointer',
+              flex: 1, padding: '11px 4px', border: 'none', cursor: 'pointer',
               background: 'transparent',
               color: activeEditorTab === tab ? '#818cf8' : '#4b5060',
-              fontSize: 11, fontWeight: activeEditorTab === tab ? 600 : 500,
+              fontSize: tokens.fontSize.label, fontWeight: activeEditorTab === tab ? 600 : 500,
               fontFamily: font,
               borderBottom: activeEditorTab === tab ? '2px solid #6366f1' : '2px solid transparent',
               transition: 'all 0.15s',

@@ -6,14 +6,13 @@ import { Subscription } from './entities/subscription.entity';
 import { SubscriptionRequest } from './entities/subscription-request.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { SyncMeta } from '../sync/entities/sync-meta.entity';
-import { SubscriptionGuard } from './guards/subscription.guard';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { BranchesModule } from '../branch/branch.module';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Subscription, SubscriptionRequest, Clinic, SyncMeta]), NotificationsModule, BranchesModule],
   controllers: [SubscriptionsController],
-  providers: [SubscriptionsService, SubscriptionGuard],
-  exports: [SubscriptionsService, SubscriptionGuard],
+  providers: [SubscriptionsService],
+  exports: [SubscriptionsService],
 })
 export class SubscriptionsModule {}

@@ -12,7 +12,6 @@ import { PatientAuthModule } from '../patient-auth/patient-auth.module';
 import { TelehealthModule } from '../telehealth/telehealth.module';
 import { FilesModule } from '../files/files.module';
 import { Clinic } from 'src/clinics/entities/clinic.entity';
-import { BloodTestModule } from 'src/blood-test/blood-test.module';
 import { LabWorkModule } from 'src/lab-work/lab-work.module';
 import { NotificationsModule } from 'src/notifications/notifications.module';
 import { HealthSummaryPdfService } from './health-summary-pdf.service';
@@ -28,7 +27,6 @@ import { Referral } from '../doctor-portal/entities/referral.entity';
     PatientAuthModule,
     TelehealthModule,
     FilesModule,
-    BloodTestModule,
     LabWorkModule,
     NotificationsModule
   ],

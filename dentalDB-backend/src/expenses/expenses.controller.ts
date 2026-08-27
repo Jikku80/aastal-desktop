@@ -38,6 +38,14 @@ export class ExpensesController {
     return this.svc.getMonthlyTrend(req.user.clinicId, query);
   }
 
+  // Backfills the accounting ledger from already-approved expenses — see
+  // BillingController.reconcileFinance for the matching invoice-side hook.
+  @Post('reconcile-finance')
+  @RequirePermissions('finance.manage_accounts')
+  reconcileFinance(@Request() req: any) {
+    return this.svc.reconcileJournal(req.user.clinicId, req.user.id);
+  }
+
   @Get('vendors')
   @RequirePermissions('expense.view')
   listVendors(@Request() req: any, @Query() query: any) {

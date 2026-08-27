@@ -6,10 +6,11 @@ import {
 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { billingApi, walletApi, BASE_URL as API_BASE_URL } from '@/lib/api';
+import { billingApi, walletApi } from '@/lib/api';
 import { usePermissions } from '@/store/permissions.store';
 import { useCalendarType } from '@/hooks/useCalendarType';
 import { formatDate } from '@/lib/calendar';
+import { downloadInvoicePdf } from '@/lib/invoicePdf';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Invoice, PaymentMethod } from '@/types';
 import PatientWalletPanel from './PatientWalletPanel';
@@ -98,24 +99,7 @@ export default function InvoiceDetailPanel({
   const handleDownloadPdf = async () => {
     setDlState('loading');
     try {
-      const apiBase = API_BASE_URL; // Electron-aware, from lib/api.ts
-      const url     = `${apiBase}/api/v1/billing/invoices/${invoice.id}/pdf`;
-      const response = await fetch(url, { method: 'GET', credentials: 'include' });
-      if (!response.ok) throw new Error(`Server returned ${response.status}`);
-      const contentType = response.headers.get('content-type') || 'application/pdf';
-      const isHtml      = contentType.includes('text/html');
-      const blob        = await response.blob();
-      const typedBlob   = new Blob([blob], { type: isHtml ? 'text/html;charset=utf-8' : 'application/pdf' });
-      const objectUrl   = URL.createObjectURL(typedBlob);
-      const a           = document.createElement('a');
-      a.href = objectUrl;
-      a.download = `Invoice-${invoice.invoiceNumber}.${isHtml ? 'html' : 'pdf'}`;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
-      toast.success(isHtml ? 'Invoice saved — print as PDF (Ctrl+P)' : 'PDF downloaded!');
+      await downloadInvoicePdf(invoice.id, invoice.invoiceNumber);
       setDlState('idle');
     } catch (err: any) {
       toast.error('Download failed. Please try again.');

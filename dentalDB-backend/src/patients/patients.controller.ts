@@ -91,4 +91,20 @@ export class PatientsController {
   remove(@Request() req, @Param('id') id: string) {
     return this.service.remove(req.user.clinicId, id);
   }
+
+  // ── Bulk duplicate cleanup ──────────────────────────────────────────────
+  // Finds patients that match on OPD number, or on name + phone (both
+  // case-insensitive), and merges each duplicate set down to one record.
+  // GET first with ?dryRun=true (or just call findDuplicates) to preview.
+  @Get('duplicates/find')
+  @RequirePermissions('patient.delete')
+  findDuplicates(@Request() req) {
+    return this.service.mergeAllDuplicates(req.user.clinicId, true);
+  }
+
+  @Post('duplicates/merge')
+  @RequirePermissions('patient.delete')
+  mergeDuplicates(@Request() req, @Query('dryRun') dryRun?: string) {
+    return this.service.mergeAllDuplicates(req.user.clinicId, dryRun === 'true');
+  }
 }

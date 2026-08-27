@@ -1,7 +1,59 @@
-import { IsString, IsNumber, IsOptional, IsBoolean, Min } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsBoolean, IsEnum, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import { InventoryItemType, DosageForm } from '../entities/product.entity';
 
-export class CreateProductDto {
+/** Shared pharma-attribute fields, mixed into both Create/Update DTOs below. */
+class PharmaAttributesDto {
+  @IsOptional()
+  @IsEnum(InventoryItemType)
+  itemType?: InventoryItemType;
+
+  @IsOptional()
+  @IsString()
+  genericName?: string;
+
+  @IsOptional()
+  @IsString()
+  brandName?: string;
+
+  @IsOptional()
+  @IsString()
+  medicineCategory?: string;
+
+  @IsOptional()
+  @IsEnum(DosageForm)
+  dosageForm?: DosageForm;
+
+  @IsOptional()
+  @IsString()
+  strength?: string;
+
+  @IsOptional()
+  @IsString()
+  dosageUnit?: string;
+
+  @IsOptional()
+  @IsString()
+  manufacturer?: string;
+
+  @IsOptional()
+  @IsString()
+  storageInstructions?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  prescriptionRequired?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isControlled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  barcode?: string;
+}
+
+export class CreateProductDto extends PharmaAttributesDto {
   @IsOptional()
   @IsString()
   branchId?: string;
@@ -61,7 +113,7 @@ export class CreateProductDto {
   imageUrl?: string;
 }
 
-export class UpdateProductDto {
+export class UpdateProductDto extends PharmaAttributesDto {
   @IsOptional()
   @IsString()
   name?: string;

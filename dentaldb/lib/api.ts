@@ -71,6 +71,13 @@ export const api = axios.create({
   baseURL: `${BASE_URL}/api/v1`,
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,   // ← send/receive HTTP-only cookies automatically
+  // Without a timeout, a request against an unreachable/hung backend (wrong
+  // port, dead process, network black hole) never settles at all — any UI
+  // driven by it (e.g. the website builder's Live Preview) is then stuck
+  // showing its loading state forever instead of surfacing an error the
+  // user can retry from. 20s is generous for normal API calls but still
+  // bounded.
+  timeout: 20_000,
 });
 
 // ── Auto-refresh on 401 ───────────────────────────────────────────────────────
@@ -163,6 +170,7 @@ export const billingApi = {
   deleteInvoice:   (id: string)         => api.delete(`/billing/invoices/${id}`),
   getRevenueSummary: (p?: any)          => api.get('/billing/analytics', { params: p }),
   downloadPdf:     (id: string)         => api.get(`/billing/invoices/${id}/pdf`, { responseType: 'blob' }),
+  reconcileFinance: ()                  => api.post('/billing/reconcile-finance'),
 };
 
 export const usersApi = {
@@ -331,6 +339,7 @@ export const vitalsApi = {
 export const billingTemplateApi = {
   get:    () => api.get('/billing/template'),
   update: (d: any) => api.patch('/billing/template', d),
+  previewUrl: () => `${BASE_URL}/api/v1/billing/template/preview`,
 };
 
 export const shiftsApi = {
@@ -435,6 +444,33 @@ export const inventoryApi = {
   deletePO:  (id: string)         => api.delete(`/purchase-orders/${id}`),
 };
 
+// ── Pharmacy (batch/lot tracking, FEFO dispensing, expiry) ─────────────────────
+// Extends the inventory system above rather than a standalone app — batches
+// reference the same Product rows (itemType === 'pharmaceutical'), and stock
+// totals stay owned by inventoryApi. See dentalDB-backend src/pharmacy.
+export const pharmacyApi = {
+  list:      (p?: any)            => api.get('/pharmacy/batches', { params: p }),
+  get:       (id: string)         => api.get(`/pharmacy/batches/${id}`),
+  create:    (d: any)             => api.post('/pharmacy/batches', d),
+  update:    (id: string, d: any) => api.patch(`/pharmacy/batches/${id}`, d),
+  delete:    (id: string)         => api.delete(`/pharmacy/batches/${id}`),
+  dispense:  (d: any)             => api.post('/pharmacy/batches/dispense', d),
+  dispose:   (id: string, d: any) => api.post(`/pharmacy/batches/${id}/dispose`, d),
+  planFefo:  (productId: string, quantity: number, branchId?: string) =>
+    api.post(`/pharmacy/batches/plan-fefo/${productId}`, { quantity, branchId }),
+  eligibleBatches: (productId: string, branchId?: string) =>
+    api.get(`/pharmacy/batches/eligible/${productId}`, { params: { branchId } }),
+  usableStock: (productId: string, branchId?: string) =>
+    api.get(`/pharmacy/batches/usable-stock/${productId}`, { params: { branchId } }),
+  // Reports (section 14) — branch-scoping is resolved server-side from the caller's access
+  reportExpiry:           (branchId?: string)        => api.get('/pharmacy/batches/reports/expiry', { params: { branchId } }),
+  reportExpired:          (branchId?: string)        => api.get('/pharmacy/batches/reports/expired', { params: { branchId } }),
+  reportNearExpiry:       (days: number, branchId?: string) => api.get('/pharmacy/batches/reports/near-expiry', { params: { days, branchId } }),
+  reportBranchComparison: ()                          => api.get('/pharmacy/batches/reports/branch-comparison'),
+  // Pharmacy fulfillment queue — lives on clinical-records (owns Prescription)
+  pendingDispensing: (branchId?: string) => api.get('/clinical-records/prescriptions/pending-dispensing', { params: { branchId } }),
+};
+
 // ── Website Orders (orders placed from clinic public website) ─────────────────
 export const websiteOrdersApi = {
   list:         (p?: any)                    => api.get("/website-orders", { params: p }),
@@ -461,6 +497,17 @@ export const clinicalRecordsApi = {
   upsertFromBilling: (d: any)  => api.post('/clinical-records/upsert-from-billing', d),
 };
 
+// ── Treatment Plans (structured propose/accept/decline, distinct from
+// clinicalRecordsApi's free-text treatmentPlan field on the visit record
+// itself) ────────────────────────────────────────────────────────────────────
+export const treatmentPlansApi = {
+  list:         (p?: any)                     => api.get('/treatment-plans', { params: p }),
+  get:          (id: string)                  => api.get(`/treatment-plans/${id}`),
+  create:       (d: any)                      => api.post('/treatment-plans', d),
+  updateStatus: (id: string, d: any)           => api.patch(`/treatment-plans/${id}/status`, d),
+  delete:       (id: string)                   => api.delete(`/treatment-plans/${id}`),
+};
+
 // ── Prescriptions (template + PDF) ────────────────────────────────────────────
 // These build plain URLs (for opening/downloading a PDF directly) rather than
 // going through the `api` axios instance, so they need the same
@@ -471,6 +518,7 @@ const BASE_URL_RAW = BASE_URL;
 export const prescriptionsApi = {
   getTemplate:     ()           => api.get('/prescriptions/template'),
   updateTemplate:  (d: any)     => api.patch('/prescriptions/template', d),
+  templatePreviewUrl: ()        => `${BASE_URL}/api/v1/prescriptions/template/preview-html`,
   uploadLogo:      (file: File) => {
     const fd = new FormData(); fd.append('file', file);
     return api.post('/prescriptions/template/logo', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
@@ -548,6 +596,10 @@ export const noticesApi = {
 };
 
 // ── Lab Work ──────────────────────────────────────────────────────────────────
+// Phase 5: consolidates what used to be a separate `blood-test` module —
+// blood tests are now just lab-work orders, optionally against a dynamic
+// per-clinic service catalog (labServiceApi below) instead of a hardcoded
+// test-type enum.
 export const labApi = {
   list:          (p?: any)             => api.get('/lab-work', { params: p }),
   get:           (id: string)          => api.get(`/lab-work/${id}`),
@@ -559,22 +611,32 @@ export const labApi = {
   delete:        (id: string)          => api.delete(`/lab-work/${id}`),
 };
 
-// ── Blood Test ────────────────────────────────────────────────────────────────
-export const bloodTestApi = {
-  list:          (p?: any)             => api.get('/blood-test', { params: p }),
-  get:           (id: string)          => api.get(`/blood-test/${id}`),
-  stats:         ()                    => api.get('/blood-test/stats'),
-  byPatient:     (patientId: string)   => api.get(`/blood-test/patient/${patientId}`),
-  unbilledByPatient: (patientId: string) => api.get(`/blood-test/patient/${patientId}/unbilled`),
-  create:        (d: any)              => api.post('/blood-test', d),
-  update:        (id: string, d: any)  => api.patch(`/blood-test/${id}`, d),
-  delete:        (id: string)          => api.delete(`/blood-test/${id}`),
+// ── Lab Service Catalog ─────────────────────────────────────────────────────────
+// Clinic-managed list of tests it actually runs (name, panel, price, TAT,
+// pre-filled result parameters). Replaces the old hardcoded BloodTestType enum.
+export const labServiceApi = {
+  list:    (p?: any)            => api.get('/lab-catalog', { params: p }),
+  get:     (id: string)         => api.get(`/lab-catalog/${id}`),
+  create:  (d: any)             => api.post('/lab-catalog', d),
+  update:  (id: string, d: any) => api.patch(`/lab-catalog/${id}`, d),
+  delete:  (id: string)         => api.delete(`/lab-catalog/${id}`),
+};
+
+// Phase 8 — Design Studio (lab report branding). Same shape as
+// billingTemplateApi/prescriptionsApi.getTemplate above; preview is a real
+// PDF (not HTML) so the iframe uses BASE_URL directly, same pattern as
+// BillingTemplateTab's preview iframe.
+export const labReportTemplateApi = {
+  get:        ()       => api.get('/lab-work/template'),
+  update:     (d: any) => api.patch('/lab-work/template', d),
+  previewUrl: ()        => `${BASE_URL}/api/v1/lab-work/template/preview`,
 };
 
 export const publicApi = axios.create({
   baseURL: `${BASE_URL}/api/v1`,
   headers: { 'Content-Type': 'application/json' },
   // no withCredentials — these are unauthenticated public routes
+  timeout: 20_000, // see `api` above — bounded so public site calls can't hang forever
 });
 
 // ── Expenses ──────────────────────────────────────────────────────────────────
@@ -590,6 +652,7 @@ export const expenseApi = {
   createVendor:   (d: any)  => api.post('/expenses/vendors', d),
   updateVendor:   (id: string, d: any) => api.patch(`/expenses/vendors/${id}`, d),
   deleteVendor:   (id: string) => api.delete(`/expenses/vendors/${id}`),
+  reconcileFinance: () => api.post('/expenses/reconcile-finance'),
 };
 
 // ── Payroll ───────────────────────────────────────────────────────────────────
@@ -627,6 +690,38 @@ export const reportsApi = {
   getBranchPerformance:   (p?: any) => api.get('/analytics/branch-performance', { params: p }),
   getTaxReport:           (p?: any) => api.get('/analytics/tax-report', { params: p }),
   getAgingReport:         (p?: any) => api.get('/billing/aging-report', { params: p }),
+};
+
+// ── Finance (Phase 9 — Chart of Accounts / Journal / Statements) ──────────────
+export const financeApi = {
+  // Chart of Accounts
+  seedCoa:              ()                          => api.post('/finance/accounts/seed'),
+  listAccounts:         (p?: any)                   => api.get('/finance/accounts', { params: p }),
+  createAccount:        (d: any)                     => api.post('/finance/accounts', d),
+  updateAccount:        (id: string, d: any)         => api.patch(`/finance/accounts/${id}`, d),
+  deleteAccount:        (id: string)                 => api.delete(`/finance/accounts/${id}`),
+  // Journal
+  listEntries:          (p?: any)                   => api.get('/finance/journal-entries', { params: p }),
+  getEntry:             (id: string)                 => api.get(`/finance/journal-entries/${id}`),
+  postManual:           (d: any)                     => api.post('/finance/journal-entries', d),
+  reverseEntry:         (id: string)                 => api.post(`/finance/journal-entries/${id}/reverse`),
+  // Ledger & Trial Balance
+  getLedger:            (accountId: string, p?: any) => api.get(`/finance/ledger/${accountId}`, { params: p }),
+  getTrialBalance:      (p?: any)                   => api.get('/finance/trial-balance', { params: p }),
+  getTrialBalancePdfUrl: (p?: any)                   => `/finance/trial-balance/pdf${p ? '?' + new URLSearchParams(p).toString() : ''}`,
+  // Financial Statements
+  getBalanceSheet:      (p?: any)                   => api.get('/finance/statements/balance-sheet', { params: p }),
+  getBalanceSheetPdfUrl: (p?: any)                   => `/finance/statements/balance-sheet/pdf${p ? '?' + new URLSearchParams(p).toString() : ''}`,
+  getProfitLoss:        (p?: any)                   => api.get('/finance/statements/profit-loss', { params: p }),
+  getProfitLossPdfUrl:  (p?: any)                   => `/finance/statements/profit-loss/pdf${p ? '?' + new URLSearchParams(p).toString() : ''}`,
+  getCashFlow:          (p?: any)                   => api.get('/finance/statements/cash-flow', { params: p }),
+  // Design Studio template (Phase 8 integration)
+  getTemplate:          ()                          => api.get('/finance/template'),
+  saveTemplate:         (d: any)                     => api.patch('/finance/template', d),
+  // Period Close
+  listPeriods:          ()                          => api.get('/finance/periods'),
+  closePeriod:          (d: any)                     => api.post('/finance/periods/close', d),
+  reopenPeriod:         (id: string)                 => api.delete(`/finance/periods/${id}`),
 };
 
 // ── Blog (admin) ──────────────────────────────────────────────────────────────
@@ -701,6 +796,23 @@ export { websiteApi as websiteApiAlt } from './api/websiteApi';
 // isOnline is just always true and outbox counts are always zero, so this
 // is safe to poll unconditionally rather than needing an "are we in
 // Electron" check on the frontend.
+// ── Jwantra AI ────────────────────────────────────────────────────────────────
+// Two independent directions live behind these endpoints:
+//  - connect/disconnect/updateWebhook: lets Jwantra pull this clinic's
+//    patients/services/invoices (data sharing).
+//  - linkApiKey/unlinkApiKey/ask: lets ClinicKarobar call OUT to Jwantra's
+//    AI on the clinic's behalf, so analysis shows up inside ClinicKarobar
+//    itself (see dentalDB-backend/src/integrations/jwantra).
+export const jwantraApi = {
+  status:        ()                            => api.get('/integrations/jwantra/status'),
+  connect:       (d?: { webhookUrl?: string })  => api.post('/integrations/jwantra/connect', d ?? {}),
+  disconnect:    ()                             => api.delete('/integrations/jwantra/connect'),
+  updateWebhook: (d: { webhookUrl?: string })   => api.patch('/integrations/jwantra/webhook', d),
+  linkApiKey:    (apiKey: string)               => api.post('/integrations/jwantra/ai/link', { apiKey }),
+  unlinkApiKey:  ()                             => api.delete('/integrations/jwantra/ai/link'),
+  ask:           (query: string)                => api.post('/integrations/jwantra/ai/ask', { query }),
+};
+
 export const syncApi = {
   status: () => api.get('/sync/status'),
   trigger: () => api.post('/sync/trigger'),

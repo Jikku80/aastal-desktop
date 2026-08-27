@@ -12,8 +12,7 @@ import {
   CircleDollarSign,
   Wallet,
   Landmark,
-  FileText,
-  Receipt,
+  Palette,
   CloudCog,
   ImagePlus,
   DownloadCloud,
@@ -21,8 +20,7 @@ import {
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { clinicsApi, subscriptionsApi, paymentsApi, apiKeysApi, adminApi, api } from '@/lib/api';
-import PrescriptionTemplateTab from '@/components/prescriptions/PrescriptionTemplateTab';
-import BillingTemplateTab from '@/components/billing/BillingTemplateTab';
+import DesignStudio from '@/components/settings/DesignStudio';
 import SyncSettingsTab from '@/components/system/SyncSettingsTab';
 import WatchedFolderSettingsTab from '@/components/system/WatchedFolderSettingsTab';
 import UpdateSettingsTab from '@/components/system/UpdateSettingsTab';
@@ -32,16 +30,16 @@ import { usePermissions } from '@/store/permissions.store';
 import type { WorkingHours } from '@/types';
 
 const ADMIN_ROLES = new Set(['super_admin', 'owner']);
-const TABS = ['Clinic Profile', 'Working Hours', 'VAT Settings', 'Subscription', 'API Access', 'Prescription', 'Billing', 'Sync', 'Photo Sync', 'Updates'] as const;
+const TABS = ['Clinic Profile', 'Working Hours', 'VAT Settings', 'Subscription', 'API Access', 'Design Studio', 'Sync', 'Photo Sync', 'Updates'] as const;
 type Tab = typeof TABS[number];
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
 const PLANS = [
   {
     id: 'free', name: 'Free Trial', priceMonthly: 0, priceYearly: 0,
-    badge: '14 days', yearlyNote: '',
-    features: ['All features unlocked', 'Dashboard, Appointments, Patients', 'Billing, Analytics, Staff', 'Settings, SMS Reminders', 'Notifications', '14-day trial — no renewal'],
-    restrictions: ['Expires after 14 days, no renewal'],
+    badge: '30 days', yearlyNote: '',
+    features: ['All features unlocked', 'Dashboard, Appointments, Patients', 'Billing, Analytics, Staff', 'Settings, SMS Reminders', 'Notifications', '30-day trial — no renewal'],
+    restrictions: ['Expires after 30 days, no renewal'],
     color: 'border-gray-500/30', badgeColor: 'bg-gray-500/10 text-gray-400',
   },
   {
@@ -66,8 +64,7 @@ const TAB_ICONS: Record<Tab, any> = {
   'VAT Settings': Percent,
   'Subscription': CreditCard,
   'API Access': Code,
-  'Prescription': FileText,
-  'Billing': Receipt,
+  'Design Studio': Palette,
   'Sync': CloudCog,
   'Photo Sync': ImagePlus,
   'Updates': DownloadCloud,
@@ -2040,26 +2037,15 @@ export default function SettingsPage() {
               <ApiAccessTab isAdmin={isAdmin} clinicPlan={clinic?.plan} />
             )}
 
-            {/* Prescription */}
-            {activeTab === 'Billing' && (
+            {/* Design Studio — Phase 8: replaces the old separate Billing/Prescription template tabs with one shared editor. */}
+            {activeTab === 'Design Studio' && (
               <motion.div
-                key="billing-template"
+                key="design-studio"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
               >
-                <BillingTemplateTab />
-              </motion.div>
-            )}
-
-            {activeTab === 'Prescription' && (
-              <motion.div
-                key="prescription-template"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-              >
-                <PrescriptionTemplateTab />
+                <DesignStudio />
               </motion.div>
             )}
 

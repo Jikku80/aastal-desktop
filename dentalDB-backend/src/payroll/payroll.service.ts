@@ -14,6 +14,7 @@ import { Expense, ExpenseCategory, ApprovalStatus } from '../expenses/entities/e
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditEntityType } from '../audit/entities/audit-log.entity';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
+import { JournalService } from '../finance/journal.service';
 
 // ─── Default rules (used when no DB row exists yet) ──────────────────────────
 const DEFAULT_RULES = {
@@ -39,6 +40,7 @@ export class PayrollService {
     @InjectRepository(Expense)             private expenseRepo: Repository<Expense>,
     private auditService: AuditService,
     private notificationsGateway: NotificationsGateway,
+    private journalService: JournalService,
   ) {}
 
   // ─── Deduction rules CRUD ─────────────────────────────────────────────────
@@ -340,7 +342,15 @@ export class PayrollService {
         }));
       }
     }
-    if (salaryExpenses.length) await this.expenseRepo.save(salaryExpenses);
+    if (salaryExpenses.length) {
+      const savedExpenses = await this.expenseRepo.save(salaryExpenses);
+      // Phase 9 §2 — payroll finalized → Debit Salaries Expense, Credit
+      // Cash/Payable, one journal entry per salary expense line. Never
+      // allowed to block finalization, which has already succeeded.
+      for (const exp of savedExpenses) {
+        this.journalService.postExpenseApproved(clinicId, exp, userId).catch(() => {});
+      }
+    }
 
     await this.auditService.log({
       clinicId, userId, action: AuditAction.UPDATED,

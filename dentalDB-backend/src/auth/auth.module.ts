@@ -14,11 +14,13 @@ import { User } from '../users/entities/user.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { Branch } from '../branch/entities/branch.entity';
 import { SyncMeta } from '../sync/entities/sync-meta.entity';
+import { Subscription } from '../subscriptions/entities/subscription.entity';
 import { DoctorProfile } from '../doctor-profile/entities/doctor-profile.entity';
 import { NotificationsModule } from 'src/notifications/notifications.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { AuditModule } from '../audit/audit.module';
 import { SyncModule } from '../sync/sync.module';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
   imports: [
@@ -36,6 +38,7 @@ import { SyncModule } from '../sync/sync.module';
     RbacModule,
     AuditModule,
     SyncModule,
+    FinanceModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, AuthCacheService, JwtStrategy, LocalStrategy],

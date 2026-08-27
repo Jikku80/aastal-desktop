@@ -17,6 +17,13 @@ import { AppointmentIndependentBookingNullable1784800000000 } from '../migration
 import { InvoiceNumberPerClinicUnique1784900000000 } from '../migrations/sqlite/1784900000000-InvoiceNumberPerClinicUnique.sqlite';
 import { PatientFileBlobSync1785000000000 } from '../migrations/sqlite/1785000000000-PatientFileBlobSync.sqlite';
 import { RecallBranchScoping1785200000000 } from '../migrations/sqlite/1785200000000-RecallBranchScoping';
+import { TreatmentPlansAndInventoryConsumption1785500000000 } from '../migrations/sqlite/1785500000000-TreatmentPlansAndInventoryConsumption';
+import { PharmacyPackage1785600000000 } from '../migrations/sqlite/1785600000000-PharmacyPackage';
+import { PrescriptionPharmacyDispensing1785700000000 } from '../migrations/sqlite/1785700000000-PrescriptionPharmacyDispensing';
+import { ConsolidateLabWork1785800000000 } from '../migrations/sqlite/1785800000000-ConsolidateLabWork';
+import { AuditLogLabWorkEnumValue1785900000000 } from '../migrations/sqlite/1785900000000-AuditLogLabWorkEnumValue';
+import { DesignStudioTemplateColumns1786000000000 } from '../migrations/sqlite/1786000000000-DesignStudioTemplateColumns';
+import { FinanceModule1786100000000 } from '../migrations/sqlite/1786100000000-FinanceModule';
 
 export const SQLITE_MIGRATIONS = [
   Migration1782578519527,
@@ -35,4 +42,11 @@ export const SQLITE_MIGRATIONS = [
   InvoiceNumberPerClinicUnique1784900000000,
   PatientFileBlobSync1785000000000,
   RecallBranchScoping1785200000000,
+  TreatmentPlansAndInventoryConsumption1785500000000,
+  PharmacyPackage1785600000000,
+  PrescriptionPharmacyDispensing1785700000000,
+  ConsolidateLabWork1785800000000,
+  AuditLogLabWorkEnumValue1785900000000,
+  DesignStudioTemplateColumns1786000000000,
+  FinanceModule1786100000000,
 ];

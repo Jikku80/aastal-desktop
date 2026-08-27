@@ -19,6 +19,8 @@ import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { WebsiteOrder } from './entities/website-order.entity';
 import { Product } from '../inventory/entities/product.entity';
 import { ClinicService } from '../services/entities/service.entity';
+import { ShiftResolver } from '../shifts/shift-resolver.service';
+import { findOrCreatePatient } from '../patients/patient-dedup.util';
 
 @ApiTags('Website Builder (Public)')
 @Controller('website-builder/public')
@@ -37,9 +39,17 @@ export class WebsiteBuilderPublicController {
     @InjectRepository(Notification)   private notifRepo:    Repository<Notification>,
     @InjectRepository(ClinicService)  private serviceRepo:  Repository<ClinicService>,
     private readonly notifGateway: NotificationsGateway,
+    private readonly shiftResolver: ShiftResolver,
   ) {}
 
   // ── Shared helper: resolve site by subdomain OR customDomain ─────────────────
+  // NOTE: this is used by every public route (including branches/doctors/
+  // slots/book, which the live builder preview also calls while a site is
+  // still a draft) so it deliberately does NOT enforce isPublished here —
+  // that check belongs only on the full-page `getPublic` route below, which
+  // is what real subdomain/custom-domain visitors hit. Gating it here too
+  // would break the "Live Preview" pane for any clinic that hasn't hit
+  // Publish yet.
   private async resolveSite(identifier: string): Promise<ClinicWebsite> {
     const normalized = identifier.replace(/^www\./, '');
     const site = await this.websiteRepo.findOne({
@@ -52,6 +62,26 @@ export class WebsiteBuilderPublicController {
     });
     if (!site) throw new NotFoundException('Website not found');
     return site;
+  }
+
+  /** Active branches for a clinic, cheapest-first (used to auto-resolve a single branch). */
+  private async getActiveBranches(clinicId: string): Promise<Branch[]> {
+    return this.branchRepo.find({ where: { clinicId, isActive: true }, order: { name: 'ASC' } });
+  }
+
+  /** Doctor-role staff for a resolved branch (falls back to all clinic doctors when no branch given). */
+  private async getBranchDoctors(clinicId: string, branchId?: string): Promise<User[]> {
+    let users: User[] = [];
+    if (branchId) {
+      const branch = await this.branchRepo.findOne({
+        where: { id: branchId, clinicId, isActive: true },
+        relations: ['staff'],
+      });
+      users = branch?.staff ?? [];
+    } else {
+      users = await this.userRepo.find({ where: { clinicId, isActive: true } });
+    }
+    return users.filter(u => ['owner', 'doctor', 'dentist'].includes(u.role));
   }
 
   // ── NOTE: specific sub-routes MUST be declared before /:identifier ────────────
@@ -93,39 +123,57 @@ export class WebsiteBuilderPublicController {
     }));
   }
 
-  // ── GET /public/:subdomain/doctors?branchId=... ───────────────────────────────
+  // ── GET /public/:subdomain/doctors?branchId=&date=YYYY-MM-DD ──────────────────
+  // `date` is optional. When given AND the clinic actually uses the Shift
+  // module, the list is narrowed to doctors who are resolved as "working"
+  // that day (via ShiftResolver), and each doctor gets a `shift` block with
+  // their start/end time. When the clinic has never configured any shifts
+  // (hasAnyShiftConfig === false), or no `date` was passed, every doctor of
+  // the branch/clinic is returned unfiltered — this is the explicit
+  // "if not, show all doctors of the clinic" fallback.
   @Get(':subdomain/doctors')
   async getDoctors(
     @Param('subdomain') subdomain: string,
     @Query('branchId')  branchId?: string,
+    @Query('date')      date?: string,
   ) {
     const site = await this.resolveSite(subdomain);
+    const doctors = await this.getBranchDoctors(site.clinicId, branchId);
 
-    let users: User[] = [];
+    const base = doctors.map(u => ({
+      id:             u.id,
+      name:           `${u.firstName} ${u.lastName}`.trim(),
+      specialization: (u as any).specialization || '',
+      avatar:         (u as any).avatar || null,
+      bio:            (u as any).bio || '',
+      experience:     (u as any).experience || null,
+      education:      (u as any).education || null,
+      shift:          null as { startTime: string; endTime: string; name: string } | null,
+    }));
 
-    if (branchId) {
-      const branch = await this.branchRepo.findOne({
-        where: { id: branchId, clinicId: site.clinicId, isActive: true },
-        relations: ['staff'],
-      });
-      users = branch?.staff ?? [];
-    } else {
-      users = await this.userRepo.find({
-        where: { clinicId: site.clinicId, isActive: true },
-      });
-    }
+    if (!date) return base;
 
-    return users
-      .filter(u => ['owner', 'doctor', 'dentist'].includes(u.role))
-      .map(u => ({
-        id:             u.id,
-        name:           `${u.firstName} ${u.lastName}`.trim(),
-        specialization: (u as any).specialization || '',
-        avatar:         (u as any).avatar || null,
-        bio:            (u as any).bio || '',
-        experience:     (u as any).experience || null,
-        education:      (u as any).education || null,
-      }));
+    const usesShiftModule = await this.shiftResolver.hasAnyShiftConfig(site.clinicId);
+    if (!usesShiftModule) return base;
+
+    const withShifts = await Promise.all(base.map(async d => {
+      const resolved = await this.shiftResolver.resolveUserShift(d.id, site.clinicId, date);
+      if (resolved.type !== 'working' || !resolved.shift) return null;
+      return {
+        ...d,
+        shift: {
+          name:      resolved.shift.name,
+          startTime: resolved.shift.startTime,
+          endTime:   resolved.shift.endTime,
+        },
+      };
+    }));
+
+    const working = withShifts.filter((d): d is NonNullable<typeof d> => d !== null);
+    // If shift data exists for the clinic but genuinely nobody is scheduled
+    // that day, don't show an empty/broken booking screen — fall back to
+    // the unfiltered list rather than a dead end.
+    return working.length > 0 ? working : base;
   }
 
   // ── GET /public/:subdomain/services ───────────────────────────────────────────
@@ -300,36 +348,87 @@ export class WebsiteBuilderPublicController {
   ) {
     const site = await this.resolveSite(subdomain);
 
+    if (!dto.patientName?.trim())  throw new BadRequestException('Patient name is required');
+    if (!dto.patientPhone?.trim()) throw new BadRequestException('Phone number is required');
+    if (!dto.scheduledAt)          throw new BadRequestException('Appointment date/time is required');
+
     const scheduledAt = parseAsNepalTime(dto.scheduledAt);
     const endsAt      = new Date(scheduledAt.getTime() + 30 * 60 * 1000);
+    const dateKey     = dto.scheduledAt.split('T')[0];
+
+    // ── Resolve branch ───────────────────────────────────────────────────────
+    // Several booking widgets (quick-consult, sidebar-card, etc.) don't show
+    // a branch picker at all — if the clinic only has one active branch we
+    // route straight there; only when there genuinely is more than one do we
+    // require the caller to have supplied one.
+    let branchId = dto.branchId || undefined;
+    if (!branchId) {
+      const activeBranches = await this.getActiveBranches(site.clinicId);
+      if (activeBranches.length === 1) {
+        branchId = activeBranches[0].id;
+      } else if (activeBranches.length > 1) {
+        throw new BadRequestException('Please select a branch to continue booking.');
+      }
+      // 0 active branches → leave branchId undefined; Appointment.branchId is nullable.
+    }
+
+    // ── Resolve doctor ───────────────────────────────────────────────────────
+    // Appointment.dentistId is NOT NULL at the DB level, so a booking widget
+    // that never collected a doctor (or sent an empty string) must not be
+    // allowed to fall straight through to a raw insert failure.
+    let doctorId = dto.doctorId || undefined;
+    if (!doctorId) {
+      const candidates = await this.getBranchDoctors(site.clinicId, branchId);
+      if (candidates.length === 0) {
+        throw new BadRequestException('No doctors are available for booking at this time.');
+      }
+      if (candidates.length === 1) {
+        doctorId = candidates[0].id;
+      } else {
+        // Prefer whoever is actually on shift for the requested date, if the
+        // clinic uses the Shift module; otherwise fall back to the first
+        // active doctor so the booking still succeeds.
+        const usesShiftModule = await this.shiftResolver.hasAnyShiftConfig(site.clinicId);
+        if (usesShiftModule) {
+          for (const c of candidates) {
+            const resolved = await this.shiftResolver.resolveUserShift(c.id, site.clinicId, dateKey);
+            if (resolved.type === 'working') { doctorId = c.id; break; }
+          }
+        }
+        if (!doctorId) doctorId = candidates[0].id;
+      }
+    }
+
+    // ── Resolve service (optional — validated only if supplied) ────────────────
+    let serviceId: string | undefined = undefined;
+    if (dto.serviceId) {
+      const svc = await this.serviceRepo.findOne({
+        where: { id: dto.serviceId, clinicId: site.clinicId },
+      });
+      if (svc) serviceId = svc.id;
+    }
 
     const nameParts = (dto.patientName || 'Guest').trim().split(/\s+/);
     const firstName = nameParts[0] || 'Guest';
     const lastName  = nameParts.slice(1).join(' ') || '';
 
-    let patient = dto.patientPhone
-      ? await this.patientRepo.findOne({
-          where: { clinicId: site.clinicId, phone: dto.patientPhone },
-        })
-      : null;
-
-    if (!patient) {
-      patient = await this.patientRepo.save(
-        this.patientRepo.create({
-          clinicId:  site.clinicId,
-          branchId:  dto.branchId || undefined,
-          firstName,
-          lastName,
-          phone:     dto.patientPhone || null,
-          email:     dto.patientEmail || null,
-        }),
-      );
-    }
+    // Same "same patient?" rule used everywhere else a patient can be
+    // created (dashboard, walk-in queue): match on name + phone
+    // case-insensitively before creating a new record, so a patient who
+    // books through the website twice doesn't end up duplicated.
+    const { patient } = await findOrCreatePatient(this.patientRepo, site.clinicId, {
+      branchId:  branchId || undefined,
+      firstName,
+      lastName,
+      phone:     dto.patientPhone || undefined,
+      email:     dto.patientEmail || undefined,
+    } as any);
 
     const apt = this.aptRepo.create({
       clinicId:    site.clinicId,
-      branchId:    dto.branchId   || undefined,
-      dentistId:   dto.doctorId   || undefined,
+      branchId:    branchId   || undefined,
+      dentistId:   doctorId,
+      serviceId:   serviceId  || undefined,
       patientId:   patient.id,
       scheduledAt,
       endsAt,
@@ -339,27 +438,25 @@ export class WebsiteBuilderPublicController {
 
     const saved = await this.aptRepo.save(apt) as unknown as Appointment;
 
-    if (dto.doctorId) {
-      const doctor = await this.userRepo.findOne({ where: { id: dto.doctorId } });
-      if (doctor) {
-        const dateStr  = scheduledAt.toLocaleString('en-US', {
-          month: 'short', day: 'numeric', year: 'numeric',
-          hour: 'numeric', minute: '2-digit',
-        });
-        const fullName = [firstName, lastName].filter(Boolean).join(' ');
-        await this.notifRepo.save(
-          this.notifRepo.create({
-            clinicId:  site.clinicId,
-            userId:    dto.doctorId,
-            branchId:  dto.branchId || undefined,
-            type:      NotificationType.APPOINTMENT_CREATED,
-            title:     'New Appointment Booked',
-            body:      `${fullName} has booked an appointment on ${dateStr}.`,
-            entityId:  (saved as any).id,
-            link:      '/dashboard/appointments',
-          }),
-        );
-      }
+    const doctor = await this.userRepo.findOne({ where: { id: doctorId } });
+    if (doctor) {
+      const dateStr  = scheduledAt.toLocaleString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+        hour: 'numeric', minute: '2-digit',
+      });
+      const fullName = [firstName, lastName].filter(Boolean).join(' ');
+      await this.notifRepo.save(
+        this.notifRepo.create({
+          clinicId:  site.clinicId,
+          userId:    doctorId,
+          branchId:  branchId || undefined,
+          type:      NotificationType.APPOINTMENT_CREATED,
+          title:     'New Appointment Booked',
+          body:      `${fullName} has booked an appointment on ${dateStr}.`,
+          entityId:  (saved as any).id,
+          link:      '/dashboard/appointments',
+        }),
+      );
     }
 
     return {
@@ -367,8 +464,8 @@ export class WebsiteBuilderPublicController {
       message:     'Appointment request received. We will confirm shortly.',
       appointment: {
         id:          (saved as any).id,
-        doctorId:    dto.doctorId,
-        branchId:    dto.branchId,
+        doctorId,
+        branchId,
         scheduledAt: dto.scheduledAt,
         patientName: dto.patientName,
       },
@@ -460,9 +557,16 @@ export class WebsiteBuilderPublicController {
 
   // ── GET /public/:identifier ───────────────────────────────────────────────────
   // IMPORTANT: This catch-all MUST be the LAST route in this controller.
+  // This is the endpoint real subdomain (site/[subdomain]) and custom-domain
+  // (site/custom-domain) visitors hit — unlike resolveSite()'s other public
+  // callers (branches/doctors/book/etc., which the authenticated builder
+  // preview also relies on pre-publish), an unpublished draft must NOT be
+  // servable here or a clinic's work-in-progress site would leak publicly
+  // before they ever hit "Publish".
   @Get(':identifier')
   async getPublic(@Param('identifier') identifier: string) {
     const site = await this.resolveSite(identifier);
+    if (!site.isPublished) throw new NotFoundException('Website not found or not published');
     const branches = await this.branchRepo.find({
       where: { clinicId: site.clinicId, isActive: true },
     });

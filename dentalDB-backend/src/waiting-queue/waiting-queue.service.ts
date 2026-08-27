@@ -11,6 +11,7 @@ import { AddToQueueDto, WalkInDto, UpdateQueueEntryDto } from './dto/waiting-que
 import { Patient }                   from '../patients/entities/patient.entity';
 import { Appointment, AppointmentStatus } from '../appointments/entities/appointment.entity';
 import { WaitingQueueGateway }       from './waiting-queue.gateway';
+import { findMatchingPatient, generateUniqueOpdNo } from '../patients/patient-dedup.util';
 
 @Injectable()
 export class WaitingQueueService {
@@ -68,9 +69,14 @@ export class WaitingQueueService {
 
   // ── Walk-in: find or create minimal patient, add to queue ─────────────────
   async walkIn(clinicId: string, branchId: string, dto: WalkInDto) {
-    // Find existing patient by phone in this clinic
-    let patient = await this.patientRepo.findOne({
-      where: { clinicId, phone: dto.phone },
+    // Same "same patient?" rule used clinic-wide: OPD number match, or
+    // name + phone match, both case-insensitive — not just phone alone.
+    let patient = await findMatchingPatient(this.patientRepo, {
+      clinicId,
+      opdNo:     dto.opdNo,
+      firstName: dto.firstName,
+      lastName:  dto.lastName,
+      phone:     dto.phone,
     });
 
     if (!patient) {
@@ -80,7 +86,9 @@ export class WaitingQueueService {
         firstName: dto.firstName,
         lastName:  dto.lastName || '',
         phone:     dto.phone,
-        opdNo:     dto.opdNo || undefined,
+        // Auto-assign a unique OPD number when the walk-in form didn't set
+        // one — still freely editable later from the patient record.
+        opdNo:     dto.opdNo?.trim() || await generateUniqueOpdNo(this.patientRepo, clinicId),
       });
       patient = await this.patientRepo.save(patient) as unknown as Patient;
     } else {

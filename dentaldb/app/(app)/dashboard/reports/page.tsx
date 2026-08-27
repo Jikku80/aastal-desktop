@@ -4,22 +4,23 @@ import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell, Legend,
+  LineChart, Line, Legend,
 } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, AlertTriangle, Send } from 'lucide-react';
+import { Send, Landmark, ArrowUpRight } from 'lucide-react';
 import toast from 'react-hot-toast';
+import Link from 'next/link';
 import { reportsApi } from '@/lib/api';
 import { useCalendarType } from '@/hooks/useCalendarType';
 import { formatDate } from '@/lib/calendar';
+import { BSDateField } from '@/components/ui/BSDateField';
 import Header from '@/components/layout/Header';
 import PermissionGate from '@/components/rbac/PermissionGate';
 
 const COLORS = ['#6366f1','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#f97316','#06b6d4'];
 const fmtNPR   = (v: any) => `NPR ${Number(v ?? 0).toLocaleString()}`;
 const pct      = (v: any) => `${Number(v ?? 0).toFixed(1)}%`;
-const capFirst = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ') : '—';
 
-const TABS = ['Profit & Loss','Cash Flow','Doctor Performance','Service Revenue','Receivables','Branch Performance'];
+const TABS = ['Doctor Performance','Service Revenue','Receivables','Branch Performance'];
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const surface: React.CSSProperties = {
@@ -43,11 +44,9 @@ const tooltipStyle: React.CSSProperties = {
 function DateFilter({ from, to, setFrom, setTo }: any) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-      <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-        className="input" style={{ maxWidth: 160 }} />
+      <BSDateField value={from} onChange={setFrom} className="input" />
       <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>to</span>
-      <input type="date" value={to} onChange={e => setTo(e.target.value)}
-        className="input" style={{ maxWidth: 160 }} />
+      <BSDateField value={to} onChange={setTo} className="input" />
     </div>
   );
 }
@@ -95,162 +94,26 @@ function Td({ children, style }: { children: React.ReactNode; style?: React.CSSP
   );
 }
 
-// ── Tab 1: Profit & Loss ──────────────────────────────────────────────────────
-function ProfitLossTab() {
-  const calendarType = useCalendarType();
-  const now = new Date();
-  const [from, setFrom] = useState(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]);
-  const [to, setTo]     = useState(now.toISOString().split('T')[0]);
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['pl', from, to, calendarType],
-    queryFn: () => reportsApi.getProfitLoss({ dateFrom: from, dateTo: to, calendarType }).then(r => r.data),
-    enabled: !!from && !!to,
-  });
-  const d = data as any;
-  const pieData    = d ? [
-    { name: 'Consultations',  value: d.revenue?.consultations },
-    { name: 'Pharmacy',       value: d.revenue?.pharmacy },
-    { name: 'Lab Work',       value: d.revenue?.labWork },
-    { name: 'Website Orders', value: d.revenue?.websiteOrders },
-    { name: 'Other',          value: d.revenue?.other },
-  ].filter(i => i.value > 0) : [];
-  const expPieData = d?.expenses?.byCategory?.map((c: any) => ({ name: capFirst(c.category), value: Number(c.amount) })) ?? [];
-
+// ── Profit & Loss and Cash Flow now live in the Finance module (Chart of
+// Accounts → ledger-based statements, branch-aware, BS/AD date filtering,
+// PDF export, and period locking) so this page doesn't keep a second,
+// independently-calculated copy of the same two reports around. This banner
+// replaces the old duplicate tabs and links straight there.
+function FinanceStatementsBanner() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <DateFilter from={from} to={to} setFrom={setFrom} setTo={setTo} />
-
-      {isLoading ? (
-        <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading…</p>
-      ) : !d ? null : (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12 }} className="lg:grid-cols-4">
-            <StatCard label="Total Revenue"  value={fmtNPR(d.revenue?.total)}  icon={TrendingUp}  color="#10b981" />
-            <StatCard label="Total Expenses" value={fmtNPR(d.expenses?.total)} icon={TrendingDown} color="#ef4444" />
-            <StatCard label="Gross Profit"   value={fmtNPR(d.grossProfit)}     icon={DollarSign}  color="#027cc6" />
-            <StatCard label="Net Profit"     value={fmtNPR(d.netProfit)}       icon={DollarSign}  color={d.netProfit >= 0 ? '#10b981' : '#ef4444'} />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }} className="lg:grid-cols-2">
-            <div style={{ ...surface, padding: 20 }}>
-              <SectionTitle>Revenue Breakdown</SectionTitle>
-              <ResponsiveContainer width="100%" height={200}>
-                <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" outerRadius={80} dataKey="value"
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                    {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip formatter={(v) => fmtNPR(v)} contentStyle={tooltipStyle} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div style={{ ...surface, padding: 20 }}>
-              <SectionTitle>Expenses by Category</SectionTitle>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={expPieData} margin={{ left: -20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 9, fill: 'var(--text-muted)' }} />
-                  <YAxis tick={{ fontSize: 9, fill: 'var(--text-muted)' }} />
-                  <Tooltip formatter={(v) => fmtNPR(v)} contentStyle={tooltipStyle} />
-                  <Bar dataKey="value" fill="#ef4444" radius={[4,4,0,0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div style={{ ...surface, padding: 20 }}>
-            <SectionTitle>Revenue Breakdown</SectionTitle>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-              {[
-                { label: '  Consultations',  value: fmtNPR(d.revenue?.consultations),  color: 'var(--text-secondary)' },
-                { label: '  Pharmacy / Billing', value: fmtNPR(d.revenue?.pharmacy),  color: 'var(--text-secondary)' },
-                { label: '  Lab Work',       value: fmtNPR(d.revenue?.labWork),        color: 'var(--text-secondary)' },
-                { label: '  Website Orders', value: fmtNPR(d.revenue?.websiteOrders),  color: 'var(--text-secondary)' },
-                { label: '  Other',          value: fmtNPR(d.revenue?.other),          color: 'var(--text-secondary)' },
-                { label: 'Total Revenue',    value: fmtNPR(d.revenue?.total),          color: '#10b981', bold: true },
-              ].map(r => (
-                <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                  <span style={{ color: 'var(--text-secondary)', fontStyle: r.label.startsWith('  ') ? 'italic' : 'normal' }}>{r.label.trim()}</span>
-                  <span style={{ color: r.color, fontWeight: r.bold ? 700 : 400 }}>{r.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ ...surface, padding: 20 }}>
-            <SectionTitle>Profit & Loss Summary</SectionTitle>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-              {[
-                { label: 'Total Revenue',                value: fmtNPR(d.revenue?.total),              color: '#10b981' },
-                { label: '− Cost of Goods (COGS)',       value: fmtNPR(d.cogs ?? 0),                   color: '#f97316' },
-                { label: '= Gross Profit',               value: fmtNPR(d.grossProfit),                 color: '#027cc6', bold: true },
-                { label: '− Operating Expenses',         value: fmtNPR(d.expenses?.total),             color: '#ef4444' },
-                { label: '− Payroll Costs',              value: fmtNPR(d.payrollTotal ?? 0),            color: '#ef4444' },
-                { label: '= Net Profit',                 value: fmtNPR(d.netProfit),                   color: d.netProfit >= 0 ? '#10b981' : '#ef4444', bold: true },
-                { label: 'Profit Margin',                value: pct(d.profitMargin),                   color: 'var(--text-muted)' },
-              ].map(r => (
-                <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>{r.label}</span>
-                  <span style={{ color: r.color, fontWeight: r.bold ? 700 : 400 }}>{r.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── Tab 2: Cash Flow ──────────────────────────────────────────────────────────
-function CashFlowTab() {
-  const calendarType = useCalendarType();
-  const { data = [], isLoading } = useQuery({
-    queryKey: ['cashflow', calendarType],
-    queryFn: () => reportsApi.getCashFlow({ months: 6, calendarType }).then(r => r.data),
-  });
-  const rows = Array.isArray(data) ? data : [];
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-        Calendar: <strong style={{ color: 'var(--text-secondary)' }}>{calendarType}</strong> (set in clinic settings)
-      </p>
-
-      <div style={{ ...surface, padding: 20 }}>
-        <SectionTitle>6-Month Cash Flow</SectionTitle>
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={rows} margin={{ left: -20 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-            <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-            <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-            <Tooltip formatter={(v) => fmtNPR(v)} contentStyle={tooltipStyle} />
-            <Legend />
-            <Bar dataKey="inflow"  fill="#10b981" radius={[4,4,0,0]} name="Inflow" />
-            <Bar dataKey="outflow" fill="#ef4444" radius={[4,4,0,0]} name="Outflow" />
-          </BarChart>
-        </ResponsiveContainer>
+    <div style={{ ...surface, padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(2,124,198,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Landmark size={16} color="#027cc6" />
+        </div>
+        <div>
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Profit & Loss and Cash Flow moved to Finance</p>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Ledger-based, branch-aware, and downloadable as PDF from Finance → Profit & Loss / Cash Flow.</p>
+        </div>
       </div>
-
-      <ThemedTable>
-        <thead>
-          <tr>{['Month','Inflow','Outflow','Net Cash Flow'].map(h => <Th key={h}>{h}</Th>)}</tr>
-        </thead>
-        <tbody>
-          {rows.map((r: any) => (
-            <tr key={r.month}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elevated)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-              <Td>{r.month}</Td>
-              <Td style={{ color: '#10b981' }}>{fmtNPR(r.inflow)}</Td>
-              <Td style={{ color: '#ef4444' }}>{fmtNPR(r.outflow)}</Td>
-              <Td style={{ fontWeight: 600, color: r.net >= 0 ? '#10b981' : '#ef4444' }}>{fmtNPR(r.net)}</Td>
-            </tr>
-          ))}
-          {rows.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)', fontSize: 12 }}>No data available</td></tr>}
-        </tbody>
-      </ThemedTable>
+      <Link href="/dashboard/finance" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#027cc6', padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(2,124,198,0.25)', whiteSpace: 'nowrap' }}>
+        Open Finance <ArrowUpRight size={13} />
+      </Link>
     </div>
   );
 }
@@ -517,8 +380,6 @@ export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState(0);
 
   const TAB_COMPONENTS = [
-    <ProfitLossTab       key="pl" />,
-    <CashFlowTab         key="cf" />,
     <DoctorPerformanceTab key="dp" />,
     <ServiceRevenueTab   key="sr" />,
     <ReceivablesTab      key="ar" />,
@@ -533,6 +394,7 @@ export default function ReportsPage() {
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 20 }}
           className="sm:p-6">
 
+          <FinanceStatementsBanner />
           {/* ── Tab Bar (horizontally scrollable on mobile) ── */}
           <div style={{
             display: 'flex', gap: 4, padding: 4,

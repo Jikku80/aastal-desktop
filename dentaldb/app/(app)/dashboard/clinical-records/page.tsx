@@ -11,16 +11,17 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isToday, isYesterday, isThisWeek } from 'date-fns';
-import { clinicalRecordsApi, usersApi, branchesApi } from '@/lib/api';
+import { clinicalRecordsApi, usersApi, branchesApi, inventoryApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { usePermissions } from '@/store/permissions.store';
 import Header from '@/components/layout/Header';
-import type { ClinicalRecord } from '@/types';
+import type { ClinicalRecord, Product } from '@/types';
 import { BranchReadOnlyBanner, useBranchReadOnly } from '@/components/layout/BranchReadOnlyBanner';
 import PrescriptionPrintButton from '@/components/prescriptions/PrescriptionPrintButton';
 import PatientCombobox from '@/components/ui/PatientCombobox';
 import CategoryOptionPicker from '@/components/medical/CategoryOptionPicker';
 import { DIAGNOSIS_OPTIONS, TREATMENT_OPTIONS } from '@/lib/clinicalOptions';
+import TreatmentPlansPanel from '@/components/clinical-records/TreatmentPlansPanel';
 
 // This page is entirely client-data-driven (React Query, auth store, etc.) —
 // there's nothing useful to statically prerender at build time, and doing so
@@ -49,12 +50,32 @@ const DURATION_PRESETS = ['3 days', '5 days', '7 days', '10 days'];
 // just wasn't asking for a page before, so it always got everything.
 const PAGE_SIZE = 20;
 
+// productId links a prescription line to a pharmacy Product (Phase 3
+// backend column) so it flows into the pharmacy Dispense Queue instead of
+// needing a manual after-the-fact link (Phase 11). Both fields stay
+// optional — a prescription can still be pure free-text for medicines
+// outside the pharmacy inventory. '' is normalized to undefined so an
+// unselected <select> doesn't get sent as an empty-string productId (which
+// would fail the FK on the backend).
+const emptyToUndefined = (v: unknown) => (v === '' || v === undefined ? undefined : v);
 const rxSchema = z.object({
-  medicineName: z.string().min(1, 'Required'),
-  dosage:       z.string().optional(),
-  frequency:    z.string().optional(),
-  duration:     z.string().optional(),
-  instructions: z.string().optional(),
+  // Present only when editing an existing line — lets the backend match it
+  // back to its row on save instead of treating it as a brand-new line
+  // (see ClinicalRecordsService.syncPrescriptions).
+  id:                 z.string().optional(),
+  medicineName:       z.string().min(1, 'Required'),
+  dosage:             z.string().optional(),
+  frequency:          z.string().optional(),
+  duration:           z.string().optional(),
+  instructions:       z.string().optional(),
+  productId:          z.preprocess(emptyToUndefined, z.string().optional()),
+  quantityPrescribed: z.preprocess(
+    v => (v === '' || v === null || v === undefined || Number.isNaN(v as any) ? undefined : Number(v)),
+    z.number().positive('Qty must be > 0').optional(),
+  ),
+}).refine(d => !d.productId || (d.quantityPrescribed ?? 0) > 0, {
+  message: 'Quantity is required when linking a pharmacy item',
+  path: ['quantityPrescribed'],
 });
 
 const schema = z.object({
@@ -120,11 +141,14 @@ function RecordDialog({ record, onClose }: { record?: ClinicalRecord | null; onC
           diagnosisNotes: record.diagnosisNotes ?? undefined,
           treatmentPlan:  record.treatmentPlan ?? undefined,
           prescriptions:  (record.prescriptions || []).map(rx => ({
-            medicineName: rx.medicineName ?? '',
-            dosage:       rx.dosage ?? undefined,
-            frequency:    rx.frequency ?? undefined,
-            duration:     rx.duration ?? undefined,
-            instructions: rx.instructions ?? undefined,
+            id:                 rx.id,
+            medicineName:       rx.medicineName ?? '',
+            dosage:             rx.dosage ?? undefined,
+            frequency:          rx.frequency ?? undefined,
+            duration:           rx.duration ?? undefined,
+            instructions:       rx.instructions ?? undefined,
+            productId:          rx.productId ?? undefined,
+            quantityPrescribed: rx.quantityPrescribed ?? undefined,
           })),
         }
       : { prescriptions: [] },
@@ -158,6 +182,20 @@ function RecordDialog({ record, onClose }: { record?: ClinicalRecord | null; onC
         )
   ), [activeBranch?.id, branchDoctors, staffData]);
 
+  // Pharmacy inventory items a prescription line can link to (Phase 11) —
+  // same inventoryApi + itemType === 'pharmaceutical' filter the Pharmacy
+  // page already uses, so this is the same picker pattern, not a new one.
+  // Same-branch scoping matches every other item picker in the app
+  // (InvoiceModal's product lines, the pharmacy Dispense Queue).
+  const { data: inventoryData } = useQuery({
+    queryKey: ['pharma-products-for-rx', activeBranch?.id],
+    queryFn:  () => inventoryApi.list({ limit: 500, activeOnly: 'true', branchId: activeBranch?.id || undefined }).then(r => r.data),
+  });
+  const pharmaProducts: Product[] = useMemo(
+    () => ((inventoryData?.data ?? inventoryData ?? []) as Product[]).filter(p => p.itemType === 'pharmaceutical'),
+    [inventoryData],
+  );
+
   // Auto-select the logged-in clinician as the doctor on a brand new record —
   // the common case is a dentist logging their own patient, so this removes
   // a click for them while leaving it fully editable.
@@ -189,6 +227,25 @@ function RecordDialog({ record, onClose }: { record?: ClinicalRecord | null; onC
 
   const addQuickMedicine = (name: string, dosage: string) => {
     append({ medicineName: name, dosage, frequency: '', duration: '', instructions: '' });
+  };
+
+  // Linking a line to pharmacy inventory: fills medicineName from the
+  // product if the doctor hasn't typed one yet, and clears any stale
+  // quantity when unlinking. This is the one place a prescription line
+  // gains a productId — from here it's picked up automatically by the
+  // pharmacy Dispense Queue (dashboard/pharmacy/page.tsx), no separate
+  // linking step needed.
+  const linkPharmacyProduct = (i: number, productId: string) => {
+    setValue(`prescriptions.${i}.productId`, productId, { shouldValidate: true });
+    if (!productId) {
+      setValue(`prescriptions.${i}.quantityPrescribed`, undefined as any, { shouldValidate: true });
+      return;
+    }
+    const product = pharmaProducts.find(p => p.id === productId);
+    const currentName = watch(`prescriptions.${i}.medicineName`);
+    if (product && !currentName?.trim()) {
+      setValue(`prescriptions.${i}.medicineName`, product.name, { shouldValidate: true });
+    }
   };
 
   const step1Done = !!patientId && !!doctorId;
@@ -360,15 +417,25 @@ function RecordDialog({ record, onClose }: { record?: ClinicalRecord | null; onC
                 </div>
               )}
               <div className="space-y-2.5">
-                {fields.map((field, i) => (
+                {fields.map((field, i) => {
+                  const linkedProductId = watch(`prescriptions.${i}.productId`);
+                  const linkedProduct   = pharmaProducts.find(p => p.id === linkedProductId);
+                  const existingRx      = record?.prescriptions?.[i];
+                  // Once a line has been touched by dispensing, changing or
+                  // removing its inventory link would desync the Dispense
+                  // Queue / stock — lock it instead of allowing a silent
+                  // relink. Editing dosage/frequency/instructions is still fine.
+                  const dispensingLocked = !!existingRx && existingRx.dispensingStatus && existingRx.dispensingStatus !== 'not_dispensed';
+                  return (
                   <div key={field.id} className="p-3.5 rounded-xl relative transition-colors"
                     style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-brand-400">
                         Medicine {i + 1}
                       </span>
-                      <button type="button" onClick={() => remove(i)}
-                        className="btn-ghost w-6 h-6 p-0 justify-center text-red-400 hover:bg-red-500/10">
+                      <button type="button" onClick={() => remove(i)} disabled={dispensingLocked}
+                        title={dispensingLocked ? 'Already dispensed — cannot remove' : undefined}
+                        className="btn-ghost w-6 h-6 p-0 justify-center text-red-400 hover:bg-red-500/10 disabled:opacity-40 disabled:pointer-events-none">
                         <X size={12} />
                       </button>
                     </div>
@@ -376,7 +443,50 @@ function RecordDialog({ record, onClose }: { record?: ClinicalRecord | null; onC
                       <div className="sm:col-span-2">
                         <input {...register(`prescriptions.${i}.medicineName`)}
                           className="input w-full text-sm" placeholder="Medicine name *" />
+                        {errors.prescriptions?.[i]?.medicineName && (
+                          <p className="text-[11px] text-red-400 mt-1">{errors.prescriptions[i]?.medicineName?.message}</p>
+                        )}
                       </div>
+
+                      {/* Pharmacy link (Phase 11) — optional; when set, this line
+                          flows into the pharmacy Dispense Queue instead of
+                          needing a manual after-the-fact API link. */}
+                      <div className="sm:col-span-2 p-2.5 rounded-lg" style={{ background: 'var(--bg-elevated)', border: '1px dashed var(--border-hover)' }}>
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <Pill size={11} className="text-[var(--text-muted)]" />
+                          <span className="text-[10px] font-medium text-[var(--text-muted)]">Link to pharmacy inventory (optional)</span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+                          <select
+                            value={linkedProductId || ''}
+                            disabled={dispensingLocked}
+                            onChange={e => linkPharmacyProduct(i, e.target.value)}
+                            className="input w-full text-sm disabled:opacity-60">
+                            <option value="">— Not in pharmacy / free text —</option>
+                            {pharmaProducts.map(p => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}{p.strength ? ` (${p.strength})` : ''} — {p.stockQuantity} {p.unit || 'units'} in stock
+                              </option>
+                            ))}
+                          </select>
+                          {linkedProductId && (
+                            <input
+                              type="number" min={0.01} step="any"
+                              {...register(`prescriptions.${i}.quantityPrescribed`)}
+                              disabled={dispensingLocked}
+                              className="input w-full sm:w-28 text-sm disabled:opacity-60"
+                              placeholder={`Qty${linkedProduct?.unit ? ` (${linkedProduct.unit})` : ''} *`}
+                            />
+                          )}
+                        </div>
+                        {errors.prescriptions?.[i]?.quantityPrescribed && (
+                          <p className="text-[11px] text-red-400 mt-1">{errors.prescriptions[i]?.quantityPrescribed?.message}</p>
+                        )}
+                        {dispensingLocked && (
+                          <p className="text-[11px] text-amber-400 mt-1">Already {existingRx?.dispensingStatus?.replace('_', ' ')} — link locked.</p>
+                        )}
+                      </div>
+
                       <input {...register(`prescriptions.${i}.dosage`)}
                         className="input w-full text-sm" placeholder="Dosage (e.g. 500mg)" />
                       <div>
@@ -401,7 +511,8 @@ function RecordDialog({ record, onClose }: { record?: ClinicalRecord | null; onC
                         className="input w-full text-sm" placeholder="Instructions (e.g. After meals)" />
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <button type="button"
                 onClick={() => append({ medicineName: '', dosage: '', frequency: '', duration: '', instructions: '' })}
@@ -641,6 +752,7 @@ export default function ClinicalRecordsPage() {
   const { can } = usePermissions();
   const canDelete = can('records.delete');
   const { activeBranch } = useAuthStore();
+  const [tab,       setTab]           = useState<'records' | 'treatment-plans'>('records');
   const [showDialog, setShowDialog] = useState(false);
   const [editing,   setEditing]     = useState<ClinicalRecord | null>(null);
   const [search,    setSearch]      = useState('');
@@ -699,10 +811,41 @@ export default function ClinicalRecordsPage() {
       <Header
         title="Clinical Records"
         subtitle="Diagnosis, treatment & prescription history"
-        action={!branchLocked ? { label: 'New record', onClick: openNew } : undefined}
+        action={!branchLocked && tab === 'records' ? { label: 'New record', onClick: openNew } : undefined}
       />
       <div className="px-4 pt-2 shrink-0"><BranchReadOnlyBanner /></div>
 
+      {/* Records / Treatment Plans tabs — treatment plans are structured
+          propose/accept/decline proposals, distinct from the free-text
+          treatmentPlan field on each record above (see TreatmentPlansPanel). */}
+      <div className="px-3 sm:px-4 lg:px-6 pt-3 shrink-0">
+        <div className="flex items-center gap-1.5 p-1 rounded-xl w-fit" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+          <button onClick={() => setTab('records')}
+            className="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            style={{
+              background: tab === 'records' ? 'var(--bg-surface)' : 'transparent',
+              color: tab === 'records' ? 'var(--text-primary)' : 'var(--text-muted)',
+              boxShadow: tab === 'records' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+            }}>
+            Records
+          </button>
+          <button onClick={() => setTab('treatment-plans')}
+            className="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            style={{
+              background: tab === 'treatment-plans' ? 'var(--bg-surface)' : 'transparent',
+              color: tab === 'treatment-plans' ? 'var(--text-primary)' : 'var(--text-muted)',
+              boxShadow: tab === 'treatment-plans' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+            }}>
+            Treatment Plans
+          </button>
+        </div>
+      </div>
+
+      {tab === 'treatment-plans' ? (
+        <div className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
+          <TreatmentPlansPanel />
+        </div>
+      ) : (
       <div className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
         {/* Stats */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-5">
@@ -807,6 +950,7 @@ export default function ClinicalRecordsPage() {
           </div>
         )}
       </div>
+      )}
 
       {showDialog && (
         <RecordDialog record={editing} onClose={() => { setShowDialog(false); setEditing(null); }} />

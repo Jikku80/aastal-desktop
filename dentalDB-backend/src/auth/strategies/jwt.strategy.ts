@@ -14,13 +14,37 @@ import { SyncMeta } from '../../sync/entities/sync-meta.entity';
 import { AuthCacheService } from '../auth-cache.service';
 import { liveAuthCacheKey } from '../live-auth-cache.util';
 import { resolveOfflineLicense } from '../../subscriptions/offline-license.util';
+import { resolveOnlineLicense } from '../../subscriptions/online-license.util';
+import { Subscription } from '../../subscriptions/entities/subscription.entity';
 
-// Routes that must keep working even while the offline license is locked —
+// Routes that must keep working even while the license is locked —
 // otherwise the frontend could never fetch the lock status to show the
-// SubscriptionGate screen (chicken-and-egg), and a user could never log
-// out. Matched against req.path with the global 'api/v1' prefix already
-// stripped by the time Nest routes it, so these are relative to that.
-const LICENSE_CHECK_EXEMPT_PATHS = ['/subscriptions', '/auth/logout', '/auth/me'];
+// SubscriptionGate screen (chicken-and-egg), a user could never log out,
+// and — critically — an owner could never actually submit payment/renewal
+// to get themselves unlocked again. Matched against req.path with the
+// global 'api/v1' prefix already stripped by the time Nest routes it, so
+// these are relative to that.
+const LICENSE_CHECK_EXEMPT_PATHS = [
+  '/subscriptions',               // status + upgrade/renew/cancel
+  '/auth/logout',
+  '/auth/me',
+  '/admin/subscription-request',  // manual activation/renewal request (create + list "my")
+  '/files/payment-proof',         // screenshot upload for the manual-payment flow above
+];
+
+// Payment-gateway routes are shared between subscription renewal and
+// ordinary patient/invoice payments (see payments.service.ts's `purpose`
+// field). Only the subscription-purpose calls may bypass the lock —
+// everything else (e.g. paying a patient invoice) must stay blocked like
+// the rest of the app while a clinic is locked out.
+function isSubscriptionPaymentRoute(path: string, body: any): boolean {
+  if (!path.includes('/payments/')) return false;
+  const isInit = /\/(esewa|khalti)\/init$/.test(path) || path.endsWith('/paypal/create-order');
+  if (isInit) return body?.purpose === 'subscription';
+  // Verify/capture only finalize a transaction that could only have been
+  // initiated above, so it's safe to always let these through.
+  return /\/(esewa|khalti)\/verify$/.test(path) || path.includes('/paypal/capture/');
+}
 
 interface CachedAuthUser {
   id: string; email: string; firstName: string; lastName: string;
@@ -36,8 +60,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private readonly config: ConfigService,
     @InjectRepository(User)     private userRepo:     Repository<User>,
     @InjectRepository(UserRole) private userRoleRepo: Repository<UserRole>,
-    @InjectRepository(Clinic)   private clinicRepo:   Repository<Clinic>,
-    @InjectRepository(SyncMeta) private syncMetaRepo: Repository<SyncMeta>,
+    @InjectRepository(Clinic)       private clinicRepo:   Repository<Clinic>,
+    @InjectRepository(SyncMeta)     private syncMetaRepo: Repository<SyncMeta>,
+    @InjectRepository(Subscription) private subRepo:      Repository<Subscription>,
     private readonly authCache: AuthCacheService,
     @Inject(CACHE_MANAGER) private readonly liveCache: Cache,
   ) {
@@ -53,34 +78,50 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   /**
-   * Offline (SQLite/desktop) hard lock: runs on every JWT-authenticated
-   * request, independent of network state, so a clinic whose 14-day trial
-   * or paid subscription has ended actually gets shut out of the API even
-   * with no internet connection at all — not just shown a dismissable
-   * banner in the UI. See offline-license.util.ts for the clock-rollback
-   * protection and where trialEndsAt/subscriptionEndsAt come from.
+   * Trial/subscription hard lock: runs on every JWT-authenticated request,
+   * for BOTH deployment shapes, so a clinic whose 30-day trial or paid
+   * subscription has ended actually gets shut out of the API — not just
+   * shown a dismissable banner in the UI:
    *
-   * No-ops entirely for the online/Postgres deployment (that path already
-   * has its own Subscription-based check) and for requests with no
-   * clinicId (super_admin, pre-clinic auth flows).
+   *  - DB_DRIVER=sqlite (Electron desktop build): delegates to
+   *    resolveOfflineLicense (offline-license.util.ts), which also guards
+   *    against a locally-wound-back system clock.
+   *  - DB_DRIVER=postgres (hosted/web build): delegates to
+   *    resolveOnlineLicense (online-license.util.ts), reading the
+   *    Clinic + Subscription rows directly. This used to be handled by a
+   *    separate SubscriptionGuard that was never actually registered
+   *    anywhere (dead code — see git history), so paid/trial enforcement
+   *    silently did not happen at all for the hosted deployment. Centralizing
+   *    both here, at the one place already proven to run for every
+   *    JWT-authenticated controller, avoids that class of bug recurring.
+   *
+   * No-ops for requests with no clinicId (super_admin, pre-clinic auth
+   * flows) and for the exempt paths above (status/renewal/payment routes
+   * that must keep working precisely because the clinic is locked).
    */
-  private async enforceOfflineLicense(req: Request | undefined, clinicId: string | null | undefined, role: string) {
-    if ((this.config.get<string>('DB_DRIVER', 'postgres')) !== 'sqlite') return;
+  private async enforceLicense(req: Request | undefined, clinicId: string | null | undefined, role: string) {
     if (!clinicId || role === 'super_admin') return;
 
     const path = ((req as any)?.route?.path ?? req?.path ?? req?.url ?? '') as string;
     // req.path/url includes the global 'api/v1' prefix (see main.ts's
     // setGlobalPrefix) — match on the path segment after it rather than
     // assuming an exact prefix, so this keeps working if that changes.
-    const isExempt = LICENSE_CHECK_EXEMPT_PATHS.some((p) => path === p || path.endsWith(p) || path.includes(`${p}?`) || path.includes(`${p}/`));
+    const isExempt =
+      LICENSE_CHECK_EXEMPT_PATHS.some((p) => path === p || path.endsWith(p) || path.includes(`${p}?`) || path.includes(`${p}/`)) ||
+      isSubscriptionPaymentRoute(path, (req as any)?.body);
     if (isExempt) return;
 
-    const result = await resolveOfflineLicense(clinicId, this.clinicRepo, this.syncMetaRepo);
+    const driver = this.config.get<string>('DB_DRIVER', 'postgres');
+    const result = driver === 'sqlite'
+      ? await resolveOfflineLicense(clinicId, this.clinicRepo, this.syncMetaRepo)
+      : await resolveOnlineLicense(clinicId, this.clinicRepo, this.subRepo);
     if (!result.isLocked) return;
 
     const messages: Record<string, string> = {
-      trial_expired: 'Your 14-day free trial has expired. Please upgrade to continue using this app.',
+      trial_expired: 'Your 30-day free trial has expired. Please upgrade to continue using this app.',
       subscription_expired: 'Your subscription period has ended. Please renew to continue.',
+      cancelled: 'Your subscription has been cancelled. Please renew to continue.',
+      no_sub: 'No active subscription found. Please choose a plan to continue.',
       deactivated: 'This clinic account has been deactivated.',
     };
     throw new ForbiddenException({
@@ -100,7 +141,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // the remainder of the live-cache TTL.
     const cached = await this.liveCache.get<CachedAuthUser>(liveAuthCacheKey(payload.sub)).catch(() => undefined);
     if (cached) {
-      await this.enforceOfflineLicense(req, cached.clinicId, cached.role);
+      await this.enforceLicense(req, cached.clinicId, cached.role);
       return { ...cached, _permissions: new Set(cached.permissions) };
     }
 
@@ -118,7 +159,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
       // Super-admin and owner get wildcard set — PermissionsGuard checks for '*'
       if (user.role === 'super_admin' || user.role === 'owner') {
-        await this.enforceOfflineLicense(req, user.clinicId, user.role);
+        await this.enforceLicense(req, user.clinicId, user.role);
         (user as any)._permissions = new Set(['*']);
         await this.authCache.store(user.id, user.role, user.clinicId ?? null, ['*']);
         await this.cacheLiveUser(user, ['*']);
@@ -137,14 +178,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           keys.add(perm.key);
         }
       }
-      await this.enforceOfflineLicense(req, user.clinicId, user.role);
+      await this.enforceLicense(req, user.clinicId, user.role);
       (user as any)._permissions = keys;
       await this.authCache.store(user.id, user.role, user.clinicId ?? null, [...keys]);
       await this.cacheLiveUser(user, [...keys]);
       return user;
     } catch (err: any) {
       if (err instanceof UnauthorizedException) throw err;
-      if (err instanceof ForbiddenException) throw err; // offline license lock — must not fall through to the cache fallback below
+      if (err instanceof ForbiddenException) throw err; // license lock (trial/subscription) — must not fall through to the cache fallback below
 
       // Live lookup failed (row not yet synced locally, or a transient DB
       // error) — try the bounded offline cache before giving up entirely.
@@ -156,7 +197,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       const cachedFallback = await this.authCache.getIfFresh(payload.sub);
       if (!cachedFallback) throw new UnauthorizedException();
 
-      await this.enforceOfflineLicense(req, cachedFallback.clinicId as any, cachedFallback.role);
+      await this.enforceLicense(req, cachedFallback.clinicId as any, cachedFallback.role);
 
       const fallbackUser: Partial<User> & { _permissions: Set<string> } = {
         id: payload.sub,

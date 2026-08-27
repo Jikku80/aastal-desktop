@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  EditorField, EditorSelect, EditorToggle, EditorColorPicker,
+  EditorField, EditorSelect, EditorToggle, EditorColorPicker, useThemeSwatches,
   EditorSection, EditorTabs,
 } from './EditorComponents';
 
@@ -14,6 +14,7 @@ interface Props {
 export function GlobalDesignEditor({ settings, onChange, sectionType }: Props) {
   const s = settings ?? {};
   const set = (key: string, val: any) => onChange({ [key]: val });
+  const swatches = useThemeSwatches();
 
   const showCards     = ['services', 'team', 'testimonials', 'products', 'gallery', 'faq', 'branches'].includes(sectionType ?? '');
   const showButtons   = ['hero', 'services', 'cta-banner', 'about', 'contact', 'appointment-booking'].includes(sectionType ?? '');
@@ -36,7 +37,7 @@ export function GlobalDesignEditor({ settings, onChange, sectionType }: Props) {
                 ]}
               />
               {(!s.sectionBgType || s.sectionBgType === 'color') && (
-                <EditorColorPicker label="Color" value={s.sectionBgColor ?? '#ffffff'} onChange={v => set('sectionBgColor', v)} />
+                <EditorColorPicker swatches={swatches} label="Color" value={s.sectionBgColor ?? '#ffffff'} onChange={v => set('sectionBgColor', v)} />
               )}
               {s.sectionBgType === 'gradient' && (
                 <EditorField
@@ -49,9 +50,9 @@ export function GlobalDesignEditor({ settings, onChange, sectionType }: Props) {
             </EditorSection>
 
             <EditorSection title="Text Colors">
-              <EditorColorPicker label="Heading Color"  value={s.headingColor  ?? '#111827'} onChange={v => set('headingColor', v)} />
-              <EditorColorPicker label="Body Text Color" value={s.bodyColor    ?? '#6b7280'} onChange={v => set('bodyColor', v)} />
-              <EditorColorPicker label="Accent Color"   value={s.accentColor   ?? '#0ea5e9'} onChange={v => set('accentColor', v)} />
+              <EditorColorPicker swatches={swatches} label="Heading Color"  value={s.headingColor  ?? '#111827'} onChange={v => set('headingColor', v)} />
+              <EditorColorPicker swatches={swatches} label="Body Text Color" value={s.bodyColor    ?? '#6b7280'} onChange={v => set('bodyColor', v)} />
+              <EditorColorPicker swatches={swatches} label="Accent Color"   value={s.accentColor   ?? '#0ea5e9'} onChange={v => set('accentColor', v)} />
             </EditorSection>
           </div>
         ),
@@ -151,6 +152,7 @@ export function GlobalDesignEditor({ settings, onChange, sectionType }: Props) {
             <EditorSection title="Section Padding">
               <EditorSelect
                 label="Vertical Spacing"
+                hint="Space above and below this section's content."
                 value={s.sectionSpacing ?? 'normal'}
                 onChange={v => set('sectionSpacing', v)}
                 options={[
@@ -162,21 +164,23 @@ export function GlobalDesignEditor({ settings, onChange, sectionType }: Props) {
                 ]}
               />
               <EditorSelect
-                label="Container Width"
+                label="Section Width"
+                hint="How wide the content inside this section can stretch on large screens."
                 value={s.containerWidth ?? 'contained'}
                 onChange={v => set('containerWidth', v)}
                 options={[
-                  { value: 'full',      label: 'Full Width' },
-                  { value: 'wide',      label: 'Wide (7xl)' },
-                  { value: 'contained', label: 'Contained (6xl)' },
-                  { value: 'narrow',    label: 'Narrow (4xl)' },
+                  { value: 'full',      label: 'Full Width',        description: 'Content stretches edge to edge.' },
+                  { value: 'wide',      label: 'Wide',               description: 'Content fills most of the screen.' },
+                  { value: 'contained', label: 'Contained (default)', description: 'A comfortable reading width, centered.' },
+                  { value: 'narrow',    label: 'Narrow',             description: 'A tighter, more focused column.' },
                 ]}
               />
             </EditorSection>
 
-            <EditorSection title="Mobile Spacing">
+            <EditorSection title="Advanced" collapsible defaultOpen={false}>
               <EditorSelect
                 label="Mobile Padding"
+                hint="Extra spacing above and below this section on phones — rarely needs changing."
                 value={s.mobilePadding ?? 'normal'}
                 onChange={v => set('mobilePadding', v)}
                 options={[
@@ -193,7 +197,7 @@ export function GlobalDesignEditor({ settings, onChange, sectionType }: Props) {
         label: 'Borders',
         content: (
           <div className="space-y-1">
-            <EditorSection title="Section Border">
+            <EditorSection title="Advanced: Section Border" collapsible defaultOpen={false}>
               <EditorSelect
                 label="Border Style"
                 value={s.sectionBorder ?? 'none'}
@@ -207,7 +211,7 @@ export function GlobalDesignEditor({ settings, onChange, sectionType }: Props) {
                 ]}
               />
               {s.sectionBorder && s.sectionBorder !== 'none' && (
-                <EditorColorPicker label="Border Color" value={s.sectionBorderColor ?? '#e5e7eb'} onChange={v => set('sectionBorderColor', v)} />
+                <EditorColorPicker swatches={swatches} label="Border Color" value={s.sectionBorderColor ?? '#e5e7eb'} onChange={v => set('sectionBorderColor', v)} />
               )}
             </EditorSection>
 
@@ -236,8 +240,8 @@ export function GlobalDesignEditor({ settings, onChange, sectionType }: Props) {
                     { value: 'lg',   label: 'Strong' },
                   ]}
                 />
-                <EditorColorPicker label="Card Background"  value={s.cardBg      ?? '#ffffff'} onChange={v => set('cardBg', v)} />
-                <EditorColorPicker label="Card Border Color" value={s.cardBorder  ?? '#f3f4f6'} onChange={v => set('cardBorder', v)} />
+                <EditorColorPicker swatches={swatches} label="Card Background"  value={s.cardBg      ?? '#ffffff'} onChange={v => set('cardBg', v)} />
+                <EditorColorPicker swatches={swatches} label="Card Border Color" value={s.cardBorder  ?? '#f3f4f6'} onChange={v => set('cardBorder', v)} />
               </EditorSection>
             )}
 

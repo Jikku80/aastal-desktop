@@ -6,6 +6,8 @@ import { LabWork, LabWorkStatus, LabWorkPriority } from './entities/lab-work.ent
 import { CreateLabWorkDto, UpdateLabWorkDto } from './dto/lab-work.dto';
 import { Expense, ExpenseCategory, ApprovalStatus } from '../expenses/entities/expense.entity';
 import { pendingSyncFields } from '../sync/pending-sync.util';
+import { LabServiceCatalogService } from './lab-service.service';
+import { Patient, Gender } from '../patients/entities/patient.entity';
 
 @Injectable()
 export class LabWorkService {
@@ -14,10 +16,27 @@ export class LabWorkService {
   constructor(
     @InjectRepository(LabWork) private repo: Repository<LabWork>,
     @InjectRepository(Expense) private expenseRepo: Repository<Expense>,
+    @InjectRepository(Patient) private patientRepo: Repository<Patient>,
+    private catalogService: LabServiceCatalogService,
   ) {}
 
   async create(clinicId: string, dto: CreateLabWorkDto, userId?: string): Promise<LabWork> {
-    const lab = this.repo.create({ clinicId, ...dto });
+    const lab = this.repo.create({ clinicId, ...this._sanitizeDates(dto) });
+
+    // Pre-populate result rows from the selected catalog service(s) so the
+    // tech only has to type the observed value — mirrors how the sample
+    // multi-panel report groups tests under section headers. Only applies
+    // when the caller didn't already supply results explicitly (e.g. a
+    // quick free-text order with no catalog service attached).
+    if (!lab.results?.length && dto.serviceIds?.length) {
+      lab.results = await this._buildResultsFromServices(clinicId, dto.serviceIds, dto.patientId);
+      if (!lab.cost) {
+        const services = await this.catalogService.findByIds(clinicId, dto.serviceIds);
+        const total = services.reduce((sum, s) => sum + Number(s.defaultPrice || 0), 0);
+        if (total > 0) lab.cost = total;
+      }
+    }
+
     const saved = await this.repo.save(lab);
 
     // If cost provided at creation, log expense immediately
@@ -122,7 +141,7 @@ export class LabWorkService {
       lab.patientNotifiedAt = new Date();
     }
 
-    Object.assign(lab, dto);
+    Object.assign(lab, this._sanitizeDates(dto));
     const saved = await this.repo.save(lab);
 
     // If cost changed and is now set, upsert the expense record
@@ -137,6 +156,27 @@ export class LabWorkService {
   async remove(clinicId: string, id: string): Promise<void> {
     const lab = await this.findOne(clinicId, id);
     await this.repo.remove(lab);
+  }
+
+  /**
+   * Groups a lab order's flat `results` rows into panels for display/print —
+   * rows with the same `panelName` render together as one section, matching
+   * how the sample multi-panel lab report is laid out. Rows without a
+   * panelName fall into a single "General" section.
+   */
+  groupResultsByPanel(lab: Pick<LabWork, 'results'>): { panelName: string; rows: LabWork['results'] }[] {
+    const rows = lab.results || [];
+    const order: string[] = [];
+    const byPanel = new Map<string, LabWork['results']>();
+    for (const row of rows) {
+      const key = row.panelName || 'General';
+      if (!byPanel.has(key)) {
+        byPanel.set(key, []);
+        order.push(key);
+      }
+      byPanel.get(key)!.push(row);
+    }
+    return order.map(panelName => ({ panelName, rows: byPanel.get(panelName)! }));
   }
 
   async getStats(clinicId: string, opts: { branchId?: string; branchIds?: string[] } = {}) {
@@ -156,6 +196,65 @@ export class LabWorkService {
       this.repo.count({ where: { ...baseWhere, priority: LabWorkPriority.URGENT } }),
     ]);
     return { total, pending, inProgress, completed, urgent };
+  }
+
+  /**
+   * Builds pre-populated result rows for the given catalog service ids —
+   * one row per `defaultParameters` entry, grouped for printing via
+   * `panelName` (falls back to the service's own name when it has none).
+   * Resolves the patient's sex to pick `referenceRangeMale`/`referenceRangeFemale`
+   * over the generic `referenceRange` when both are set on a parameter
+   * (e.g. Uric Acid, Creatinine differ by sex in the sample report).
+   */
+  private async _buildResultsFromServices(
+    clinicId: string,
+    serviceIds: string[],
+    patientId?: string,
+  ): Promise<LabWork['results']> {
+    const [services, patient] = await Promise.all([
+      this.catalogService.findByIds(clinicId, serviceIds),
+      patientId ? this.patientRepo.findOne({ where: { id: patientId } }) : Promise.resolve(null),
+    ]);
+
+    // Preserve the order the caller selected services in, not whatever
+    // findByIds happened to return them in.
+    const byId = new Map(services.map(s => [s.id, s]));
+    const rows: LabWork['results'] = [];
+
+    for (const id of serviceIds) {
+      const svc = byId.get(id);
+      if (!svc) continue;
+      const panelName = svc.panelName || svc.name;
+      for (const param of svc.defaultParameters || []) {
+        const sexRange =
+          patient?.gender === Gender.MALE ? param.referenceRangeMale :
+          patient?.gender === Gender.FEMALE ? param.referenceRangeFemale :
+          undefined;
+        rows.push({
+          panelName,
+          parameter: param.parameter,
+          value: '',
+          unit: param.unit,
+          referenceRange: sexRange || param.referenceRange,
+          method: param.method,
+        });
+      }
+    }
+    return rows;
+  }
+
+  /**
+   * Guards the `date`-typed columns against empty-string values. Postgres
+   * (unlike SQLite) throws "invalid input syntax for type date" if `''` is
+   * inserted into a `date` column, which is what a blank date picker on the
+   * client submits as. Coerce blank strings to `null` here so create/update
+   * stay resilient no matter what a given client sends.
+   */
+  private _sanitizeDates<T extends Partial<Pick<LabWork, 'sampleCollectedAt' | 'resultsReceivedAt'>>>(dto: T): T {
+    const clean = { ...dto };
+    if ('sampleCollectedAt' in clean && !clean.sampleCollectedAt) clean.sampleCollectedAt = null as any;
+    if ('resultsReceivedAt' in clean && !clean.resultsReceivedAt) clean.resultsReceivedAt = null as any;
+    return clean;
   }
 
   /** Create or update the linked expense for a lab work order */

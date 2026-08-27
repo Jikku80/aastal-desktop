@@ -5,6 +5,10 @@ export {
   RichTextEditor, MapEditor, BranchesEditor, VideoEditor,
   GenericSectionEditor,
   ProductsEditor,
+  AiChatbotEditor,
+  WhatsAppButtonEditor,
+  BlogEditor,
+  ClinicInfoEditor,
   SocialProofEditor, AvailableSlotsEditor, DividerEditor, SpacerEditor,
-} from './AllSectionEditors';
+} from './editors';
 export { HeroEditor } from './HeroEditor';

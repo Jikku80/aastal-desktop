@@ -10,7 +10,7 @@ import toast from 'react-hot-toast';
 const LOCK_MESSAGES: Record<string, { title: string; desc: string; icon: any; color: string }> = {
   trial_expired: {
     title: 'Free Trial Expired',
-    desc:  'Your 14-day free trial has ended. Choose a plan to continue using ClinicKarobar.',
+    desc:  'Your 30-day free trial has ended. Choose a plan to continue using ClinicKarobar.',
     icon:  Calendar,
     color: 'text-amber-400',
   },

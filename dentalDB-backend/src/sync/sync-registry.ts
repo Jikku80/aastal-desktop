@@ -11,8 +11,8 @@ import { Vitals } from '../appointments/entities/vitals.entity';
 import { Appointment } from '../appointments/entities/appointment.entity';
 import { ClinicalRecord, Prescription } from '../clinical-records/entities/clinical-record.entity';
 import { DentalChart } from '../dental-chart/entities/dental-chart.entity';
-import { BloodTest } from '../blood-test/entities/blood-test.entity';
 import { LabWork } from '../lab-work/entities/lab-work.entity';
+import { LabService } from '../lab-work/entities/lab-service.entity';
 import { PrescriptionTemplate } from '../prescription/entities/prescription-template.entity';
 import { Invoice } from '../billing/entities/invoice.entity';
 import { PayrollDeductionRule } from '../payroll/entities/payroll-deduction-rule.entity';
@@ -173,8 +173,8 @@ export const SYNC_REGISTRY: SyncRegistryEntry[] = [
   // one unguarded loop, so ONE bad entry blocks everything after it too).
   { name: 'Prescription', entity: Prescription, timestampField: 'createdAt', clinicScope: { type: 'via', viaEntity: ClinicalRecord, localField: 'clinicalRecordId' } },
   { name: 'DentalChart', entity: DentalChart, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'patientId', refEntity: Patient }] },
-  { name: 'BloodTest', entity: BloodTest, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'orderedById', refEntity: User }, { field: 'patientId', refEntity: Patient }] },
   { name: 'LabWork', entity: LabWork, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'orderedById', refEntity: User }, { field: 'patientId', refEntity: Patient }] },
+  { name: 'LabService', entity: LabService, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'PrescriptionTemplate', entity: PrescriptionTemplate, timestampField: 'updatedAt', clinicScope: direct },
   { name: 'Invoice', entity: Invoice, timestampField: 'updatedAt', clinicScope: direct, foreignKeys: [{ field: 'branchId', refEntity: Branch }, { field: 'patientId', refEntity: Patient }, { field: 'appointmentId', refEntity: Appointment }] },
   { name: 'PayrollDeductionRule', entity: PayrollDeductionRule, timestampField: 'updatedAt', clinicScope: direct },

@@ -29,6 +29,11 @@ export enum AuditEntityType {
   HOLIDAY        = 'holiday',
   NOTICE         = 'notice',
   WALLET         = 'wallet',
+  MEDICINE_BATCH = 'medicine_batch',
+  LAB_WORK       = 'lab_work',
+  ACCOUNT        = 'account',
+  JOURNAL_ENTRY  = 'journal_entry',
+  ACCOUNTING_PERIOD = 'accounting_period',
 }
 
 @Entity('audit_logs')

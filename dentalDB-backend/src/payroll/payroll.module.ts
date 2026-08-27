@@ -12,6 +12,7 @@ import { Branch } from '../branch/entities/branch.entity';
 import { Expense } from '../expenses/entities/expense.entity';
 import { AuditModule } from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     ]),
     AuditModule,
     NotificationsModule,
+    FinanceModule,
   ],
   controllers: [PayrollController],
   providers: [PayrollService],

@@ -47,6 +47,27 @@ export class ClinicalRecordsController {
     return this.svc.upsertFromBilling(req.user.clinicId, dto);
   }
 
+  // Pharmacy fulfillment queue (Phase 3, section 13) — prescriptions linked
+  // to a pharmacy Product that still have quantity outstanding. Registered
+  // ahead of the ':id' route below so it isn't swallowed as a record id.
+  // Gated on pharmacy.dispense (not records.view) since this is meant for
+  // pharmacy/dispensing staff, who may not otherwise have chart access.
+  @Get('prescriptions/pending-dispensing')
+  @RequirePermissions('pharmacy.dispense')
+  async pendingDispensing(@Request() req: any, @Query('branchId') branchId?: string) {
+    const { id: userId, clinicId } = req.user;
+    const perms: Set<string> = req.user._permissions;
+    const isOwner = perms.has('*') || perms.has('branch.manage');
+
+    let branchIds: string[] | undefined;
+    if (branchId) {
+      branchIds = [branchId];
+    } else if (!isOwner) {
+      branchIds = await this.branchesService.getAccessibleBranchIds(clinicId, userId, req.user.role);
+    }
+    return this.svc.findPendingDispensing(clinicId, branchIds);
+  }
+
   @Get()
   @RequirePermissions('records.view')
   async findAll(@Request() req: any, @Query() query: any) {

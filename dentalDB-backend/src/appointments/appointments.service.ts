@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Optional, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, In } from 'typeorm';
 import { Appointment, AppointmentStatus } from './entities/appointment.entity';
@@ -14,9 +14,12 @@ import { BillingService } from '../billing/billing.service';
 import { Clinic } from '../clinics/entities/clinic.entity';
 import { Invoice } from '../billing/entities/invoice.entity';
 import { PatientAccountLink, LinkVerificationStatus } from '../patient-auth/entities/patient-account-link.entity';
+import { JwantraIntegrationService } from '../integrations/jwantra/jwantra-integration.service';
 
 @Injectable()
 export class AppointmentsService {
+  private readonly logger = new Logger(AppointmentsService.name);
+
   constructor(
     @InjectRepository(Appointment) private repo: Repository<Appointment>,
     @InjectRepository(Patient)     private patientRepo: Repository<Patient>,
@@ -26,6 +29,7 @@ export class AppointmentsService {
     private notificationsService: NotificationsService,
     private notificationsGateway: NotificationsGateway,
     private billingService: BillingService,
+    @Optional() private jwantraIntegration?: JwantraIntegrationService,
   ) {}
 
   /** Send in-app notification to the assigned doctor */
@@ -320,7 +324,14 @@ export class AppointmentsService {
   async complete(clinicId: string, id: string, dto: any): Promise<Appointment> {
     const apt = await this.findOne(clinicId, id);
     Object.assign(apt, { ...dto, status: AppointmentStatus.COMPLETED });
-    return this.repo.save(apt);
+    const saved = await this.repo.save(apt);
+
+    if (this.jwantraIntegration) {
+      this.jwantraIntegration.notifyAppointmentCompleted(clinicId, saved).catch((e) =>
+        this.logger.warn('Jwantra appointment.completed webhook dispatch failed: ' + e?.message));
+    }
+
+    return saved;
   }
 
   async remove(clinicId: string, id: string): Promise<void> {

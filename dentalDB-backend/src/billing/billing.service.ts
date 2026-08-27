@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { ilike, withAdvisoryLock } from '../database/sql-helpers';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -8,15 +8,18 @@ import { Appointment } from '../appointments/entities/appointment.entity';
 import { CommissionsService } from '../commissions/commissions.service';
 import { ClinicService } from '../services/entities/service.entity';
 import { InventoryService } from '../inventory/inventory.service';
+import { InventoryItemType } from '../inventory/entities/product.entity';
+import { PharmacyService } from '../pharmacy/pharmacy.service';
 import { User } from '../users/entities/user.entity';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditEntityType } from '../audit/entities/audit-log.entity';
 import { Clinic } from '../clinics/entities/clinic.entity';
-import { BloodTestService } from '../blood-test/blood-test.service';
 import { LabWorkService } from '../lab-work/lab-work.service';
 import { PatientWalletService } from '../patient-wallet/patient-wallet.service';
 import { ClinicalRecordsService } from '../clinical-records/clinical-records.service';
 import { nepalDayBoundsUTC, nepalTodayParts, nepalWallClockToUTC } from '../common/utils/timezone.util';
+import { JwantraIntegrationService } from '../integrations/jwantra/jwantra-integration.service';
+import { JournalService } from '../finance/journal.service';
 
 @Injectable()
 export class BillingService {
@@ -30,12 +33,38 @@ export class BillingService {
     @InjectDataSource() private dataSource: DataSource,
     private commissionsService: CommissionsService,
     private inventoryService: InventoryService,
+    private pharmacyService: PharmacyService,
     private auditService: AuditService,
-    private bloodTestService: BloodTestService,
     private labWorkService: LabWorkService,
     private patientWalletService: PatientWalletService,
     private clinicalRecordsService: ClinicalRecordsService,
+    // Optional: JwantraIntegrationModule is always loaded (see app.module),
+    // but @Optional() keeps this service resilient if that ever changes —
+    // a missing/failed webhook dispatch must never block billing.
+    private journalService: JournalService,
+    @Optional() private jwantraIntegration?: JwantraIntegrationService,
   ) {}
+
+  /**
+   * Fire-and-forget auto-journal hook, shared by create()/markPaid()/update()
+   * (Phase 9 §2 — invoice paid → Debit Cash/AR, Credit Revenue). Never
+   * allowed to block or fail the billing flow that's already succeeded by
+   * the time this runs — postInvoicePayment() itself swallows its own
+   * errors, but userId can legitimately be missing on system-driven update()
+   * calls, so guard that here too.
+   */
+  private postInvoiceJournal(clinicId: string, invoice: Invoice, userId?: string): void {
+    if (!userId) return;
+    this.journalService.postInvoicePayment(clinicId, invoice, userId).catch(e =>
+      this.logger.warn(`postInvoicePayment failed for invoice ${invoice.id}: ${e?.message}`));
+  }
+
+  /** Fire-and-forget — never let a webhook dispatch failure affect the billing request that triggered it. */
+  private notifyJwantraInvoicePaid(clinicId: string, invoice: Invoice): void {
+    if (!this.jwantraIntegration) return;
+    this.jwantraIntegration.notifyInvoicePaid(clinicId, invoice).catch((e) =>
+      this.logger.warn('Jwantra invoice.paid webhook dispatch failed: ' + e?.message));
+  }
 
   /**
    * NOTE: invoice-number generation used to live in its own helper here, but
@@ -132,7 +161,99 @@ export class BillingService {
     }
   }
 
-  async create(clinicId: string, dto: any): Promise<Invoice> {
+  // ── Pharmacy-aware stock check / deduction (Phase 3, section 13) ───────
+  // Shared by create(), markPaid() (stock-check + deduct call sites) so a
+  // pharmaceutical line item is checked/deducted the same way regardless
+  // of which flow billed it. Non-pharmaceutical items keep using
+  // InventoryService.adjustStock exactly as before — this only changes
+  // behavior for products classified itemType === 'pharmaceutical'.
+
+  /** Throws BadRequestException if the requested quantity isn't available. Pharma items are checked against usable (FEFO-eligible) stock, not raw stockQuantity. */
+  private async checkStockForItem(clinicId: string, item: any, branchId?: string): Promise<void> {
+    if (!item.productId || !(item.quantity > 0)) return;
+    let product;
+    try {
+      product = await this.inventoryService.findOne(clinicId, item.productId);
+    } catch (e) {
+      if (e instanceof BadRequestException || e instanceof NotFoundException) throw e;
+      this.logger.error('Stock check failed for product ' + item.productId + ': ' + (e as any)?.message, (e as any)?.stack);
+      throw new BadRequestException('Could not verify stock for one of the products on this invoice. Please try again.');
+    }
+
+    if (product.itemType === InventoryItemType.PHARMACEUTICAL) {
+      const usable = await this.pharmacyService.getUsableStock(clinicId, item.productId, branchId);
+      if (usable < item.quantity) {
+        throw new BadRequestException(
+          'Insufficient usable stock for "' + product.name + '" (expired/unavailable batches excluded). Usable: ' + usable + ', Requested: ' + item.quantity
+        );
+      }
+    } else if (product.stockQuantity < item.quantity) {
+      throw new BadRequestException(
+        'Insufficient stock for "' + product.name + '". Available: ' + product.stockQuantity + ', Requested: ' + item.quantity
+      );
+    }
+  }
+
+  /**
+   * Deducts stock for one billed item. Pharmaceutical items route through
+   * PharmacyService.dispense() — FEFO-allocated across batches — which
+   * itself calls InventoryService.adjustStock(), so Product.stockQuantity
+   * and the consumption log stay the single source of truth either way.
+   * If the item carries a prescriptionId, the linked Prescription's
+   * dispensed-quantity bookkeeping is updated too (best-effort).
+   */
+  private async deductStockForItem(clinicId: string, item: any, invoice: Invoice, userId?: string): Promise<void> {
+    if (!item.productId || !(item.quantity > 0)) return;
+    try {
+      const product = await this.inventoryService.findOne(clinicId, item.productId);
+
+      if (product.itemType === InventoryItemType.PHARMACEUTICAL) {
+        await this.pharmacyService.dispense(clinicId, {
+          productId: item.productId,
+          quantity: item.quantity,
+          branchId: invoice.branchId,
+          reason: 'billing',
+          appointmentId: invoice.appointmentId,
+          invoiceId: invoice.id,
+          patientId: invoice.patientId,
+        }, userId);
+
+        if (item.prescriptionId) {
+          try {
+            await this.clinicalRecordsService.markPrescriptionDispensed(clinicId, item.prescriptionId, item.quantity);
+          } catch (e) {
+            this.logger.warn('Failed to mark prescription ' + item.prescriptionId + ' dispensed: ' + (e as any)?.message);
+          }
+        }
+      } else {
+        await this.inventoryService.adjustStock(clinicId, item.productId, -item.quantity, {
+          branchId: invoice.branchId,
+          reason: 'billing',
+          appointmentId: invoice.appointmentId,
+          invoiceId: invoice.id,
+          patientId: invoice.patientId,
+        });
+      }
+    } catch (e) {
+      this.logger.warn('Stock deduction failed for product ' + item.productId + ': ' + (e as any)?.message);
+    }
+  }
+
+  async create(clinicId: string, dto: any, userId?: string): Promise<Invoice> {
+    // Patient is optional at the DTO level (pharmacy/product-only walk-in
+    // sales don't need one), but any service or lab/blood-test line item is
+    // inherently tied to a specific patient (clinical record sync, doctor
+    // commission attribution, lab-order linkage) — enforce that here rather
+    // than trusting the frontend alone, since any other API client could
+    // otherwise create a patient-less service invoice.
+    if (!dto.patientId) {
+      const items: any[] = dto.items || [];
+      const needsPatient = items.some((i: any) => i.serviceId || i.labWorkId || i.bloodTestId);
+      if (needsPatient) {
+        throw new BadRequestException('A patient is required to bill a service or lab item — only product/pharmacy-only invoices can be created as a walk-in sale.');
+      }
+    }
+
     // create() persists whatever paymentMethod/paidAmount/status the client
     // sends — it has no wiring into PatientWalletService at all (unlike
     // markPaid() and PatientWalletService.applyToInvoice(), which actually
@@ -161,25 +282,7 @@ export class BillingService {
 
     const items: any[] = dto.items || [];
     for (const item of items) {
-      if (item.productId && item.quantity > 0) {
-        try {
-          const product = await this.inventoryService.findOne(clinicId, item.productId);
-          if (product.stockQuantity < item.quantity) {
-            throw new BadRequestException(
-              'Insufficient stock for "' + product.name + '". Available: ' + product.stockQuantity + ', Requested: ' + item.quantity
-            );
-          }
-        } catch (e) {
-          if (e instanceof BadRequestException || e instanceof NotFoundException) throw e;
-          // Anything else (DB/connection error, bad productId shape, etc.) used to
-          // be swallowed here, which let the invoice creation continue as if the
-          // stock check had passed — masking the real problem instead of failing
-          // loudly. Log it and surface a clear 400 so the actual cause shows up
-          // in the response instead of turning into a generic failure downstream.
-          this.logger.error('Stock check failed for product ' + item.productId + ': ' + (e as any)?.message, (e as any)?.stack);
-          throw new BadRequestException('Could not verify stock for one of the products on this invoice. Please try again.');
-        }
-      }
+      await this.checkStockForItem(clinicId, item, dto.branchId);
     }
 
     for (let attempt = 1; attempt <= 5; attempt++) {
@@ -258,11 +361,11 @@ export class BillingService {
         });
 
         const bloodTestIds = items.filter(i => i.bloodTestId).map(i => i.bloodTestId);
-        const labWorkIds   = items.filter(i => i.labWorkId).map(i => i.labWorkId);
-        if (bloodTestIds.length) {
-          await this.bloodTestService.markBilled(clinicId, bloodTestIds, saved.id).catch(e =>
-            this.logger.warn('Failed to mark blood tests billed: ' + e?.message));
-        }
+        const labWorkIds   = [...bloodTestIds, ...items.filter(i => i.labWorkId).map(i => i.labWorkId)];
+        // `bloodTestId` is kept on InvoiceItem only for backward compatibility with
+        // invoices created before the Phase 5 blood-test/lab-work consolidation —
+        // those ids now live in the same `lab_works` table, so both id sets are
+        // marked billed through the single LabWorkService call.
         if (labWorkIds.length) {
           await this.labWorkService.markBilled(clinicId, labWorkIds, saved.id).catch(e =>
             this.logger.warn('Failed to mark lab work billed: ' + e?.message));
@@ -279,15 +382,14 @@ export class BillingService {
 
         if (saved.status === InvoiceStatus.PAID) {
           for (const item of (saved.items || [])) {
-            if (item.productId && item.quantity > 0) {
-              try {
-                await this.inventoryService.adjustStock(clinicId, item.productId, -item.quantity);
-              } catch (e) {
-                this.logger.warn('Stock deduction failed for product ' + item.productId + ': ' + (e as any)?.message);
-              }
-            }
+            await this.deductStockForItem(clinicId, item, saved);
           }
           await this.triggerCommission(saved);
+        }
+
+        if (saved.status === InvoiceStatus.PAID || saved.status === InvoiceStatus.PARTIALLY_PAID) {
+          this.notifyJwantraInvoicePaid(clinicId, saved);
+          this.postInvoiceJournal(clinicId, saved, userId);
         }
 
         return saved;
@@ -354,18 +456,14 @@ export class BillingService {
     return inv;
   }
 
-  async update(clinicId: string, id: string, dto: any): Promise<Invoice> {
+  async update(clinicId: string, id: string, dto: any, userId?: string): Promise<Invoice> {
     await this.findOne(clinicId, id);
     await this.repo.update({ id, clinicId }, dto);
     const updated = await this.findOne(clinicId, id);
 
     if (Array.isArray(dto.items)) {
       const bloodTestIds = dto.items.filter((i: any) => i.bloodTestId).map((i: any) => i.bloodTestId);
-      const labWorkIds   = dto.items.filter((i: any) => i.labWorkId).map((i: any) => i.labWorkId);
-      if (bloodTestIds.length) {
-        await this.bloodTestService.markBilled(clinicId, bloodTestIds, updated.id).catch(e =>
-          this.logger.warn('Failed to mark blood tests billed: ' + e?.message));
-      }
+      const labWorkIds   = [...bloodTestIds, ...dto.items.filter((i: any) => i.labWorkId).map((i: any) => i.labWorkId)];
       if (labWorkIds.length) {
         await this.labWorkService.markBilled(clinicId, labWorkIds, updated.id).catch(e =>
           this.logger.warn('Failed to mark lab work billed: ' + e?.message));
@@ -375,6 +473,8 @@ export class BillingService {
     // Trigger commission if status changed to paid via a plain update
     if (dto.status === InvoiceStatus.PAID || dto.status === InvoiceStatus.PARTIALLY_PAID) {
       await this.triggerCommission(updated);
+      this.notifyJwantraInvoicePaid(clinicId, updated);
+      this.postInvoiceJournal(clinicId, updated, userId);
     }
     return updated;
   }
@@ -388,18 +488,7 @@ export class BillingService {
     const inv = await this.findOne(clinicId, id);
 
     for (const item of (inv.items || [])) {
-      if (item.productId && item.quantity > 0) {
-        try {
-          const product = await this.inventoryService.findOne(clinicId, item.productId);
-          if (product.stockQuantity < item.quantity) {
-            throw new BadRequestException(
-              'Insufficient stock for "' + product.name + '". Available: ' + product.stockQuantity + ', Requested: ' + item.quantity
-            );
-          }
-        } catch (e) {
-          if (e instanceof BadRequestException || e instanceof NotFoundException) throw e;
-        }
-      }
+      await this.checkStockForItem(clinicId, item, inv.branchId);
     }
 
     const amount = Number(dto.amount);
@@ -444,15 +533,11 @@ export class BillingService {
 
     if (saved.status === InvoiceStatus.PAID || saved.status === InvoiceStatus.PARTIALLY_PAID) {
       for (const item of (saved.items || [])) {
-        if (item.productId && item.quantity > 0) {
-          try {
-            await this.inventoryService.adjustStock(clinicId, item.productId, -item.quantity);
-          } catch (e) {
-            this.logger.warn('Stock deduction failed for product ' + item.productId + ': ' + (e as any)?.message);
-          }
-        }
+        await this.deductStockForItem(clinicId, item, saved, userId);
       }
       await this.triggerCommission(saved);
+      this.notifyJwantraInvoicePaid(clinicId, saved);
+      this.postInvoiceJournal(clinicId, saved, userId);
     }
 
     return saved;
@@ -463,6 +548,35 @@ export class BillingService {
     // Delete linked commission rows first — FK on doctor_commissions.invoiceId has no cascade
     await this.commissionsService.deleteByInvoice(clinicId, id);
     await this.repo.delete({ id, clinicId });
+  }
+
+  /**
+   * Backfills journal postings for invoices that were already paid/partially
+   * paid before this invoice existed for the clinic's chart of accounts
+   * (either the clinic predates auto-seeding, or the COA simply hadn't been
+   * seeded yet when the payment was recorded — see JournalService.
+   * postInvoicePayment, which silently skips posting in that case). Safe to
+   * re-run any time: postInvoicePayment() only posts the unposted delta for
+   * each invoice, so already-reconciled invoices are cheap no-ops.
+   */
+  async reconcileJournal(clinicId: string, userId: string): Promise<{ scanned: number; posted: number }> {
+    const invoices = await this.repo.find({
+      where: [
+        { clinicId, status: InvoiceStatus.PAID },
+        { clinicId, status: InvoiceStatus.PARTIALLY_PAID },
+      ],
+      // NOTE: `items` is a plain jsonb/simple-json column on Invoice, not a
+      // TypeORM relation — it's already included on every find() by
+      // default. Do NOT add it to a `relations: [...]` array; TypeORM
+      // throws "Relation ... was not found" at runtime for a non-relation
+      // property, which is what caused reconcile-finance to 500.
+    });
+    let posted = 0;
+    for (const invoice of invoices) {
+      const entry = await this.journalService.postInvoicePayment(clinicId, invoice, userId);
+      if (entry) posted++;
+    }
+    return { scanned: invoices.length, posted };
   }
 
   async getAgingReport(clinicId: string, branchId?: string) {

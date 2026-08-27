@@ -4,14 +4,14 @@ import { motion } from 'framer-motion';
 import {
   X, Phone, Mail, Calendar, AlertTriangle, Edit, Clock,
   Activity, Trash2, Loader2, Stethoscope, Pill, FileText, Bell,
-  FlaskConical, Droplet,
+  FlaskConical,
 } from 'lucide-react';
 import { formatNepalDateTime } from '@/lib/timezone';
 import { formatDate } from '@/lib/calendar';
 import { useCalendarType } from '@/hooks/useCalendarType';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { patientsApi, recallsApi, labApi, bloodTestApi } from '@/lib/api';
+import { patientsApi, recallsApi, labApi } from '@/lib/api';
 import { usePermissions } from '@/store/permissions.store';
 import type { Patient } from '@/types';
 import PatientModal from './PatientModal';
@@ -20,7 +20,7 @@ import { ActionIconButton, ActionIconGroup } from '@/components/ui/ActionIconBut
 import VitalsTrendCharts from '../appointments/VitalsTrendCharts';
 import PatientWalletPanel from '@/components/billing/PatientWalletPanel';
 
-const TABS = ['Overview', 'History', 'Vitals', 'Lab Work', 'Blood Test', 'Files'] as const;
+const TABS = ['Overview', 'History', 'Vitals', 'Lab Work', 'Files'] as const;
 type Tab = typeof TABS[number];
 
 const HISTORY_PAGE_SIZE = 5;
@@ -243,14 +243,7 @@ export default function PatientDetailPanel({
   const { data: labOrders, isLoading: labLoading } = useQuery({
     queryKey: ['patient-lab-work', patient.id],
     queryFn: () => labApi.byPatient(patient.id).then(r => r.data as any[]),
-    enabled: tab === 'Lab Work' || tab === 'Blood Test',
-    staleTime: 0,
-  });
-
-  const { data: bloodTests, isLoading: bloodTestLoading } = useQuery({
-    queryKey: ['patient-blood-test', patient.id],
-    queryFn: () => bloodTestApi.byPatient(patient.id).then(r => r.data as any[]),
-    enabled: tab === 'Blood Test',
+    enabled: tab === 'Lab Work',
     staleTime: 0,
   });
 
@@ -570,6 +563,7 @@ export default function PatientDetailPanel({
 
                       <p className="text-[10px] text-[var(--text-muted)] mt-2">
                         {formatDate(new Date(lab.createdAt), calendarType)}
+                        {lab.fasting && ' · Fasting'}
                         {lab.orderedBy && ` · Dr. ${lab.orderedBy.firstName} ${lab.orderedBy.lastName}`}
                       </p>
                     </div>
@@ -580,123 +574,7 @@ export default function PatientDetailPanel({
           </div>
         )}
 
-        {/* ── Blood Test ── */}
-        {tab === 'Blood Test' && (
-          <div className="p-4 sm:p-5">
-            {bloodTestLoading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 size={18} className="animate-spin text-[var(--text-muted)]" />
-              </div>
-            ) : !bloodTests?.length ? (
-              <div>
-                <div className="text-center py-8">
-                  <Droplet size={28} className="mx-auto text-[var(--text-muted)] mb-2 opacity-30" />
-                  <p className="text-sm text-[var(--text-muted)]">No blood tests for this patient</p>
-                </div>
 
-                {/* Fallback: show patient lab works when no blood tests exist */}
-                <div className="mt-2 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
-                  <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <FlaskConical size={11} /> Patient Lab Works
-                  </p>
-                  {labLoading ? (
-                    <div className="flex justify-center py-6">
-                      <Loader2 size={16} className="animate-spin text-[var(--text-muted)]" />
-                    </div>
-                  ) : !labOrders?.length ? (
-                    <p className="text-xs text-[var(--text-muted)] text-center py-4">No lab works for this patient either</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {labOrders.map((lab: any) => (
-                        <div key={lab.id} className="rounded-xl p-3"
-                          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <FlaskConical size={13} className="text-blue-400 shrink-0" />
-                              <p className="text-xs font-semibold text-[var(--text-primary)] truncate">{lab.testName}</p>
-                            </div>
-                            <span className="shrink-0 text-[10px] text-[var(--text-muted)] capitalize">{lab.status?.replace(/_/g, ' ')}</span>
-                          </div>
-                          <p className="text-[10px] text-[var(--text-muted)] mt-1">
-                            {formatDate(new Date(lab.createdAt), calendarType)}
-                            {lab.orderedBy && ` · Dr. ${lab.orderedBy.firstName} ${lab.orderedBy.lastName}`}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {bloodTests.map((bt: any) => {
-                  const STATUS_COLORS: Record<string, string> = {
-                    pending:           'text-amber-400 bg-amber-500/10',
-                    sample_collected:  'text-blue-400 bg-blue-500/10',
-                    in_progress:       'text-purple-400 bg-purple-500/10',
-                    completed:         'text-emerald-400 bg-emerald-500/10',
-                    cancelled:         'text-red-400 bg-red-500/10',
-                  };
-                  const STATUS_LABELS: Record<string, string> = {
-                    pending: 'Pending', sample_collected: 'Sample Collected', in_progress: 'In Progress',
-                    completed: 'Completed', cancelled: 'Cancelled',
-                  };
-                  const hasCritical = bt.results?.some((r: any) => r.flag === 'critical');
-                  return (
-                    <div key={bt.id} className="rounded-xl p-3"
-                      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Droplet size={14} className="text-red-400 shrink-0 mt-0.5" />
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold text-[var(--text-primary)] truncate flex items-center gap-1.5">
-                              {bt.testName}
-                              {hasCritical && (
-                                <AlertTriangle size={11} className="text-red-400 shrink-0" />
-                              )}
-                            </p>
-                            {bt.labName && (
-                              <p className="text-[10px] text-[var(--text-muted)]">{bt.labName}</p>
-                            )}
-                          </div>
-                        </div>
-                        <span className={`shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[bt.status] ?? ''}`}>
-                          {STATUS_LABELS[bt.status] ?? bt.status}
-                        </span>
-                      </div>
-
-                      {bt.results?.length > 0 && (
-                        <div className="mt-2 space-y-1">
-                          {bt.results.slice(0, 3).map((r: any, i: number) => (
-                            <div key={i} className="flex items-center justify-between text-[10px]">
-                              <span className="text-[var(--text-muted)]">{r.parameter}</span>
-                              <span className={`font-mono font-medium ${
-                                r.flag === 'critical' ? 'text-red-400' :
-                                r.flag === 'high' || r.flag === 'low' ? 'text-amber-400' :
-                                'text-[var(--text-primary)]'
-                              }`}>
-                                {r.value}{r.unit ? ` ${r.unit}` : ''}
-                              </span>
-                            </div>
-                          ))}
-                          {bt.results.length > 3 && (
-                            <p className="text-[10px] text-[var(--text-muted)]">+{bt.results.length - 3} more parameters</p>
-                          )}
-                        </div>
-                      )}
-
-                      <p className="text-[10px] text-[var(--text-muted)] mt-2">
-                        {formatDate(new Date(bt.createdAt), calendarType)}
-                        {bt.fasting && ' · Fasting'}
-                        {bt.orderedBy && ` · Dr. ${bt.orderedBy.firstName} ${bt.orderedBy.lastName}`}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
 
         {tab === 'Files' && <PatientFilesPanel patientId={patient.id} />}
       </div>

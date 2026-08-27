@@ -10,7 +10,7 @@ import { BranchesModule } from '../branch/branch.module';
 import { Branch } from '../branch/entities/branch.entity';
 import { BranchLockGuard } from '../common/guards/branch-lock.guard';
 import { PatientFile } from '../files/entities/patient-file.entity';
-import { BloodTest } from '../blood-test/entities/blood-test.entity';
+import { LabWork } from '../lab-work/entities/lab-work.entity';
 import { Invoice } from '../billing/entities/invoice.entity';
 import { PatientAccountLink } from '../patient-auth/entities/patient-account-link.entity';
 import { VitalsService } from 'src/appointments/vitals.service';
@@ -19,7 +19,7 @@ import { VitalsService } from 'src/appointments/vitals.service';
   imports: [
     TypeOrmModule.forFeature([
       Patient, Appointment, ClinicalRecord, Vitals, Branch,
-      PatientFile, BloodTest, Invoice, PatientAccountLink,
+      PatientFile, LabWork, Invoice, PatientAccountLink,
     ]),
     BranchesModule,
   ],

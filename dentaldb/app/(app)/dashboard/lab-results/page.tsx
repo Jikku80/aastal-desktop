@@ -5,7 +5,7 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
-import { patientsApi, labApi, bloodTestApi } from '@/lib/api';
+import { patientsApi, labApi } from '@/lib/api';
 import { format, parseISO } from 'date-fns';
 import Header from '@/components/layout/Header';
 import {
@@ -92,12 +92,7 @@ function LabWorkCard({ lab, isSelected, onClick }: {
             <FlaskConical size={14} className={hasCritical ? 'text-red-500' : 'text-blue-500'} />
           </div>
           <div>
-            <div className="flex items-center gap-1.5">
-              <p className="text-sm font-semibold text-[var(--text-primary)]">{lab.testName}</p>
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full uppercase font-medium bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border)]">
-                {(lab as any)._kind === 'blood_test' ? 'Blood Test' : 'Lab Work'}
-              </span>
-            </div>
+            <p className="text-sm font-semibold text-[var(--text-primary)]">{lab.testName}</p>
             <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
               <Calendar size={10} /> {format(parseISO(dateStr), 'MMM d, yyyy')}
               {lab.orderedBy && (
@@ -185,18 +180,8 @@ export default function LabResultsPage() {
     },
     enabled: !!selectedPatient?.id,
   });
-  const { data: bloodData, isLoading: bloodLoading, error: bloodError } = useQuery({
-    queryKey: ['lab-results-blood-patient', selectedPatient?.id],
-    queryFn:  async () => {
-      const r = await bloodTestApi.byPatient(selectedPatient.id);
-      return r.data?.data ?? r.data ?? [];
-    },
-    enabled: !!selectedPatient?.id,
-  });
-  const labs: LabWork[] = [
-    ...(labData ?? []),
-    ...(bloodData ?? []).map((b: any) => ({ ...b, _kind: 'blood_test' })),
-  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const labs: LabWork[] = [...(labData ?? [])]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const critical  = labs.flatMap(l => l.results ?? []).filter(r => r.flag === 'critical').length;
   const abnormal  = labs.flatMap(l => l.results ?? []).filter(r => r.flag && r.flag !== 'normal').length;
@@ -278,11 +263,11 @@ export default function LabResultsPage() {
 
           {/* Right — lab list */}
           <div className="flex-1 overflow-y-auto p-6">
-            {(labLoading || bloodLoading) ? (
+            {labLoading ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 size={24} className="animate-spin text-[var(--text-secondary)]" />
               </div>
-            ) : (labError || bloodError) ? (
+            ) : labError ? (
               <div className="text-center py-16">
                 <AlertTriangle size={32} className="mx-auto mb-3 text-red-400" />
                 <p className="text-sm text-red-500">Failed to load lab results</p>

@@ -1,13 +1,23 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { ilike } from '../database/sql-helpers';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Product } from './entities/product.entity';
+import { MoreThan, Repository } from 'typeorm';
+import { Product, InventoryItemType } from './entities/product.entity';
 import { PurchaseOrder, PurchaseOrderStatus, POItem } from './entities/purchase-order.entity';
+import { InventoryConsumptionEvent } from './entities/inventory-consumption.entity';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto } from './dto/purchase-order.dto';
 import { Expense, ExpenseCategory, ApprovalStatus } from '../expenses/entities/expense.entity';
 import { Vendor, VendorType } from '../expenses/entities/vendor.entity';
+import { JournalService } from '../finance/journal.service';
+
+export interface StockAdjustmentContext {
+  branchId?: string;
+  reason?: string;
+  appointmentId?: string;
+  invoiceId?: string;
+  patientId?: string;
+}
 
 @Injectable()
 export class InventoryService {
@@ -18,6 +28,8 @@ export class InventoryService {
     @InjectRepository(PurchaseOrder) private poRepo: Repository<PurchaseOrder>,
     @InjectRepository(Expense) private expenseRepo: Repository<Expense>,
     @InjectRepository(Vendor) private vendorRepo: Repository<Vendor>,
+    @InjectRepository(InventoryConsumptionEvent) private consumptionRepo: Repository<InventoryConsumptionEvent>,
+    private journalService: JournalService,
   ) {}
 
   // ── Products ────────────────────────────────────────────────────────────────
@@ -56,10 +68,35 @@ export class InventoryService {
     await this.repo.delete({ id, clinicId });
   }
 
-  async adjustStock(clinicId: string, id: string, delta: number): Promise<void> {
+  async adjustStock(clinicId: string, id: string, delta: number, context?: StockAdjustmentContext): Promise<void> {
     const p = await this.findOne(clinicId, id);
     const newQty = Math.max(0, (p.stockQuantity || 0) + delta);
     await this.repo.update({ id, clinicId }, { stockQuantity: newQty });
+
+    // Only a decrement is "consumption" — a positive delta is a restock
+    // (PO receipt) and isn't logged here. This is what feeds jwantra's
+    // inventory_consumption time series (see that entity's docstring);
+    // logging failures are swallowed so a consumption-log write never
+    // blocks the actual stock update or the billing flow that triggered
+    // it.
+    if (delta < 0) {
+      try {
+        const event = this.consumptionRepo.create({
+          clinicId,
+          productId: id,
+          quantity: Math.abs(delta),
+          occurredAt: new Date(),
+          branchId: context?.branchId,
+          reason: context?.reason || 'manual_adjustment',
+          appointmentId: context?.appointmentId,
+          invoiceId: context?.invoiceId,
+          patientId: context?.patientId,
+        });
+        await this.consumptionRepo.save(event);
+      } catch (e) {
+        this.logger.warn(`Failed to log inventory consumption event for product ${id}: ${(e as any)?.message}`);
+      }
+    }
   }
 
   async findLowStock(clinicId: string): Promise<Product[]> {
@@ -70,6 +107,20 @@ export class InventoryService {
       .andWhere('p.stockQuantity <= p.reorderPoint')
       .orderBy('p.stockQuantity', 'ASC')
       .getMany();
+  }
+
+  // ── Read endpoint for the jwantra integration (paginated, offset-based
+  // — same contract as jwantra-integration.service.ts's other list*
+  // methods) ────────────────────────────────────────────────────────────
+  async listConsumptionForJwantra(
+    clinicId: string, opts: { limit: number; offset: number; updatedAfter?: Date },
+  ): Promise<{ data: InventoryConsumptionEvent[]; hasMore: boolean }> {
+    const where: any = { clinicId };
+    if (opts.updatedAfter) where.createdAt = MoreThan(opts.updatedAfter);
+    const rows = await this.consumptionRepo.find({
+      where, order: { createdAt: 'ASC', id: 'ASC' }, take: opts.limit, skip: opts.offset,
+    });
+    return { data: rows, hasMore: rows.length === opts.limit };
   }
 
   // ── Purchase Orders ─────────────────────────────────────────────────────────
@@ -174,7 +225,8 @@ export class InventoryService {
           approvalStatus: ApprovalStatus.APPROVED,
           referenceNumber: po.id.slice(0, 8).toUpperCase(),
         });
-        await this.expenseRepo.save(expense);
+        const savedExpense = await this.expenseRepo.save(expense);
+        this.journalService.postExpenseApproved(clinicId, savedExpense, userId ?? 'system').catch(() => {});
         this.logger.log(`[PO ${id}] Expense created for NPR ${po.totalCost}`);
       } catch (e) {
         this.logger.error(`[PO ${id}] Expense creation failed`);
@@ -192,11 +244,19 @@ export class InventoryService {
     await this.poRepo.remove(po);
   }
 
+  /**
+   * Physical-stock-vs-reorder-point low stock check. Pharmaceutical items
+   * are excluded here — their eligible ("usable") stock excludes expired
+   * and not-yet-available batches, so they can't be evaluated on total
+   * stockQuantity alone. See findAllPharmaceuticalProductsGroupedByClinic,
+   * consumed by PharmacyModule's LowStockScheduler extension (section 10).
+   */
   async findAllLowStockGroupedByClinic(): Promise<{ clinicId: string; products: Product[] }[]> {
     const products = await this.repo
       .createQueryBuilder('p')
       .where('p.isActive = true')
       .andWhere('p.stockQuantity <= p.reorderPoint')
+      .andWhere('p.itemType != :pharma', { pharma: InventoryItemType.PHARMACEUTICAL })
       .getMany();
     const byClinic = new Map<string, Product[]>();
     for (const p of products) {
@@ -204,5 +264,50 @@ export class InventoryService {
       byClinic.get(p.clinicId)!.push(p);
     }
     return Array.from(byClinic.entries()).map(([clinicId, prods]) => ({ clinicId, products: prods }));
+  }
+
+  /**
+   * All active pharmaceutical products (with a reorder point configured),
+   * grouped by clinic — the candidate set LowStockScheduler checks against
+   * PharmacyService.getUsableStockByProduct instead of raw stockQuantity.
+   */
+  async findAllPharmaceuticalProductsGroupedByClinic(): Promise<{ clinicId: string; products: Product[] }[]> {
+    const products = await this.repo
+      .createQueryBuilder('p')
+      .where('p.isActive = true')
+      .andWhere('p.itemType = :pharma', { pharma: InventoryItemType.PHARMACEUTICAL })
+      .andWhere('p.reorderPoint IS NOT NULL')
+      .getMany();
+    const byClinic = new Map<string, Product[]>();
+    for (const p of products) {
+      if (!byClinic.has(p.clinicId)) byClinic.set(p.clinicId, []);
+      byClinic.get(p.clinicId)!.push(p);
+    }
+    return Array.from(byClinic.entries()).map(([clinicId, prods]) => ({ clinicId, products: prods }));
+  }
+
+  /**
+   * Best-effort loss/write-off Expense entry, reusing the exact upsert
+   * pattern updatePOStatus() already uses for PO-received expenses —
+   * called by PharmacyService.disposeBatch() (section 9) so expired
+   * medicine write-offs show up in the existing expense ledger instead of
+   * a new pharmacy-only ledger.
+   */
+  async recordExpiredDisposalExpense(clinicId: string, params: {
+    branchId?: string; amount: number; description: string; createdBy: string;
+  }): Promise<Expense> {
+    const expense = this.expenseRepo.create({
+      clinicId,
+      branchId: params.branchId,
+      category: ExpenseCategory.INVENTORY,
+      amount: params.amount,
+      description: params.description,
+      expenseDate: new Date().toISOString().split('T')[0],
+      createdBy: params.createdBy,
+      approvalStatus: ApprovalStatus.APPROVED,
+    });
+    const saved = await this.expenseRepo.save(expense);
+    this.journalService.postExpenseApproved(clinicId, saved, params.createdBy).catch(() => {});
+    return saved;
   }
 }
