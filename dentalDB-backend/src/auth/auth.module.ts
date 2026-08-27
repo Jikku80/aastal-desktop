@@ -24,7 +24,7 @@ import { FinanceModule } from '../finance/finance.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Clinic, Branch, DoctorProfile, AuthCache, SyncMeta]),
+    TypeOrmModule.forFeature([User, Clinic, Branch, DoctorProfile, AuthCache, SyncMeta, Subscription]),
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
